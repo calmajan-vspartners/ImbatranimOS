@@ -97,7 +97,10 @@ export class FilesController {
     }
     if (range) {
       res.status(206);
-      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+      res.setHeader(
+        'Content-Range',
+        `bytes ${range.start}-${range.end}/${size}`,
+      );
       res.setHeader('Content-Length', range.end - range.start + 1);
       this.filesService.openRange(abs, range.start, range.end).pipe(res);
       return;
