@@ -1,11 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import type { Document } from "../../capabilities/Document.js";
 import { PdfEngineError } from "../../api/errors.js";
-import type {
-  DocumentMetadata,
-  PageSize,
-  PdfBytes,
-} from "../../api/types.js";
+import type { DocumentMetadata, PageSize, PdfBytes } from "../../api/types.js";
 
 /**
  * `pdf-lib`-backed Document adapter — load/parse, metadata, page geometry and

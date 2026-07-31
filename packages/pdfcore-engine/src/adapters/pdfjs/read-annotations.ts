@@ -138,7 +138,12 @@ export function rawToSpec(raw: RawAnnotation): AnnotationSpec | undefined {
         ...(raw.fill ? { fill: raw.fill } : {}),
       };
     case "Line": {
-      const l = raw.line ?? [raw.rect[0], raw.rect[1], raw.rect[2], raw.rect[3]];
+      const l = raw.line ?? [
+        raw.rect[0],
+        raw.rect[1],
+        raw.rect[2],
+        raw.rect[3],
+      ];
       return {
         ...base,
         type: raw.arrow ? "arrow" : "line",
@@ -178,7 +183,11 @@ function colorFrom(
   c: Uint8ClampedArray | number[] | null | undefined,
 ): Color | undefined {
   if (!c || c.length < 3) return undefined;
-  return { r: clamp01(c[0]! / 255), g: clamp01(c[1]! / 255), b: clamp01(c[2]! / 255) };
+  return {
+    r: clamp01(c[0]! / 255),
+    g: clamp01(c[1]! / 255),
+    b: clamp01(c[2]! / 255),
+  };
 }
 
 /**
@@ -211,7 +220,9 @@ export async function readAnnotationsWithPdfjs(
           typeof a.borderStyle?.width === "number"
             ? a.borderStyle.width
             : undefined,
-        quadPoints: a.quadPoints ? Array.from(a.quadPoints as ArrayLike<number>) : undefined,
+        quadPoints: a.quadPoints
+          ? Array.from(a.quadPoints as ArrayLike<number>)
+          : undefined,
         inkList: a.inkLists
           ? (a.inkLists as ArrayLike<number>[]).map((l) => Array.from(l))
           : undefined,

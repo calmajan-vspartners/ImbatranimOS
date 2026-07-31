@@ -1,6 +1,10 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { Outline } from "../../capabilities/Outline.js";
-import type { NamedDestination, OutlineNode, PdfBytes } from "../../api/types.js";
+import type {
+  NamedDestination,
+  OutlineNode,
+  PdfBytes,
+} from "../../api/types.js";
 import { loadPdfjsDocument } from "./document.js";
 
 /** A raw pdf.js outline item (subset of the fields we use). */

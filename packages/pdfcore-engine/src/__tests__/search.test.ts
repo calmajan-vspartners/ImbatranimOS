@@ -21,15 +21,33 @@ async function makeFixture(): Promise<Uint8Array> {
   const size = 18;
 
   const page1 = doc.addPage([612, 792]);
-  page1.drawText("Hello World", { x: 72, y: 700, size, font, color: rgb(0, 0, 0) });
-  page1.drawText("HelloThere", { x: 72, y: 650, size, font, color: rgb(0, 0, 0) });
+  page1.drawText("Hello World", {
+    x: 72,
+    y: 700,
+    size,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  page1.drawText("HelloThere", {
+    x: 72,
+    y: 650,
+    size,
+    font,
+    color: rgb(0, 0, 0),
+  });
   page1.drawText("Hello", { x: 72, y: 600, size, font, color: rgb(0, 0, 0) });
   page1.drawText("café", { x: 72, y: 550, size, font, color: rgb(0, 0, 0) });
 
   const page2 = doc.addPage([612, 792]);
   const firstWidth = font.widthOfTextAtSize("Data", size);
   page2.drawText("Data", { x: 72, y: 700, size, font, color: rgb(0, 0, 0) });
-  page2.drawText("Base", { x: 72 + firstWidth, y: 700, size, font: boldFont, color: rgb(0, 0, 0) });
+  page2.drawText("Base", {
+    x: 72 + firstWidth,
+    y: 700,
+    size,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
 
   return doc.save();
 }
@@ -81,10 +99,14 @@ describe("Text.search (pdf.js adapter)", () => {
     const insensitive = await doc.text.search("hello world");
     expect(insensitive.some((h) => h.page === 1)).toBe(true);
 
-    const sensitive = await doc.text.search("hello world", { caseSensitive: true });
+    const sensitive = await doc.text.search("hello world", {
+      caseSensitive: true,
+    });
     expect(sensitive.some((h) => h.page === 1)).toBe(false);
 
-    const sensitiveMatch = await doc.text.search("Hello World", { caseSensitive: true });
+    const sensitiveMatch = await doc.text.search("Hello World", {
+      caseSensitive: true,
+    });
     expect(sensitiveMatch.some((h) => h.page === 1)).toBe(true);
   });
 
@@ -92,7 +114,9 @@ describe("Text.search (pdf.js adapter)", () => {
     const doc = await loadPdf(await makeFixture());
     const anySubstring = await doc.text.search("Hello");
     // "Hello World", "HelloThere", and standalone "Hello" all contain "Hello".
-    expect(anySubstring.filter((h) => h.page === 1).length).toBeGreaterThanOrEqual(3);
+    expect(
+      anySubstring.filter((h) => h.page === 1).length,
+    ).toBeGreaterThanOrEqual(3);
 
     const wholeWordOnly = await doc.text.search("Hello", { wholeWord: true });
     const page1Hits = wholeWordOnly.filter((h) => h.page === 1);
@@ -106,7 +130,9 @@ describe("Text.search (pdf.js adapter)", () => {
     const withoutOption = await doc.text.search("cafe");
     expect(withoutOption.some((h) => h.page === 1)).toBe(false);
 
-    const withOption = await doc.text.search("cafe", { ignoreDiacritics: true });
+    const withOption = await doc.text.search("cafe", {
+      ignoreDiacritics: true,
+    });
     expect(withOption.some((h) => h.page === 1)).toBe(true);
   });
 

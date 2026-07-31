@@ -10,11 +10,7 @@ import type { Generate } from "../capabilities/Generate.js";
 import type { Platform } from "../platform/types.js";
 import { getPlatform, requirePlatform } from "../platform/registry.js";
 
-import type {
-  DocumentMetadata,
-  PageSize,
-  PdfBytes,
-} from "./types.js";
+import type { DocumentMetadata, PageSize, PdfBytes } from "./types.js";
 
 import { PdfLibDocument } from "../adapters/pdf-lib/document.js";
 import { PdfjsText } from "../adapters/pdfjs/text.js";

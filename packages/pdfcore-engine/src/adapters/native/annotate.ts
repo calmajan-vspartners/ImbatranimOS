@@ -105,7 +105,8 @@ export class NativeAnnotationWriter {
     const norm = rects.map((r) => rectToBox(r));
     const bounds = unionRect(rects);
     const color =
-      ann.color ?? (ann.type === "highlight" ? { r: 1, g: 1, b: 0 } : { r: 0, g: 0, b: 0 });
+      ann.color ??
+      (ann.type === "highlight" ? { r: 1, g: 1, b: 0 } : { r: 0, g: 0, b: 0 });
     const opacity = ann.opacity ?? 1;
 
     // QuadPoints: PDF viewer synthesises markup appearance from these; we ALSO
@@ -134,7 +135,9 @@ export class NativeAnnotationWriter {
     const resources: Record<string, unknown> = {};
     if (ann.type === "highlight") {
       // Multiply blend so the marked text remains legible under the fill.
-      resources.ExtGState = { GS0: { Type: "ExtGState", BM: "Multiply", ca: opacity, CA: opacity } };
+      resources.ExtGState = {
+        GS0: { Type: "ExtGState", BM: "Multiply", ca: opacity, CA: opacity },
+      };
       const ops = [`/GS0 gs`, `${rgb(color)} rg`];
       for (const b of norm) {
         const n = normalizeBox(b);
@@ -232,14 +235,18 @@ export class NativeAnnotationWriter {
     const width = lineWidth(ann.width);
     const s = ann.start;
     const e = ann.end;
-    const bounds = padRect(pointsBounds([s, e]), width + (ann.type === "arrow" ? 12 : 2));
+    const bounds = padRect(
+      pointsBounds([s, e]),
+      width + (ann.type === "arrow" ? 12 : 2),
+    );
 
     const dict = common(bounds);
     dict.Subtype = "Line";
     dict.L = [s.x, s.y, e.x, e.y];
     dict.C = [color.r, color.g, color.b];
     dict.BS = { W: width };
-    if (ann.type === "arrow") dict.LE = [PDFName.of("None"), PDFName.of("ClosedArrow")];
+    if (ann.type === "arrow")
+      dict.LE = [PDFName.of("None"), PDFName.of("ClosedArrow")];
 
     const ops: string[] = [
       `${fmt(width)} w`,
@@ -298,13 +305,17 @@ export class NativeAnnotationWriter {
       `${fmt(x)} ${fmt(y)} Td`,
     ];
     lines.forEach((ln, i) => {
-      body.push(i === 0 ? `(${escapeText(ln)}) Tj` : `T* (${escapeText(ln)}) Tj`);
+      body.push(
+        i === 0 ? `(${escapeText(ln)}) Tj` : `T* (${escapeText(ln)}) Tj`,
+      );
     });
     body.push("ET");
     const resources = {
       Font: { Helv: { Type: "Font", Subtype: "Type1", BaseFont: "Helvetica" } },
     };
-    dict.AP = { N: makeForm(ctx, bounds, `q\n${body.join("\n")}\nQ`, resources) };
+    dict.AP = {
+      N: makeForm(ctx, bounds, `q\n${body.join("\n")}\nQ`, resources),
+    };
     return dict;
   }
 
@@ -375,7 +386,10 @@ function makeForm(
     BBox: [bbox[0], bbox[1], bbox[2], bbox[3]],
     Resources: resources,
   };
-  const stream = ctx.stream(content, dict as Parameters<PDFContext["stream"]>[1]);
+  const stream = ctx.stream(
+    content,
+    dict as Parameters<PDFContext["stream"]>[1],
+  );
   return ctx.register(stream);
 }
 

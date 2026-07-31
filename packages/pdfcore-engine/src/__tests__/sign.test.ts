@@ -161,7 +161,9 @@ describe("Sign capability (composes Annotate + Forms)", () => {
   });
 
   it("fillSignatureField(image) places a stamp over a signature field's rect", async () => {
-    const doc = await loadPdf(await makeSignatureFieldFixture("sigField", [100, 100, 300, 160]));
+    const doc = await loadPdf(
+      await makeSignatureFieldFixture("sigField", [100, 100, 300, 160]),
+    );
     // Sanity: Forms sees it as a signature field.
     expect(doc.forms.get("sigField")?.type).toBe("signature");
 
@@ -179,7 +181,9 @@ describe("Sign capability (composes Annotate + Forms)", () => {
   });
 
   it("fillSignatureField(vector) places ink over the signature field's rect", async () => {
-    const doc = await loadPdf(await makeSignatureFieldFixture("mySig", [40, 400, 240, 460]));
+    const doc = await loadPdf(
+      await makeSignatureFieldFixture("mySig", [40, 400, 240, 460]),
+    );
     doc.sign.fillSignatureField("mySig", {
       kind: "vector",
       paths: [

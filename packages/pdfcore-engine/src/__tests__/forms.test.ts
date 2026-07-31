@@ -67,7 +67,9 @@ function expectRectNear(
   expect(actual).toBeDefined();
   expect(actual).toHaveLength(4);
   for (let i = 0; i < 4; i++) {
-    expect(Math.abs((actual as number[])[i]! - expected[i]!)).toBeLessThanOrEqual(tol);
+    expect(
+      Math.abs((actual as number[])[i]! - expected[i]!),
+    ).toBeLessThanOrEqual(tol);
   }
 }
 
@@ -174,13 +176,17 @@ describe("Forms capability (pdf-lib adapter + pdf.js geometry)", () => {
   it("set() rejects unknown names, invalid options, and signature fields", async () => {
     const doc = await loadPdf(await makeFormFixture());
     expect(() => doc.forms.set("nope", "x")).toThrow(PdfEngineError);
-    expect(() => doc.forms.set("plan", "enterprise")).toThrow(/not a valid option/);
-    expect(() => doc.forms.set("country", "FR")).toThrow(/not a valid option/);
-    expect(() => doc.forms.set("langs", ["en", "xx"])).toThrow(/not a valid option/);
-    // Type mismatches.
-    expect(() => doc.forms.set("subscribe", "yes" as unknown as boolean)).toThrow(
-      /expects a boolean/,
+    expect(() => doc.forms.set("plan", "enterprise")).toThrow(
+      /not a valid option/,
     );
+    expect(() => doc.forms.set("country", "FR")).toThrow(/not a valid option/);
+    expect(() => doc.forms.set("langs", ["en", "xx"])).toThrow(
+      /not a valid option/,
+    );
+    // Type mismatches.
+    expect(() =>
+      doc.forms.set("subscribe", "yes" as unknown as boolean),
+    ).toThrow(/expects a boolean/);
     expect(() => doc.forms.set("fullName", true as unknown as string)).toThrow(
       /expects a string/,
     );

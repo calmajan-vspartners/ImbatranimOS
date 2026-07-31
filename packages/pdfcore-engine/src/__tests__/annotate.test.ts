@@ -127,13 +127,48 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
     a.add({ type: "highlight", page: 1, rect: [10, 350, 120, 365] });
     a.add({ type: "underline", page: 1, rect: [10, 330, 120, 345] });
     a.add({ type: "strikeout", page: 1, rect: [10, 310, 120, 325] });
-    a.add({ type: "ink", page: 1, paths: [[{ x: 10, y: 10 }, { x: 40, y: 40 }]] });
-    a.add({ type: "rect", page: 1, rect: [150, 150, 220, 210], fill: { r: 0.9, g: 0.9, b: 0.9 } });
-    a.add({ type: "line", page: 1, start: { x: 250, y: 250 }, end: { x: 350, y: 260 } });
-    a.add({ type: "arrow", page: 1, start: { x: 250, y: 100 }, end: { x: 350, y: 130 } });
-    a.add({ type: "freeText", page: 1, rect: [40, 40, 200, 70], text: "note box" });
+    a.add({
+      type: "ink",
+      page: 1,
+      paths: [
+        [
+          { x: 10, y: 10 },
+          { x: 40, y: 40 },
+        ],
+      ],
+    });
+    a.add({
+      type: "rect",
+      page: 1,
+      rect: [150, 150, 220, 210],
+      fill: { r: 0.9, g: 0.9, b: 0.9 },
+    });
+    a.add({
+      type: "line",
+      page: 1,
+      start: { x: 250, y: 250 },
+      end: { x: 350, y: 260 },
+    });
+    a.add({
+      type: "arrow",
+      page: 1,
+      start: { x: 250, y: 100 },
+      end: { x: 350, y: 130 },
+    });
+    a.add({
+      type: "freeText",
+      page: 1,
+      rect: [40, 40, 200, 70],
+      text: "note box",
+    });
     a.add({ type: "note", page: 1, at: { x: 300, y: 350 }, text: "sticky" });
-    a.add({ type: "stamp", page: 1, rect: [300, 200, 360, 250], image: RED_PNG, name: "Logo" });
+    a.add({
+      type: "stamp",
+      page: 1,
+      rect: [300, 200, 360, 250],
+      image: RED_PNG,
+      name: "Logo",
+    });
     const saved = await doc.save();
 
     const reloaded = await loadPdf(saved);
@@ -160,26 +195,48 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
   it("a standards reader (pdf.js) sees the emitted annotations", async () => {
     const doc = await loadPdf(await makeBlank());
     doc.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315] });
-    doc.annotate.add({ type: "freeText", page: 1, rect: [40, 200, 260, 240], text: "hi" });
+    doc.annotate.add({
+      type: "freeText",
+      page: 1,
+      rect: [40, 200, 260, 240],
+      text: "hi",
+    });
     doc.annotate.add({
       type: "ink",
       page: 1,
-      paths: [[{ x: 10, y: 10 }, { x: 40, y: 40 }]],
+      paths: [
+        [
+          { x: 10, y: 10 },
+          { x: 40, y: 40 },
+        ],
+      ],
     });
     const saved = await doc.save();
 
-    const seen = (await readAnnotationsWithPdfjs(saved)).map((s) => s.type).sort();
+    const seen = (await readAnnotationsWithPdfjs(saved))
+      .map((s) => s.type)
+      .sort();
     expect(seen).toEqual(["freeText", "highlight", "ink"].sort());
   });
 
   it("highlight / freeText / ink emit structurally correct /Annots entries (Subtype, Rect, AP)", async () => {
     const doc = await loadPdf(await makeBlank());
     doc.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315] });
-    doc.annotate.add({ type: "freeText", page: 1, rect: [40, 200, 260, 240], text: "hi" });
+    doc.annotate.add({
+      type: "freeText",
+      page: 1,
+      rect: [40, 200, 260, 240],
+      text: "hi",
+    });
     doc.annotate.add({
       type: "ink",
       page: 1,
-      paths: [[{ x: 10, y: 10 }, { x: 40, y: 40 }]],
+      paths: [
+        [
+          { x: 10, y: 10 },
+          { x: 40, y: 40 },
+        ],
+      ],
     });
     const saved = await doc.save();
 
@@ -195,8 +252,18 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
   it("loads a document with PRE-EXISTING annotations as editable and does not duplicate them", async () => {
     // Build a document that already carries committed annotations.
     const seed = await loadPdf(await makeBlank());
-    seed.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315], contents: "seeded" });
-    seed.annotate.add({ type: "note", page: 1, at: { x: 300, y: 350 }, text: "seeded note" });
+    seed.annotate.add({
+      type: "highlight",
+      page: 1,
+      rect: [50, 300, 200, 315],
+      contents: "seeded",
+    });
+    seed.annotate.add({
+      type: "note",
+      page: 1,
+      at: { x: 300, y: 350 },
+      text: "seeded note",
+    });
     const preexisting = await seed.save();
 
     // Reopen: the two annotations must load into list() (re-editable seed).
@@ -204,7 +271,16 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
     expect(doc.annotate.list().length).toBe(2);
 
     // Add one more, save, reopen: exactly 3 — seeded ones are not re-emitted.
-    doc.annotate.add({ type: "ink", page: 1, paths: [[{ x: 10, y: 10 }, { x: 40, y: 40 }]] });
+    doc.annotate.add({
+      type: "ink",
+      page: 1,
+      paths: [
+        [
+          { x: 10, y: 10 },
+          { x: 40, y: 40 },
+        ],
+      ],
+    });
     const saved = await doc.save();
 
     const reopened = await loadPdf(saved);
@@ -217,7 +293,12 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
 
   it("update on a seeded annotation persists through save → reload", async () => {
     const seed = await loadPdf(await makeBlank());
-    seed.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315], contents: "old" });
+    seed.annotate.add({
+      type: "highlight",
+      page: 1,
+      rect: [50, 300, 200, 315],
+      contents: "old",
+    });
     const preexisting = await seed.save();
 
     const doc = await loadPdf(preexisting);
@@ -233,8 +314,18 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
 
   it("delete on a seeded annotation persists through save → reload", async () => {
     const seed = await loadPdf(await makeBlank());
-    seed.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315], contents: "keep" });
-    seed.annotate.add({ type: "freeText", page: 1, rect: [40, 200, 260, 240], text: "drop me" });
+    seed.annotate.add({
+      type: "highlight",
+      page: 1,
+      rect: [50, 300, 200, 315],
+      contents: "keep",
+    });
+    seed.annotate.add({
+      type: "freeText",
+      page: 1,
+      rect: [40, 200, 260, 240],
+      text: "drop me",
+    });
     const preexisting = await seed.save();
 
     const doc = await loadPdf(preexisting);
@@ -251,8 +342,17 @@ describe("Annotate capability (pdf-lib + native adapter)", () => {
 
   it("delete on a not-yet-committed annotation simply drops it", async () => {
     const doc = await loadPdf(await makeBlank());
-    const id = doc.annotate.add({ type: "highlight", page: 1, rect: [50, 300, 200, 315] });
-    doc.annotate.add({ type: "note", page: 1, at: { x: 300, y: 350 }, text: "kept" });
+    const id = doc.annotate.add({
+      type: "highlight",
+      page: 1,
+      rect: [50, 300, 200, 315],
+    });
+    doc.annotate.add({
+      type: "note",
+      page: 1,
+      at: { x: 300, y: 350 },
+      text: "kept",
+    });
     doc.annotate.delete(id);
     const saved = await doc.save();
 

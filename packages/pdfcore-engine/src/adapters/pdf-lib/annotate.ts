@@ -1,10 +1,4 @@
-import {
-  PDFArray,
-  PDFDict,
-  PDFName,
-  PDFNumber,
-  PDFRef,
-} from "pdf-lib";
+import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef } from "pdf-lib";
 import type {
   Annotate,
   Annotation,
@@ -13,10 +7,7 @@ import type {
 } from "../../capabilities/Annotate.js";
 import type { Color, Rect } from "../../api/types.js";
 import type { AnnotationModel } from "../../model/annotations.js";
-import {
-  rawToSpec,
-  type RawAnnotation,
-} from "../pdfjs/read-annotations.js";
+import { rawToSpec, type RawAnnotation } from "../pdfjs/read-annotations.js";
 import { NativeAnnotationWriter } from "../native/annotate.js";
 import type { PdfLibDocument } from "./document.js";
 
@@ -136,7 +127,8 @@ function nameOf(dict: PDFDict, key: string): string | undefined {
 
 function textOf(dict: PDFDict, key: string): string | undefined {
   const v = dict.lookup(PDFName.of(key));
-  return v && typeof (v as unknown as { decodeText?: unknown }).decodeText === "function"
+  return v &&
+    typeof (v as unknown as { decodeText?: unknown }).decodeText === "function"
     ? (v as unknown as { decodeText: () => string }).decodeText()
     : undefined;
 }

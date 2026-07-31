@@ -9,7 +9,10 @@ import type { PdfBytes } from "../api/types.js";
  * (`${label}-p${n}`), so merge/split order and content can be verified by
  * extracting text rather than trusting byte layout.
  */
-async function makeFixture(label: string, pageCount: number): Promise<PdfBytes> {
+async function makeFixture(
+  label: string,
+  pageCount: number,
+): Promise<PdfBytes> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 1; i <= pageCount; i++) {

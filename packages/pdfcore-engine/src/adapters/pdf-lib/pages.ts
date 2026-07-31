@@ -84,7 +84,10 @@ export class PdfLibPages implements Pages {
     }
 
     if (what.kind === "blank") {
-      const size = what.size ?? { width: DEFAULT_PAGE_SIZE[0], height: DEFAULT_PAGE_SIZE[1] };
+      const size = what.size ?? {
+        width: DEFAULT_PAGE_SIZE[0],
+        height: DEFAULT_PAGE_SIZE[1],
+      };
       pdfDoc.insertPage(atIndex, [size.width, size.height]);
       return;
     }
@@ -93,7 +96,8 @@ export class PdfLibPages implements Pages {
     // external document and splice the copies in at atIndex, preserving order.
     const src = await PDFDocument.load(new Uint8Array(what.bytes));
     const srcCount = src.getPageCount();
-    const pages = what.pages ?? Array.from({ length: srcCount }, (_, i) => i + 1);
+    const pages =
+      what.pages ?? Array.from({ length: srcCount }, (_, i) => i + 1);
     const indices = pages.map((p) => {
       if (!Number.isInteger(p) || p < 1 || p > srcCount) {
         throw new PdfEngineError(

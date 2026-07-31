@@ -16,13 +16,22 @@ async function makeFixture(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const marker of markers) {
     const page = doc.addPage(size);
-    page.drawText(marker, { x: 72, y: 700, size: 18, font, color: rgb(0, 0, 0) });
+    page.drawText(marker, {
+      x: 72,
+      y: 700,
+      size: 18,
+      font,
+      color: rgb(0, 0, 0),
+    });
   }
   return doc.save();
 }
 
 /** Read back the per-page marker order via positional text extraction. */
-async function markerOrder(bytes: Uint8Array, pageCount: number): Promise<(string | undefined)[]> {
+async function markerOrder(
+  bytes: Uint8Array,
+  pageCount: number,
+): Promise<(string | undefined)[]> {
   const doc = await loadPdf(bytes);
   const items = await doc.text.extract();
   return Array.from({ length: pageCount }, (_, i) => i + 1).map(
@@ -37,17 +46,23 @@ describe("Pages capability (pdf-lib adapter)", () => {
     const doc1 = await loadPdf(fixture);
     doc1.pages.rotate(1, 90);
     const saved1 = await doc1.save();
-    expect((await PDFDocument.load(saved1)).getPage(0).getRotation().angle).toBe(90);
+    expect(
+      (await PDFDocument.load(saved1)).getPage(0).getRotation().angle,
+    ).toBe(90);
 
     const doc2 = await loadPdf(saved1);
     doc2.pages.rotate(1, 180); // 90 + 180 = 270
     const saved2 = await doc2.save();
-    expect((await PDFDocument.load(saved2)).getPage(0).getRotation().angle).toBe(270);
+    expect(
+      (await PDFDocument.load(saved2)).getPage(0).getRotation().angle,
+    ).toBe(270);
 
     const doc3 = await loadPdf(saved2);
     doc3.pages.rotate(1, -270); // 270 - 270 = 0, normalized
     const saved3 = await doc3.save();
-    expect((await PDFDocument.load(saved3)).getPage(0).getRotation().angle).toBe(0);
+    expect(
+      (await PDFDocument.load(saved3)).getPage(0).getRotation().angle,
+    ).toBe(0);
   });
 
   it("delete accepts a single 1-based page number", async () => {
@@ -91,7 +106,10 @@ describe("Pages capability (pdf-lib adapter)", () => {
   it("insert blank page increases count, uses the requested size, and survives save→reload", async () => {
     const fixture = await makeFixture(["A", "B"]);
     const doc = await loadPdf(fixture);
-    await doc.pages.insert(1, { kind: "blank", size: { width: 300, height: 400 } });
+    await doc.pages.insert(1, {
+      kind: "blank",
+      size: { width: 300, height: 400 },
+    });
     expect(doc.pageCount()).toBe(3);
     expect(doc.pageSize(2)).toEqual({ width: 300, height: 400 });
 
@@ -113,7 +131,11 @@ describe("Pages capability (pdf-lib adapter)", () => {
     const fixtureA = await makeFixture(["A", "B"]);
     const fixtureX = await makeFixture(["X", "Y", "Z"]);
     const doc = await loadPdf(fixtureA);
-    await doc.pages.insert(1, { kind: "bytes", bytes: fixtureX, pages: [3, 1] }); // Z then X
+    await doc.pages.insert(1, {
+      kind: "bytes",
+      bytes: fixtureX,
+      pages: [3, 1],
+    }); // Z then X
     expect(doc.pageCount()).toBe(4);
 
     const saved = await doc.save();
@@ -159,7 +181,10 @@ describe("Pages capability (pdf-lib adapter)", () => {
   it("composes: insert then rotate then extract without corrupting the doc", async () => {
     const fixture = await makeFixture(["A", "B"]);
     const doc = await loadPdf(fixture);
-    await doc.pages.insert(1, { kind: "blank", size: { width: 200, height: 200 } }); // A, blank, B
+    await doc.pages.insert(1, {
+      kind: "blank",
+      size: { width: 200, height: 200 },
+    }); // A, blank, B
     doc.pages.rotate(2, 90);
     expect(doc.pageCount()).toBe(3);
 

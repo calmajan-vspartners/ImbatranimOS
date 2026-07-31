@@ -89,7 +89,10 @@ export function layoutTextItems(
 ): TextSpanLayout[] {
   const t = toViewTransform(viewport);
   return items.map((item) => {
-    const box = pdfBoxToScreen({ x: item.x, y: item.y, w: item.w, h: item.h }, t);
+    const box = pdfBoxToScreen(
+      { x: item.x, y: item.y, w: item.w, h: item.h },
+      t,
+    );
     return {
       str: item.str,
       left: box.x,

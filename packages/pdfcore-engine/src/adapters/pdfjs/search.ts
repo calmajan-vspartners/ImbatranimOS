@@ -223,7 +223,11 @@ function isWordChar(ch: string | undefined): boolean {
   return /[\p{L}\p{N}_]/u.test(ch);
 }
 
-function isWordBoundaryMatch(text: string, start: number, end: number): boolean {
+function isWordBoundaryMatch(
+  text: string,
+  start: number,
+  end: number,
+): boolean {
   const before = start > 0 ? text[start - 1] : undefined;
   const after = end < text.length ? text[end] : undefined;
   return !isWordChar(before) && !isWordChar(after);
@@ -253,7 +257,11 @@ function computeRects(
       last.minChar = Math.min(last.minChar, f.charInItem);
       last.maxChar = Math.max(last.maxChar, f.charInItem);
     } else {
-      spans.push({ itemIndex: f.itemIndex, minChar: f.charInItem, maxChar: f.charInItem });
+      spans.push({
+        itemIndex: f.itemIndex,
+        minChar: f.charInItem,
+        maxChar: f.charInItem,
+      });
     }
   }
   if (spans.length === 0) return [];
@@ -295,7 +303,12 @@ function runToRect(run: ItemSpan[], items: PageItem[]): Rect {
   return [left, y1, right, y2];
 }
 
-function buildContext(flat: FlatChar[], start: number, end: number, radius = 24): string {
+function buildContext(
+  flat: FlatChar[],
+  start: number,
+  end: number,
+  radius = 24,
+): string {
   const from = Math.max(0, start - radius);
   const to = Math.min(flat.length, end + radius);
   const text = flat

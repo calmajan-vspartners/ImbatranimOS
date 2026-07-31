@@ -1,8 +1,4 @@
-import type {
-  DocumentMetadata,
-  PageSize,
-  PdfBytes,
-} from "../api/types.js";
+import type { DocumentMetadata, PageSize, PdfBytes } from "../api/types.js";
 
 /**
  * Document — the foundation capability. Parse bytes, read metadata and page
