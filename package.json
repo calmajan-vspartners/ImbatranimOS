@@ -27,5 +27,15 @@
   "devDependencies": {
     "prettier": "3.8.3",
     "turbo": "^2.10.5"
+  },
+  "allowScripts": {
+    "argon2": true,
+    "better-sqlite3": true,
+    "esbuild": true,
+    "node-pty": true,
+    "protobufjs": true,
+    "sharp": true,
+    "unrs-resolver": true,
+    "vue-demi": true
   }
 }
