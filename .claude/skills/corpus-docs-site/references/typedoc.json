@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["../core/src/index.ts"],
+  "tsconfig": "../core/tsconfig.app.json",
+  "out": "public/reference/core",
+  "name": "PACKAGE — public surface",
+  "readme": "none",
+  "hideGenerator": true,
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "githubPages": false,
+  "navigation": { "includeCategories": true, "includeGroups": true },
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": true
+  },
+  "treatWarningsAsErrors": false
+}

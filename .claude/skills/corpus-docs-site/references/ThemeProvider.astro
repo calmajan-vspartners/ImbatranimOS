@@ -1,0 +1,13 @@
+---
+// Light-only. Override of Starlight's ThemeProvider: force the light theme and
+// ignore localStorage / system preference entirely. Paired with an empty
+// ThemeSelect so there is no toggle. Register both in astro.config.mjs:
+//   components: {
+//     ThemeProvider: './src/components/ThemeProvider.astro',
+//     ThemeSelect: './src/components/ThemeSelect.astro',
+//   }
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = 'light'
+</script>

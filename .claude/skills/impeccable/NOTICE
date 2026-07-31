@@ -1,0 +1,18 @@
+This directory vendors the "impeccable" skill.
+
+  Project:    impeccable
+  Author:     Paul Bakaus <paul@paulbakaus.com>
+  Homepage:   https://impeccable.style
+  Source:     https://github.com/pbakaus/impeccable
+  License:    Apache License 2.0 (see ./LICENSE)
+  Vendored:   2026-06-11, from the upstream `plugin/` build at version 3.5.0
+
+Local modifications by this repo:
+  - Hardcoded `node .claude/skills/impeccable/scripts/...` paths rewritten to
+    `node ${CLAUDE_PLUGIN_ROOT}/skills/impeccable/scripts/...` so the bundled
+    scripts resolve when loaded as a Claude Code plugin.
+  - SKILL.md allowed-tools extended to permit the bundled node scripts.
+
+To update: re-pull upstream's `plugin/` directory and re-apply the two
+modifications above (the path rewrite is mechanical:
+`.claude/skills/impeccable/scripts` -> `${CLAUDE_PLUGIN_ROOT}/skills/impeccable/scripts`).

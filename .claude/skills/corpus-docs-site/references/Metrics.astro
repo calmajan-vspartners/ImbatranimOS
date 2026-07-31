@@ -1,0 +1,65 @@
+---
+// A row of stat tiles — the reusable "graphic" primitive for a light docs site.
+// Usage in an .mdx page:
+//   import Metrics from '../../components/Metrics.astro'
+//   <Metrics items={[{ v: '385', unit: 'MB', k: 'image size' }, { v: '23', k: 'apps' }]} />
+//
+// Light-only: uses literal colors, NOT Starlight's --sl-color-white/black
+// (those are contrast-relative and invert in light mode). Change ACCENT below.
+interface Item {
+  v: string
+  unit?: string
+  k: string
+}
+const { items } = Astro.props as { items: Item[] }
+---
+
+<div class="metrics not-content">
+  {
+    items.map((it) => (
+      <div class="metric">
+        <div class="v">
+          {it.v}
+          {it.unit && <span class="u">{it.unit}</span>}
+        </div>
+        <div class="k">{it.k}</div>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.75rem;
+    margin: 1.25rem 0 1.75rem;
+  }
+  .metric {
+    border: 1px solid #e6e6ea;
+    border-top: 3px solid var(--accent, #c81236); /* ACCENT */
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  .metric .v {
+    font-family: var(--sl-font-mono, monospace);
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: #17171a;
+  }
+  .metric .v .u {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #9a9aa2;
+    margin-left: 0.15rem;
+  }
+  .metric .k {
+    font-size: 0.8rem;
+    color: #6a6a72;
+    margin-top: 0.45rem;
+  }
+</style>

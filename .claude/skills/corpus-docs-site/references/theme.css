@@ -1,0 +1,20 @@
+/* Light theme only, single accent. The site is forced to light (ThemeProvider
+   override), so these tokens apply on the default :root; no dark palette is
+   defined. Change the four accent values to rebrand. */
+:root,
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ffd6de;
+  --sl-color-accent: #c81236;
+  --sl-color-accent-high: #7a0a20;
+  --sl-color-text-accent: #c81236;
+}
+
+/* Crisper asides on white. */
+.sl-markdown-content .starlight-aside {
+  border-radius: 10px;
+}
+
+/* No ligatures in inline code — reads more like a terminal. */
+.sl-markdown-content code:not(:where(.expressive-code *)) {
+  font-variant-ligatures: none;
+}
