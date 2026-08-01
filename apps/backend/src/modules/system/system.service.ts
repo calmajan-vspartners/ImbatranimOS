@@ -8,16 +8,6 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-// execa ships pure ESM; import it lazily (dynamic import) so this module
-// still loads under ts-jest's CommonJS transform in unit tests.
-type ExecaFn = typeof import('execa').execa;
-let execaFn: ExecaFn | null = null;
-async function getExeca(): Promise<ExecaFn> {
-  if (!execaFn) {
-    ({ execa: execaFn } = await import('execa'));
-  }
-  return execaFn;
-}
 
 export type CpuStats = {
   percent: number;
@@ -65,6 +55,72 @@ export type AboutInfo = {
 
 type CpuSample = { idle: number; total: number };
 
+/** Per-pid CPU jiffies from the previous poll, for the busy-time delta. */
+type ProcSample = { at: number; jiffies: Map<number, number> };
+
+/**
+ * The kernel reports per-process CPU time in clock ticks (USER_HZ). It is 100
+ * on every Linux/architecture combination Node runs on in practice, and glibc
+ * only exposes it via sysconf(3), which we cannot call from Node.
+ */
+const CLOCK_TICKS_PER_SEC = 100;
+
+/** `rss` in /proc/<pid>/stat is a page count; pages are 4 KiB on x86_64/arm64. */
+const PAGE_SIZE_BYTES = 4096;
+
+/**
+ * Minimum age of the CPU baseline before it is replaced.
+ *
+ * The baseline is shared by every caller, so without this a second poll
+ * arriving milliseconds after the first (two open System Monitor windows, or
+ * the tray stats poll racing the app) would diff over a near-zero window and
+ * report 0 % for everything. Below this age we still diff against the existing
+ * baseline but leave it in place, so the window stays meaningful.
+ */
+const MIN_CPU_WINDOW_MS = 400;
+
+/**
+ * Parses one /proc/<pid>/stat line.
+ *
+ * The comm field is the raw executable name: it is arbitrary, may contain
+ * spaces, and may contain parentheses (`(sd-pam)`), so the only safe split is
+ * on the LAST ')' — tokenising the whole line shifts every later field for
+ * any process with a space in its name.
+ *
+ * Exported for unit tests; the /proc walk itself is environment-dependent but
+ * this parser is pure.
+ */
+export function parseProcStat(
+  raw: string,
+): { pid: number; comm: string; jiffies: number; rssPages: number } | null {
+  const open = raw.indexOf('(');
+  const close = raw.lastIndexOf(')');
+  if (open < 0 || close < 0 || close < open) return null;
+
+  const pid = Number(raw.slice(0, open).trim());
+  const comm = raw.slice(open + 1, close);
+  const rest = raw
+    .slice(close + 1)
+    .trim()
+    .split(/\s+/);
+
+  // rest[0] is field 3 (state), so documented field N lives at rest[N - 3]:
+  // utime = 14, stime = 15, rss = 24.
+  const utime = Number(rest[11]);
+  const stime = Number(rest[12]);
+  const rssPages = Number(rest[21]);
+
+  if (
+    !Number.isFinite(pid) ||
+    !Number.isFinite(utime) ||
+    !Number.isFinite(stime) ||
+    !Number.isFinite(rssPages)
+  ) {
+    return null;
+  }
+  return { pid, comm, jiffies: utime + stime, rssPages };
+}
+
 const ALLOWED_KILL_SIGNALS: NodeJS.Signals[] = [
   'SIGTERM',
   'SIGKILL',
@@ -86,6 +142,10 @@ export class SystemService {
   // request with an internal setTimeout. Cheap and stateless per-request.
   private lastCpuSample: CpuSample[] | null = null;
   private lastCpuPercent = 0;
+
+  // Previous per-pid CPU jiffies, so getProcesses() can report busy time
+  // between polls rather than a since-boot average.
+  private lastProcSample: ProcSample | null = null;
 
   async getStats(): Promise<SystemStats> {
     const [cpu, memory, disk] = await Promise.all([
@@ -181,33 +241,97 @@ export class SystemService {
     }
   }
 
+  /**
+   * Reads the process table straight from /proc.
+   *
+   * This used to shell out to `ps -eo pid,ruid,pcpu,pmem,rss,comm
+   * --no-headers`, which is procps syntax. The shipped image is Alpine, whose
+   * `ps` is busybox: it takes short options only (no `--no-headers`), has no
+   * `ruid` or `pmem` column, and has `pcpu` compiled out entirely. So the call
+   * always threw in production, the catch below swallowed it, and System
+   * Monitor showed an empty table while looking merely idle. It worked in
+   * development only because a glibc host has GNU procps.
+   *
+   * Reading /proc has no such split: it is the same interface `ps` itself
+   * reads, it needs no binary in the image, and it is what the rest of this
+   * service already does (see getProcessUid).
+   */
   async getProcesses(): Promise<ProcessInfo[]> {
     try {
-      const execa = await getExeca();
-      const { stdout } = await execa('ps', [
-        '-eo',
-        'pid,ruid,pcpu,pmem,rss,comm',
-        '--no-headers',
-      ]);
-      return stdout
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [pid, uid, pcpu, pmem, rss, ...nameParts] = line.split(/\s+/);
+      const entries = await fsp.readdir('/proc');
+      const pids = entries
+        .filter((e) => /^\d+$/.test(e))
+        .map(Number)
+        .filter((pid) => Number.isSafeInteger(pid));
+
+      const now = Date.now();
+      const previous = this.lastProcSample;
+      const elapsedSec = previous ? (now - previous.at) / 1000 : 0;
+      const totalMem = os.totalmem();
+      const jiffiesNow = new Map<number, number>();
+
+      const rows = await Promise.all(
+        pids.map(async (pid): Promise<ProcessInfo | null> => {
+          let raw: string;
+          let uid: number;
+          try {
+            // A process can exit between readdir and these reads; that is
+            // normal, not an error — skip it.
+            [raw, uid] = await Promise.all([
+              fsp.readFile(`/proc/${pid}/stat`, 'utf8'),
+              fsp.stat(`/proc/${pid}`).then((s) => s.uid),
+            ]);
+          } catch {
+            return null;
+          }
+
+          const stat = parseProcStat(raw);
+          if (!stat) return null;
+          jiffiesNow.set(pid, stat.jiffies);
+
+          // Busy time since the previous poll. The first poll has no baseline,
+          // so every row reports 0 % until the next one ~1.5 s later.
+          const before = previous?.jiffies.get(pid);
+          const cpuPercent =
+            before !== undefined && elapsedSec > 0
+              ? Math.max(
+                  0,
+                  ((stat.jiffies - before) / CLOCK_TICKS_PER_SEC / elapsedSec) *
+                    100,
+                )
+              : 0;
+
+          const memBytes = stat.rssPages * PAGE_SIZE_BYTES;
           return {
-            pid: Number(pid),
-            uid: Number(uid),
-            cpuPercent: Number(pcpu),
-            memPercent: Number(pmem),
-            memBytes: Number(rss) * 1024,
-            name: nameParts.join(' '),
+            pid,
+            uid,
+            name: stat.comm,
+            cpuPercent: Math.round(cpuPercent * 10) / 10,
+            memPercent:
+              totalMem > 0 ? Math.round((memBytes / totalMem) * 1000) / 10 : 0,
+            memBytes,
           };
-        })
-        .sort((a, b) => b.cpuPercent - a.cpuPercent)
-        .slice(0, MAX_PROCESSES);
+        }),
+      );
+
+      // Only advance the baseline once it is old enough to give the next
+      // caller a usable window (see MIN_CPU_WINDOW_MS).
+      if (!previous || now - previous.at >= MIN_CPU_WINDOW_MS) {
+        this.lastProcSample = { at: now, jiffies: jiffiesNow };
+      }
+
+      return (
+        rows
+          .filter((r): r is ProcessInfo => r !== null)
+          // Memory is the tie-break so the very first poll, where every
+          // cpuPercent is still 0, is ordered by something meaningful.
+          .sort(
+            (a, b) => b.cpuPercent - a.cpuPercent || b.memBytes - a.memBytes,
+          )
+          .slice(0, MAX_PROCESSES)
+      );
     } catch (err) {
-      this.logger.error(`ps failed: ${(err as Error).message}`);
+      this.logger.error(`reading /proc failed: ${(err as Error).message}`);
       return [];
     }
   }
