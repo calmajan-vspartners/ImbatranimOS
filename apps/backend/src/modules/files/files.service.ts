@@ -48,13 +48,25 @@ export interface SearchResult {
 const SEARCH_SKIP_DIRS = new Set(['node_modules', '.git']);
 
 /**
- * Static roots: name → absolute directory. The `home` root is resolved
- * dynamically (see {@link FilesService.getRootDir}) so tests can point it at a
- * scratch dir via FILES_ROOT without re-importing the module.
+ * Where the `notes` root lives. Both roots resolve dynamically (see
+ * {@link FilesService.getRootDir}) so tests and the container can point them
+ * at a real directory via env without re-importing the module.
+ *
+ * Read from NOTES_DIR at call time, like `homeRoot()` reads FILES_ROOT, rather
+ * than baked in at import. It used to be a hardcoded `<cwd>/data/notes`, which
+ * silently ignored NOTES_DIR — so in the container it resolved to
+ * `/app/data/notes`, inside the image's writable layer, while the volume is
+ * `/home/imbatranim` and `entrypoint.sh` was dutifully creating
+ * `/home/imbatranim/notes` for nobody. Every note written in Notepad was
+ * therefore destroyed the moment the container was recreated, which the README
+ * actively encourages ("delete and recreate the container as often as you
+ * like; the volume is what persists").
+ *
+ * The fallback keeps the previous behaviour when NOTES_DIR is unset.
  */
-const ROOTS: Record<string, string> = {
-  notes: resolve(process.cwd(), 'data/notes'),
-};
+function notesRoot(): string {
+  return resolve(process.env.NOTES_DIR || resolve(process.cwd(), 'data/notes'));
+}
 
 @Injectable()
 export class FilesService {
@@ -70,9 +82,8 @@ export class FilesService {
   /** Resolve a root name to an absolute directory. Throws if unknown. */
   private getRootDir(root: string): string {
     if (root === 'home') return this.homeRoot();
-    const dir = ROOTS[root];
-    if (!dir) throw new BadRequestException(`Unknown root: ${root}`);
-    return dir;
+    if (root === 'notes') return notesRoot();
+    throw new BadRequestException(`Unknown root: ${root}`);
   }
 
   /**

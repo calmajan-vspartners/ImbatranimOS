@@ -173,3 +173,31 @@ describe('TrashService', () => {
     expect(infos).toHaveLength(0);
   });
 });
+
+describe('notes root honours NOTES_DIR', () => {
+  const prevNotes = process.env.NOTES_DIR;
+  const prevHome = process.env.FILES_ROOT;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(os.tmpdir(), 'imb-notes-'));
+    process.env.NOTES_DIR = dir;
+    process.env.FILES_ROOT = dir;
+  });
+  afterEach(async () => {
+    process.env.NOTES_DIR = prevNotes;
+    process.env.FILES_ROOT = prevHome;
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('reads and writes notes under NOTES_DIR, not <cwd>/data/notes', async () => {
+    // Regression: the notes root was hardcoded to resolve(cwd, 'data/notes'),
+    // so in the container it landed in the image's writable layer at
+    // /app/data/notes while the volume was /home/imbatranim — every note was
+    // lost when the container was recreated.
+    const files = new FilesService();
+    await fs.writeFile(join(dir, 'note.md'), '# hi\n');
+    const entries = await files.list('notes', '');
+    expect(entries.map((e) => e.name)).toContain('note.md');
+  });
+});
