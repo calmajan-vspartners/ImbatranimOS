@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useWindowStore } from '../store/windowStore'
-import { useGlobalHotkeys } from './useGlobalHotkeys'
+import { useRegisteredHotkeys } from './useRegisteredHotkeys'
 
 /**
  * Keyboard window management (4c).
@@ -23,7 +23,7 @@ export function useWindowHotkeys(): void {
 
   const bindings = useMemo(
     () => ({
-      'alt+tab': () => {
+      cycle: () => {
         const windows = getWindows()
         const visible = windows.filter((w) => w.isVisible)
         if (visible.length === 0) return
@@ -39,7 +39,7 @@ export function useWindowHotkeys(): void {
         focusWindow(next.id)
       },
 
-      'mod+w': () => {
+      close: () => {
         const windows = getWindows()
         const visible = windows.filter((w) => w.isVisible)
         if (visible.length === 0) return
@@ -48,7 +48,7 @@ export function useWindowHotkeys(): void {
         if (focused) closeWindow(focused.id)
       },
 
-      'mod+m': () => {
+      minimise: () => {
         const windows = getWindows()
         const visible = windows.filter((w) => w.isVisible)
         if (visible.length === 0) return
@@ -57,7 +57,7 @@ export function useWindowHotkeys(): void {
         if (focused) hideWindow(focused.id)
       },
 
-      'mod+enter': () => {
+      maximise: () => {
         const windows = getWindows()
         const visible = windows.filter((w) => w.isVisible)
         if (visible.length === 0) return
@@ -74,5 +74,37 @@ export function useWindowHotkeys(): void {
     [focusWindow, closeWindow, hideWindow, maximizeWindow, restoreWindow]
   )
 
-  useGlobalHotkeys(bindings)
+  useRegisteredHotkeys([
+    {
+      id: 'window.cycle',
+      keys: 'alt+tab',
+      description: 'Cycle focus through open windows',
+      scope: 'Window management',
+      handler: bindings.cycle,
+    },
+    {
+      id: 'window.close',
+      keys: 'mod+w',
+      description: 'Close the focused window',
+      scope: 'Window management',
+      // The browser owns Ctrl/Cmd+W for closing the tab; whether the page sees
+      // it first is not something the OS can guarantee.
+      note: 'The browser may intercept this before the desktop does',
+      handler: bindings.close,
+    },
+    {
+      id: 'window.minimise',
+      keys: 'mod+m',
+      description: 'Minimise the focused window',
+      scope: 'Window management',
+      handler: bindings.minimise,
+    },
+    {
+      id: 'window.maximise',
+      keys: 'mod+enter',
+      description: 'Maximise or restore the focused window',
+      scope: 'Window management',
+      handler: bindings.maximise,
+    },
+  ])
 }

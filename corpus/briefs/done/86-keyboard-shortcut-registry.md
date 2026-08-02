@@ -79,3 +79,31 @@ listed shortcut actually does what it claims.
 
 Rebinding, per-app shortcut customisation, chord sequences, a macro system, and
 recording shortcuts from the keyboard.
+
+## Outcome — 2026-07-31 (done)
+
+Shipped. `shortcutRegistry.ts` (store + `groupShortcuts` + `isTextEntry` +
+`formatKeys`), `useRegisteredHotkeys` which **registers and binds in one call**
+so a binding cannot exist undocumented, `ShortcutsOverlay` + `ShortcutList`, and
+a Settings → Keyboard shortcuts section rendering the same list. All five
+existing hotkeys migrated; `mod+w` carries its browser-intercept caveat inline.
+
+`useSaveHotkey` is documented rather than migrated: it binds per editor window,
+so registering from there would add and remove the row as editors open, and
+unmounting one editor would delete a row another still needed. Added
+`useDocumentedShortcuts` for that case, called once from the shell.
+
+Dev-time duplicate detection warns when two ids claim the same keys in a scope.
+
+**Verified in a browser**: `?` and F1 open the overlay listing all shortcuts
+including the caveat; `?` typed into the command palette input produces a
+literal `?` and does not open the overlay; **`?` reaches the Terminal** (xterm's
+hidden textarea) so no keystroke is stolen.
+
+24 core unit tests, including the registry, the duplicate warning, grouping,
+`formatKeys`, and `isTextEntry`. The `isTextEntry` test caught a real defect:
+the function was declared `: boolean` but returned `undefined` where
+`isContentEditable` is unimplemented, which TypeScript could not see because
+lib.dom types it as boolean. Now coerced explicitly.
+
+**Not done**: rebinding UI, deferred in the brief on purpose.

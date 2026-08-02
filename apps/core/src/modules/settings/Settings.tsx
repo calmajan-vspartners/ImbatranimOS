@@ -4,12 +4,13 @@ import {
   ACCENT_PRESETS,
   type ThemeMode,
 } from '../../shared/store/appearanceStore'
-import { Monitor, Palette, Moon, Sun, Check, Image, LayoutGrid } from 'lucide-react'
+import { Monitor, Palette, Moon, Sun, Check, Image, LayoutGrid, Keyboard } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Checkbox } from '../../shared/components/ui'
 import { APP_REGISTRY } from '../../shared/registry/registry'
 import { NON_DISABLEABLE } from '../../shared/registry/enabledApps'
 import { useAddonStore } from '../../shared/store/addonStore'
+import { ShortcutList } from '../../shared/components/shortcuts/ShortcutsOverlay'
 import { SecuritySettings } from '../auth/SecuritySettings'
 
 const WALLPAPERS: { id: Wallpaper; name: string; preview: React.CSSProperties }[] = [
@@ -229,6 +230,16 @@ export function Settings() {
               )
             })}
           </div>
+        </section>
+
+        {/* Keyboard ───────────────────────────────────────────── */}
+        <section className="mb-10">
+          <SectionHeader icon={Keyboard} title="Keyboard shortcuts" />
+          <p className="font-ui text-on-surface-variant mb-3 text-[11px]">
+            Press <span className="text-on-surface font-semibold">?</span> anywhere on the desktop
+            to open this list.
+          </p>
+          <ShortcutList />
         </section>
 
         {/* Security ───────────────────────────────────────────── */}

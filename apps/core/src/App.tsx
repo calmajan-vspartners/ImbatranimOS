@@ -7,7 +7,8 @@ import { usePaletteStore } from './shared/store/paletteStore'
 import { useAppearanceStore, applyAppearance } from './shared/store/appearanceStore'
 import { CommandPalette } from './shared/components/CommandPalette'
 import { ToastHost } from './shared/components/notifications'
-import { useGlobalHotkeys } from './shared/hooks/useGlobalHotkeys'
+import { useDocumentedShortcuts, useRegisteredHotkeys } from './shared/hooks/useRegisteredHotkeys'
+import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay'
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
 
 export default function App() {
@@ -23,9 +24,26 @@ export default function App() {
     applyAppearance(theme, accent)
   }, [theme, accent])
 
-  useGlobalHotkeys({
-    'mod+k': () => openPalette(),
-  })
+  useRegisteredHotkeys([
+    {
+      id: 'global.palette',
+      keys: 'mod+k',
+      description: 'Open the command palette',
+      scope: 'Global',
+      handler: () => openPalette(),
+    },
+  ])
+
+  // Bound per-editor by useSaveHotkey, documented once here — see
+  // useDocumentedShortcuts for why it is not registered from the hook itself.
+  useDocumentedShortcuts([
+    {
+      id: 'editing.save',
+      keys: 'mod+s',
+      description: 'Save the document in the focused editor',
+      scope: 'Editing',
+    },
+  ])
 
   // SWARM:S4 layout restore boot ──────────────────────────────────────────────
   const restoreLayout = useWindowStore((s) => s.restoreLayout)
@@ -88,6 +106,7 @@ export default function App() {
       <Taskbar />
       {/* Notification toasts (bottom-right, above the taskbar) */}
       <ToastHost />
+      <ShortcutsOverlay />
       {/* SWARM:S3 command palette mount */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {/* SWARM:S4 layout restore boot */}
