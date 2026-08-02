@@ -6,14 +6,15 @@ import {
   Button,
   ScrollArea,
   Tooltip,
+  UploadTooLargeError,
   cn,
   fetchFileBytes,
   fileName,
   uploadFileBytes,
+  useFileDialog,
   useOpenIntent,
   useSaveHotkey,
   useUnsavedGuard,
-  UploadTooLargeError,
 } from '@imbatranim/core'
 import { VIEW_MODE_OPTIONS, type ViewMode } from './viewMode'
 
@@ -24,6 +25,11 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () => void openFile({ extensions: ['md', 'markdown'] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -101,7 +107,11 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
   if (!source) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
-        <span className="font-ui text-[12px]">Open a .md file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open a Markdown file
+        </Button>
+        {fileDialog}
       </div>
     )
   }

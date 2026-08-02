@@ -18,6 +18,17 @@ const useOpenedFileStore = createOpenedFileStore()
  * render selector, because StrictMode double-renders would drain it twice. Only
  * latches when both `root` and `openPath` are present.
  */
+/**
+ * Latch a file into the same per-window store `useOpenIntent` reads.
+ *
+ * Used by the Open dialog so a file chosen inside an app drives that app's
+ * existing load path, identical to being handed one by File Manager. Without
+ * this, every app would need a second way in.
+ */
+export function setOpenedFile(windowId: string, file: OpenedFile): void {
+  useOpenedFileStore.getState().setFile(windowId, file)
+}
+
 export function useOpenIntent(windowId: string): OpenedFile | null {
   const source = useOpenedFileStore((s) => s.fileMap[windowId]) ?? null
   const setFile = useOpenedFileStore((s) => s.setFile)

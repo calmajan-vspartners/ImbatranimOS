@@ -3,10 +3,11 @@ import { FileText, Loader2, Save } from 'lucide-react'
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
-  uploadFileBytes,
   UploadTooLargeError,
+  fetchFileBytes,
   fileName,
+  uploadFileBytes,
+  useFileDialog,
   useOpenIntent,
   useSaveHotkey,
   useUnsavedGuard,
@@ -20,6 +21,11 @@ export function Docs({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () => void openFile({ extensions: ['docx'] })
   const editorWrapRef = useRef<HTMLDivElement>(null)
   const toolbarWrapRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<DocEngine | null>(null)
@@ -144,7 +150,11 @@ export function Docs({ windowId }: { windowId: string }) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
         <FileText size={40} strokeWidth={1} />
-        <span className="font-ui text-[12px]">Open a file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open a document
+        </Button>
+        {fileDialog}
       </div>
     )
   }

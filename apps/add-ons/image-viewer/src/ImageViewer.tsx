@@ -12,7 +12,14 @@ import {
   Download,
   Loader2,
 } from 'lucide-react'
-import { Button, Tooltip, downloadUrl, fileName, useOpenIntent } from '@imbatranim/core'
+import {
+  Button,
+  Tooltip,
+  downloadUrl,
+  fileName,
+  useFileDialog,
+  useOpenIntent,
+} from '@imbatranim/core'
 import { listDir } from './api/listDir'
 import type { FsEntry } from './api/types'
 import { isImagePath, parentDir, clamp } from './lib/imagePath'
@@ -30,6 +37,14 @@ export function ImageViewer({ windowId }: { windowId: string }) {
   // moves a local `index` over the sibling list — it never re-drains an intent.
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () =>
+    void openFile({
+      extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico'],
+    })
   // Sibling image files in the same folder, name-sorted. `null` = not resolved
   // yet (or the listing failed) — prev/next stay disabled and the opened file
   // is still shown on its own via `source`.
@@ -228,7 +243,11 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
         <ImageIcon size={40} strokeWidth={1} />
-        <span className="font-ui text-[12px]">Open a file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open an image
+        </Button>
+        {fileDialog}
       </div>
     )
   }

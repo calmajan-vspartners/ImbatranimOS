@@ -3,9 +3,10 @@ import { Presentation, Download, Loader2, Info } from 'lucide-react'
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
   downloadUrl,
+  fetchFileBytes,
   fileName,
+  useFileDialog,
   useOpenIntent,
 } from '@imbatranim/core'
 import { renderPptx } from './engine/pptx'
@@ -19,6 +20,11 @@ export function Slides({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () => void openFile({ extensions: ['pptx'] })
   // Starts true: the render effect runs as soon as a source is latched and only
   // flips these in async paths (avoids synchronous setState-in-effect).
   const [loading, setLoading] = useState(true)
@@ -94,7 +100,11 @@ export function Slides({ windowId }: { windowId: string }) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
         <Presentation size={40} strokeWidth={1} />
-        <span className="font-ui text-[12px]">Open a file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open a presentation
+        </Button>
+        {fileDialog}
       </div>
     )
   }

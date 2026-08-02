@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PlayCircle } from 'lucide-react'
-import { useOpenIntent } from '@imbatranim/core'
+import { Button, useFileDialog, useOpenIntent } from '@imbatranim/core'
 import { listFolderTracks, mediaKind, type Track } from './api/listDir'
 import { TrackStage } from './components/TrackStage'
 import { Playlist } from './components/Playlist'
@@ -21,6 +21,29 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
   // as the user browses the queue.
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () =>
+    void openFile({
+      extensions: [
+        'mp3',
+        'wav',
+        'ogg',
+        'flac',
+        'm4a',
+        'aac',
+        'opus',
+        'weba',
+        'mp4',
+        'webm',
+        'mkv',
+        'mov',
+        'avi',
+        'm4v',
+      ],
+    })
   // `null` until the user picks a track explicitly (queue click, prev/next,
   // or auto-advance) — before that, the active track falls back to the
   // opened file, and playback does NOT autostart just from opening a file.
@@ -81,7 +104,11 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
         <PlayCircle size={40} strokeWidth={1} />
-        <span className="font-ui text-[12px]">Open a file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open media
+        </Button>
+        {fileDialog}
       </div>
     )
   }

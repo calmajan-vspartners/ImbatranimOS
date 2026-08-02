@@ -12,9 +12,10 @@ import {
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
   downloadUrl,
+  fetchFileBytes,
   fileName,
+  useFileDialog,
   useOpenIntent,
 } from '@imbatranim/core'
 import { loadPdfDocument, type LoadedPdf, type PDFDocumentProxy } from './engine/pdf'
@@ -28,6 +29,11 @@ export function PdfViewer({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () => void openFile({ extensions: ['pdf'] })
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [pageNum, setPageNum] = useState(1)
@@ -166,7 +172,11 @@ export function PdfViewer({ windowId }: { windowId: string }) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
         <FileText size={40} strokeWidth={1} />
-        <span className="font-ui text-[12px]">Open a file from Files</span>
+        <span className="font-ui text-[12px]">Nothing open</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open a PDF
+        </Button>
+        {fileDialog}
       </div>
     )
   }

@@ -61,4 +61,6 @@ export type { VirtualList } from './shared/hooks/useVirtualList'
 
 // Shared add-on kit — confirm dialog
 export { ConfirmDialog, useConfirm } from './shared/components/ui/ConfirmDialog'
+export { useFileDialog, type FileChoice } from './shared/hooks/useFileDialog'
+export { FilePicker } from './shared/components/files/FilePicker'
 export { PromptDialog, usePrompt } from './shared/components/ui/PromptDialog'

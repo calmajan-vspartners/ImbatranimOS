@@ -113,3 +113,37 @@ Cancel the dialog and confirm the app is unchanged. Check the dialog at 1280×57
 Recent-files lists, favourites/bookmarked folders, a tree sidebar in the dialog,
 thumbnail previews, multi-select open, uploading from the host machine, and the
 user-editable default-apps registry (its own brief).
+
+## Outcome — 2026-07-31 (done)
+
+Shipped. Core gains `FilePicker` + `useFileDialog(windowId)`, exported from the
+barrel, and all **eight** dead-end apps now offer an Open action.
+
+**Key design decision** — `useFileDialog` takes a `windowId` and latches the
+pick into the *same* opened-file store `useOpenIntent` already reads
+(`setOpenedFile`). So an app's existing load path runs unchanged, identical to
+being handed a file by File Manager, and adoption really is one button per app
+rather than a second code path in each.
+
+**Deviation from the brief, deliberate**: the brief said "promote, don't
+invent" — reuse Notepad's `FileBrowser`. On reading it, that component is a
+*notes manager*, not a picker: it owns create/delete/recent-files mutations
+bound to notepad's own queries and the notes root. Promoting it would drag
+those responsibilities into core. A focused picker was written instead
+(browse + filter + select), and **Notepad keeps its manager** — so the brief's
+"delete notepad's copy" step is intentionally not done.
+
+**Verified in a browser**: Image Viewer's empty state offers "Open an image";
+the picker filters to image extensions (Pictures shown, `trashme.txt` hidden);
+navigating into Pictures and clicking `dot.png` opens it with no File Manager
+involved.
+
+Along the way the picker's first implementation tripped the
+`setState-in-effect` lint rule; rewriting it to tag loaded state with its
+location and derive `loading` also removed a genuine stale-response race, where
+a slow listing could overwrite a folder the user had already navigated away
+from.
+
+**Not done**: `saveFile` exists and is exported but no app calls it yet (the
+"New / blank document" work belongs to the per-app briefs); drag-a-file-onto-a-
+window; and the overwrite-confirm on save-as.

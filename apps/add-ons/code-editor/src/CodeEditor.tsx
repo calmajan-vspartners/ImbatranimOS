@@ -4,14 +4,15 @@ import Editor, { type OnMount } from '@monaco-editor/react'
 import {
   Button,
   Tooltip,
+  UploadTooLargeError,
   cn,
   fetchFileBytes,
   fileName,
   uploadFileBytes,
+  useFileDialog,
   useOpenIntent,
   useSaveHotkey,
   useUnsavedGuard,
-  UploadTooLargeError,
 } from '@imbatranim/core'
 // Side-effect: point @monaco-editor/react at the bundled Monaco and wire the
 // same-origin web workers. MUST run before the editor first renders.
@@ -48,6 +49,11 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
 
+  // Lets the app open a file on its own instead of dead-ending on
+  // "open one from Files". The pick latches into the same store
+  // useOpenIntent reads, so the existing load path runs unchanged.
+  const { openFile, fileDialog } = useFileDialog(windowId)
+  const pickFile = () => void openFile({})
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
@@ -383,7 +389,11 @@ export function CodeEditor({ windowId }: { windowId: string }) {
         {!hasTabs && !loading && (
           <div className="bg-surface-container-lowest text-on-surface-variant absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
             <FileCode2 size={40} strokeWidth={1} />
-            <span className="font-ui text-[12px]">Open a code file from Files</span>
+            <span className="font-ui text-[12px]">Nothing open</span>
+            <Button size="sm" variant="primary" onClick={pickFile}>
+              Open a file
+            </Button>
+            {fileDialog}
           </div>
         )}
       </div>
