@@ -898,3 +898,67 @@ no locked decision** — reinforces auth-everywhere, lightweight, build-from-
 source; adds a second (stricter) SSRF stance to record alongside brief 43's.
 Both briefs land in `briefs/todo/`; decisions to be recorded in
 `wiki/decisions.md` when the work executes (per the brief-43 pattern).
+
+## [2026-07-31] sweep | Improvement research: 3 shipped bugs fixed, briefs 52-86
+
+Asked for research on what more the OS could do and how to improve the existing
+apps, one brief per app, plus what it would take to mimic a real OS more.
+
+**Method changed the result.** The OS was run locally — backend + Vite dev
+servers against a sandbox home — and driven with a scripted browser walkthrough
+that opened all 23 desktop icons, collected console errors, and flagged controls
+clipped under the taskbar. Docker image pulls are blocked by this environment's
+proxy, so the container itself could not be built or booted; everything
+container-specific below was verified from source instead (busybox's own `ps.c`
+and `tar.c`, the Dockerfile, the ISO APKBUILD).
+
+**Three bugs that were live in the shipped artifacts, all invisible in
+development** — which is exactly why they passed review:
+
+1. **System Monitor's process table was empty in every shipped image.**
+   `getProcesses()` ran `ps -eo pid,ruid,pcpu,pmem,rss,comm --no-headers`, which
+   is GNU procps syntax. Both artifacts are Alpine/busybox, whose `ps` takes
+   short options only, has no `ruid`/`pmem`, and has `pcpu` commented out of its
+   column table. The call always threw, the catch swallowed it into `return []`.
+   Replaced with a `/proc` walk — no binary needed, and the same interface `ps`
+   itself reads. A shared-baseline bug in the first implementation (two
+   concurrent pollers collapsing the CPU delta window to 0%) was caught only by
+   hitting the live API twice; unit tests passed straight through it.
+2. **The Git app was dead in production.** `git` is installed in neither the
+   Docker prod stage (which runs no `apk add`) nor the ISO's `depends=`. Both
+   fixed, plus a 503 that names the problem — the execa seam runs with
+   `reject: false`, so a missing binary was arriving as `exitCode: 1` with an
+   empty stderr, i.e. every operation failing with nothing to show the user.
+3. **Core's `Tooltip` emitted `<button>` inside `<button>`** at 33 call sites.
+   base-ui's Trigger renders its own button unless given `render`. This was the
+   source of the 2026-07-19 walkthrough's console errors, which had been
+   attributed to the File Manager subtree — the subtree was innocent. Note the
+   warning is development-only in React, so a production build looks clean.
+
+Cleared one claim: busybox `tar` **does** support `--no-same-owner` and the
+`-czf`/`-tzf` forms, so the archive module is not affected.
+
+Also fixed, both pre-existing on `main`: the repo could not `npm install` with
+its own declared `packageManager: npm@11.11.0` (npm 11 blocks install scripts;
+esbuild, the eslint resolver and all three native modules were unbuilt), and
+`format:check` was red in `pdfcore-engine` (16 files) and the backend.
+
+**Briefs 52-86 — 35, all explicitly ungrilled.** 52-54 cross-cutting platform
+(window clamp, desktop icon overlap, a shared Open dialog for the 8 apps that
+dead-end), 55-78 one per app covering all 24 registry apps, 79-86 real-OS
+parity. New wiki pages: `backlog-2026-07-31.md` (one line per brief +
+dependency order), `real-os-gaps.md` (Tier 2 + the standing rejection list with
+reasons), `ui-conventions.md` (the house style as 46 rules + a 14-item
+pre-flight checklist, derived by reading the kit).
+
+**Notable findings recorded in the briefs**: Settings has no change-password
+route at all; Calendar and Clock persist to the viewing browser's
+`localStorage` rather than the container; `openWith` maps `.pdf` to the
+340-line viewer, hiding the 3886-line norPDF suite, which is itself the largest
+undocumented thing in the repo and writes PDFs with no tests; System Monitor's
+kill has no confirmation despite being uid-scoped to the process running the
+OS; and unmapped double-clicks silently do nothing.
+
+Twelve research subagents were dispatched; two returned (parity research and
+the UI conventions), ten died without output or notification, so briefs 52-86
+were written directly instead.

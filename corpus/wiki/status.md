@@ -167,10 +167,23 @@ todos in `todos/`. All gates were green at the time (80 unit tests, typecheck
   scope): SEC-9 `csp-connect-src-ws-wildcard`, SEC-10 `kiosk-no-sandbox`
   (browser/ISO-gated), and brief 15's v1-release remainder (friend QA, VPS
   deploy, accent pick, dep bumps, tag). Plus the per-brief human walkthroughs
-  noted in each row above.
-- **Excluded from the auto-run (human-gated, do NOT build autonomously):** SEC-9
-  (`csp-connect-src-ws-wildcard`), SEC-10 (`kiosk-no-sandbox`), and brief 15's
-  v1-release remainder.
+  noted in each row above. These stay **human-gated — do NOT build
+  autonomously.**
+
+## 2026-07-31 — Improvement sweep: 3 production bugs fixed, briefs 52-86 written
+
+Ran the OS locally + a scripted walkthrough of all 23 desktop icons. **Three
+bugs live in the shipped artifacts**, all invisible in development — which is
+why they survived review — fixed and merged: System Monitor's process table was
+empty in every image (procps `ps` vs busybox → now a `/proc` walk); the Git app
+was dead in container and ISO (`git` installed in neither); core's `Tooltip`
+emitted nested `<button>`s across 33 sites. Also: the repo could not
+`npm install` under its own declared npm 11, and `format:check` was red twice.
+Backend 135→147. **Briefs 52-86 (35, ungrilled)** — 52-54 platform, 55-78 one per
+app (all 24), 79-86 parity — are listed with their dependency order in
+[backlog-2026-07-31.md](backlog-2026-07-31.md), rejections in
+[real-os-gaps.md](real-os-gaps.md), house style in
+[ui-conventions.md](ui-conventions.md).
 
 ## 2026-07-19 — Web browser + containerized dev pipeline (grilled)
 
