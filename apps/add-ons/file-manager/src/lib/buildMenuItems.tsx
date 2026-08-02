@@ -13,6 +13,8 @@ import {
   FileText,
   FileArchive,
   Package,
+  FilePlus,
+  Info,
 } from 'lucide-react'
 import type { ContextMenuItem } from '../components/ContextMenu'
 import type { FsEntry } from '../types'
@@ -31,7 +33,9 @@ export type BuildMenuItemsCtx = {
   onCopy: (entry: FsEntry) => void
   onCut: (entry: FsEntry) => void
   onDelete: (entry: FsEntry) => void
+  onNewFile: () => void
   onNewFolder: () => void
+  onProperties: (entry: FsEntry) => void
   onNewOfficeFile: (kind: NewFileKind) => void
   onUpload: () => void
   onPaste: () => void
@@ -62,7 +66,9 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
     onCopy,
     onCut,
     onDelete,
+    onNewFile,
     onNewFolder,
+    onProperties,
     onNewOfficeFile,
     onUpload,
     onPaste,
@@ -73,6 +79,11 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
 
   if (!entry) {
     return [
+      {
+        label: 'New File…',
+        icon: <FilePlus size={13} />,
+        onSelect: onNewFile,
+      },
       {
         label: 'New Folder',
         icon: <FolderPlus size={13} />,
@@ -153,6 +164,12 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
       label: 'Cut',
       icon: <Scissors size={13} />,
       onSelect: () => onCut(entry),
+    },
+    { type: 'separator' },
+    {
+      label: 'Properties',
+      icon: <Info size={13} />,
+      onSelect: () => onProperties(entry),
     },
     { type: 'separator' },
     {

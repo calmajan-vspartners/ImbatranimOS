@@ -73,3 +73,32 @@ Editor; a name containing `/` is refused.
 
 Editing permissions, sorting/view modes/hidden toggle (brief 55), multi-select
 Properties, and file previews inside the dialog.
+
+## Outcome — 2026-08-02 (done)
+
+Shipped: Properties dialog (name, where, type, size, modified, created, POSIX
+mode), backend `FileEntry` extended with `createdAt`/`mode`/`isSymlink`, and
+**New File…** in the empty-space menu prompting for a filename with extension,
+which then drives `openWith`.
+
+**Found a real bug while verifying, and fixed it.** The entry context menu was
+*unreachable*: the row's `onContextMenu` called `preventDefault()` but not
+`stopPropagation()`, so the event bubbled to the list wrapper's background
+handler, which reopened the menu with `entry: null`. Right-clicking a file
+therefore showed the empty-space menu (New Folder / Upload / Paste) and its
+Rename / Copy / Cut / Delete items could never be reached, despite being fully
+implemented. The row's `onClick` right above already stops propagation for
+exactly this reason.
+
+That also corrects this brief's own premise: it stated rename "already works".
+It was implemented but unreachable — which is presumably why the user asked for
+it. Right-click now shows Open / Compress / Rename / Copy / Cut / Properties /
+Delete.
+
+**Verified in a browser**: right-click a folder → Properties resolves
+`76 B · 4 files in 0 folders`, permissions `755`; the entry menu lists all seven
+items; New File… appears in the empty-space menu. A too-narrow label column
+("PERMISSIONS755") was caught in the screenshot and widened.
+
+**Not done**: `Alt+Enter` binding for Properties (the dialog is reachable from
+the menu; the shortcut is a small follow-up).

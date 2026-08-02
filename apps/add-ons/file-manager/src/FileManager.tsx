@@ -9,8 +9,9 @@ import {
   PanelRight,
   PanelRightClose,
 } from 'lucide-react'
-import { Button, notify } from '@imbatranim/core'
+import { Button, notify, usePrompt } from '@imbatranim/core'
 import { TrashDialog } from './components/TrashDialog'
+import { PropertiesDialog } from './components/PropertiesDialog'
 import { Input } from '@imbatranim/core'
 import { Dialog } from '@imbatranim/core'
 import { ScrollArea } from '@imbatranim/core'
@@ -47,6 +48,7 @@ import {
   useDeleteEntryMutation,
   useMoveEntryMutation,
   useCopyEntryMutation,
+  useWriteContentMutation,
   useUploadFileMutation,
 } from './queries/filesQueries'
 import { openApp } from '@imbatranim/core'
@@ -105,6 +107,7 @@ export function FileManager({ windowId }: { windowId: string }) {
   // Surfaced error for batch delete/upload failures (no toast system here).
   const [actionError, setActionError] = useState<string | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [propsEntry, setPropsEntry] = useState<FsEntry | null>(null)
 
   // Right-click context menu
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -121,6 +124,8 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   const dirQuery = useDirectoryQuery(root, path)
   const createDirMutation = useCreateDirectoryMutation(root, path)
+  const writeContentMutation = useWriteContentMutation(root, path)
+  const { prompt: promptName, promptDialog } = usePrompt()
   const deleteMutation = useDeleteEntryMutation(root, path)
   const moveMutation = useMoveEntryMutation(root, path)
   const copyMutation = useCopyEntryMutation(root, path)
@@ -201,6 +206,35 @@ export function FileManager({ windowId }: { windowId: string }) {
     })
   }
 
+  async function handleNewFile() {
+    const name = await promptName({
+      title: 'New file',
+      message: 'Include the extension — it decides which app opens the file.',
+      placeholder: 'notes.md',
+    })
+    if (!name) return
+    const trimmed = name.trim()
+    // A filename, not a path: the backend jails this anyway, but refusing here
+    // gives a real message instead of a 400.
+    if (!trimmed || /[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+      setActionError('That name is not a valid filename.')
+      return
+    }
+    if ((dirQuery.data ?? []).some((e) => e.name === trimmed)) {
+      setActionError(`"${trimmed}" already exists here.`)
+      return
+    }
+    const filePath = path ? `${path}/${trimmed}` : trimmed
+    writeContentMutation.mutate(
+      { path: filePath, content: '' },
+      {
+        onSuccess: () =>
+          handleOpen({ name: trimmed, path: filePath, type: 'file', size: 0, modifiedAt: '' }),
+        onError: () => setActionError(`Could not create "${trimmed}".`),
+      }
+    )
+  }
+
   function handleNewOfficeFile(kind: NewFileKind) {
     // Born in the file manager: write a blank template at the current directory
     // under a non-colliding name, then open it straight into the editor.
@@ -263,7 +297,9 @@ export function FileManager({ windowId }: { windowId: string }) {
         onCopy: clipboard.copy,
         onCut: clipboard.cut,
         onDelete: deleteFlow.requestSingle,
+        onNewFile: () => void handleNewFile(),
         onNewFolder: () => setShowNewFolder(true),
+        onProperties: (entry) => setPropsEntry(entry),
         onNewOfficeFile: handleNewOfficeFile,
         onUpload: openFilePicker,
         onPaste: clipboard.paste,
@@ -589,6 +625,15 @@ export function FileManager({ windowId }: { windowId: string }) {
           </div>
         </div>
       </Dialog>
+
+      {promptDialog}
+
+      <PropertiesDialog
+        entry={propsEntry}
+        root={root}
+        open={propsEntry !== null}
+        onOpenChange={(o) => !o && setPropsEntry(null)}
+      />
 
       <TrashDialog
         open={trashOpen}

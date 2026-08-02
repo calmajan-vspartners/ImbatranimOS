@@ -4,6 +4,12 @@ export type FsEntry = {
   type: 'file' | 'directory'
   size: number
   modifiedAt: string
+  /** ctime — POSIX has no true birth time on every filesystem. Optional so a
+   *  cached listing from before this field existed still type-checks. */
+  createdAt?: string
+  /** POSIX permission bits as octal, display only. */
+  mode?: string
+  isSymlink?: boolean
 }
 
 export type FsRoot = {

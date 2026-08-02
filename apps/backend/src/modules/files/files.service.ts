@@ -27,6 +27,12 @@ export interface FileEntry {
   type: 'file' | 'directory';
   size: number;
   modifiedAt: string;
+  /** ctime — POSIX has no true birth time on every filesystem. */
+  createdAt: string;
+  /** POSIX permission bits as octal, e.g. "644". Display only. */
+  mode: string;
+  /** True when the entry itself is a symlink (type reflects its target). */
+  isSymlink: boolean;
 }
 
 /** One hit from {@link FilesService.search}. `path` is root-relative. */
@@ -236,6 +242,9 @@ export class FilesService {
       type,
       size,
       modifiedAt: stat.mtime.toISOString(),
+      createdAt: stat.ctime.toISOString(),
+      mode: (stat.mode & 0o777).toString(8).padStart(3, '0'),
+      isSymlink: stat.isSymbolicLink(),
     };
   }
 

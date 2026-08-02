@@ -150,6 +150,13 @@ export function FileList({
               onContextMenu={(e) => {
                 if (!onContextMenu) return
                 e.preventDefault()
+                // Stop the bubble, exactly as onClick above does. Without it the
+                // event reached the list wrapper's background handler, which
+                // reopened the menu with `entry: null` — so right-clicking a
+                // file showed the empty-space menu (New Folder / Upload /
+                // Paste) and its Rename / Copy / Cut / Delete items were
+                // unreachable despite being implemented.
+                e.stopPropagation()
                 if (!selected.has(entry.path)) onSelect(entry.path, false)
                 onContextMenu(entry, e)
               }}
