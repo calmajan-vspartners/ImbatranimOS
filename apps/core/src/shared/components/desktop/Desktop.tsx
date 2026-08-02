@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { DesktopIcon } from './DesktopIcon'
 import { APP_REGISTRY } from '../../registry/registry'
 import { useEnabledApps } from '../../registry/enabledApps'
-import { useWindowStore } from '../../store/windowStore'
+import { TASKBAR_HEIGHT, useWindowStore } from '../../store/windowStore'
 import { useDesktopStore } from '../../store/desktopStore'
+import { layoutIcons } from './layoutIcons'
 import type { Wallpaper } from '../../store/wallpaperStore'
 import { WindowContainer } from '../window/WindowContainer'
 
@@ -34,30 +35,56 @@ const WALLPAPER_STYLES: Record<Wallpaper, React.CSSProperties> = {
   },
 }
 
-const ICON_WIDTH = 64
-const ICON_HEIGHT = 80
-const GRID_GAP = 16
-const PADDING = 16
-
 export function Desktop({ wallpaper }: DesktopProps) {
   const openWindow = useWindowStore((s) => s.openWindow)
   const enabledApps = useEnabledApps()
-  const { iconPositions, updateIconPosition } = useDesktopStore()
+  const iconPositions = useDesktopStore((s) => s.iconPositions)
+  const updateIconPosition = useDesktopStore((s) => s.updateIconPosition)
+  const setAutoPositions = useDesktopStore((s) => s.setAutoPositions)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // The icons actually drawn — `settings` lives in the Start menu, not on the
+  // desktop, so it must not consume a grid cell (it used to, leaving a hole).
+  const desktopApps = useMemo(
+    () => enabledApps.filter((app) => app.id !== 'settings'),
+    [enabledApps]
+  )
+  // A primitive, not an array: `useEnabledApps()` returns a fresh array on every
+  // render, so an array dependency here re-ran the effect, which wrote to the
+  // store, which re-rendered — an infinite loop.
+  const appIdsKey = desktopApps.map((a) => a.id).join(',')
+
+  // Auto-place every non-pinned icon, and re-place on viewport or roster
+  // changes. Reading the store imperatively keeps `iconPositions` out of the
+  // dependency list, so writing positions cannot re-trigger this effect.
   useEffect(() => {
-    // Initialize positions if missing
-    APP_REGISTRY.forEach((app, index) => {
-      if (!iconPositions[app.id]) {
-        const col = Math.floor(index / 8)
-        const row = index % 8
-        updateIconPosition(app.id, {
-          x: PADDING + col * (ICON_WIDTH + GRID_GAP),
-          y: PADDING + row * (ICON_HEIGHT + GRID_GAP),
-        })
+    const place = () => {
+      const el = containerRef.current
+      const current = useDesktopStore.getState().iconPositions
+      const pinned: Record<string, { x: number; y: number }> = {}
+      for (const [id, pos] of Object.entries(current)) {
+        if (pos.pinned) pinned[id] = { x: pos.x, y: pos.y }
       }
-    })
-  }, [iconPositions, updateIconPosition])
+      setAutoPositions(
+        layoutIcons(appIdsKey ? appIdsKey.split(',') : [], pinned, {
+          width: el?.clientWidth ?? window.innerWidth,
+          height: el?.clientHeight ?? window.innerHeight - TASKBAR_HEIGHT,
+        })
+      )
+    }
+
+    place()
+    let frame = 0
+    const onResize = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(place)
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [appIdsKey, setAutoPositions])
 
   function handleOpen(appId: string) {
     const app = APP_REGISTRY.find((a) => a.id === appId)
@@ -73,22 +100,20 @@ export function Desktop({ wallpaper }: DesktopProps) {
     >
       {/* Desktop icon container - using absolute positioning for children */}
       <div className="absolute inset-0 p-4">
-        {enabledApps
-          .filter((app) => app.id !== 'settings')
-          .map((app) => {
-            const pos = iconPositions[app.id]
-            if (!pos) return null
-            return (
-              <DesktopIcon
-                key={app.id}
-                app={app}
-                onOpen={() => handleOpen(app.id)}
-                position={pos}
-                onPositionChange={(newPos) => updateIconPosition(app.id, newPos)}
-                dragConstraints={containerRef}
-              />
-            )
-          })}
+        {desktopApps.map((app) => {
+          const pos = iconPositions[app.id]
+          if (!pos) return null
+          return (
+            <DesktopIcon
+              key={app.id}
+              app={app}
+              onOpen={() => handleOpen(app.id)}
+              position={pos}
+              onPositionChange={(newPos) => updateIconPosition(app.id, newPos)}
+              dragConstraints={containerRef}
+            />
+          )
+        })}
       </div>
 
       <WindowContainer />

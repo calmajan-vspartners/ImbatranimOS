@@ -1,4 +1,4 @@
-# Brief 71 — Clock: fix the countdown off-by-one, and be honest about "only while open"
+# Brief 71 — Clock: fix the countdown off-by-one, and move state into the container
 
 Status: **todo (ungrilled)** · From the 2026-07-31 app+OS improvement sweep.
 EASY/MEDIUM · add-on `apps/add-ons/clock` (883 LOC / 11 files; `zustand`).
@@ -31,11 +31,11 @@ The underlying timing model is already correct and should not be touched: the
 timer is timestamp-driven (`endAt - now`), so pausing, resuming, or backgrounding
 the tab never drifts (`Timer.tsx:18-22`).
 
-**2. Alarms and timers only fire while the app is open**, which is recorded as a
-known limitation but is not surfaced to the user at the moment they set one. An
-alarm that silently will not ring is worse than no alarm feature. This is a
-genuine product limit — a closed app has no code running — and the honest fix is
-either to say so plainly at set-time, or to move scheduling into the OS.
+**2. Alarms and timers only fire while the app is open.** The app already says
+so, in the Alarms tab (`tabs/Alarms.tsx:84`) — that disclosure shipped with Wave
+C and is correct, so nothing needs adding there. What remains is the underlying
+limit: a closed app has no code running, so an alarm set for tomorrow will not
+ring. The honest fix is an OS-level scheduler, not more wording.
 
 **3. State lives in the viewing browser.** The clock store persists via zustand
 to `localStorage`, so world clocks, alarms and timers belong to the laptop you
@@ -49,18 +49,17 @@ no alarm repeat/weekday schedule, no stopwatch laps export, and no analog face.
 
 - **`Math.ceil` for the countdown**, `floor` stays for elapsed, with a comment in
   both explaining the asymmetry and tests pinning it.
-- **Tell the truth about scheduling at the point of setting.** When an alarm or
-  timer is created, state inline that it fires only while Clock is open. Cheap,
-  immediate, and stops the feature lying.
-- **Then make it not need saying, via the OS not this app.** The real fix is a
+- **The disclosure already exists** (`tabs/Alarms.tsx:84`) and stays. Do not add
+  a second copy of it.
+- **Make it not need saying, via the OS not this app.** The real fix is a
   core-level scheduler — the notification centre (brief 34) already exists, so
   the missing piece is something that survives the app window. Options worth
   grilling: a core-owned scheduler that runs while the *desktop* is open (fixes
   the common case, still dies with the tab), or a Service Worker with
   Notifications for true background firing (which the OS has no service worker
   for today — brief 50 would introduce the first one, at a dedicated scope).
-  **Proposal: do the honest label now, spec the core scheduler separately**, and
-  do not build a half-scheduler inside Clock.
+  **Proposal: spec the core scheduler separately** and do not build a
+  half-scheduler inside Clock.
 - **Move persisted state to the backend** with the same reasoning as Calendar
   (brief 72) — they share the problem and should share the mechanism, so
   sequence them together and land the storage decision once.
@@ -74,11 +73,10 @@ no alarm repeat/weekday schedule, no stopwatch laps export, and no analog face.
 1. `format.ts`: `Math.ceil` in `formatClockDuration`; comment both functions;
    unit tests covering 5:00 start, the sub-second tail, exact zero, and the
    stopwatch's opposite rule.
-2. Inline note at alarm/timer creation about the open-window limitation.
-3. Storage: move the clock store behind the same backend-persistence mechanism
+2. Storage: move the clock store behind the same backend-persistence mechanism
    chosen for Calendar; keep a migration that imports any existing
    `localStorage` state once so users do not lose alarms.
-4. Multiple named timers (list model rather than a single timer), snooze on a
+3. Multiple named timers (list model rather than a single timer), snooze on a
    fired alarm, weekday repeat on alarms.
 
 ## Must preserve (regression surface)
@@ -100,7 +98,7 @@ survives a simulated pause/resume.
 
 **Verified in a browser**: start a 5-second timer and watch it show `00:05` for a
 full second and `00:01` until it actually fires; run a timer, switch tabs for a
-minute, come back and confirm no drift; set an alarm and read the honest note;
+minute, come back and confirm no drift;
 confirm alarms survive a reload after the storage move.
 
 ## Out of scope

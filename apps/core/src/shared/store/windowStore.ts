@@ -30,6 +30,36 @@ export const TASKBAR_HEIGHT = 44
 // opens don't perfectly overlap. Jitter spans [-CASCADE_JITTER_PX, +CASCADE_JITTER_PX].
 export const CASCADE_JITTER_PX = 100
 
+/**
+ * Fit a window to the usable desktop (the viewport minus the taskbar).
+ *
+ * A manifest's `defaultSize` is a preference, not a promise: several apps
+ * declare heights that cannot fit a short laptop viewport. Because the desktop
+ * layer is `overflow-hidden` and windows deliberately do not scroll, anything
+ * past the taskbar line is simply unreachable — that is how Calendar's last
+ * week row and Calculator's `0 . =` row went missing.
+ *
+ * `minSize` wins over the clamp: if an app's honest minimum genuinely does not
+ * fit, respect it and let it overflow rather than render a squashed, broken
+ * layout. That case is the app's bug to fix (an honest `minSize` is required by
+ * wiki/ui-conventions.md §20), not something to paper over here.
+ *
+ * Pure and exported so it can be unit-tested without a DOM, and reused by both
+ * the open path and layout restore.
+ */
+export function clampToDesktop(
+  defaultSize: { width: number; height: number },
+  minSize: { width: number; height: number },
+  viewport: { width: number; height: number }
+): { width: number; height: number } {
+  const availW = viewport.width
+  const availH = viewport.height - TASKBAR_HEIGHT
+  return {
+    width: Math.max(minSize.width, Math.min(defaultSize.width, availW)),
+    height: Math.max(minSize.height, Math.min(defaultSize.height, availH)),
+  }
+}
+
 // ── Layout persistence ────────────────────────────────────────────────────────
 
 export type PersistedWindow = {
@@ -185,19 +215,27 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
     let x: number
     let y: number
 
-    const maxY = window.innerHeight - TASKBAR_HEIGHT - minSize.height
+    // Size first, then place against the size we are actually going to render.
+    // Clamping the position against `minSize` while rendering at `defaultSize`
+    // is what let windows hang below the taskbar.
+    const size = clampToDesktop(defaultSize, minSize, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })
+
+    const maxY = window.innerHeight - TASKBAR_HEIGHT - size.height
 
     if (initialPosition) {
-      x = Math.max(0, Math.min(initialPosition.x, window.innerWidth - minSize.width))
+      x = Math.max(0, Math.min(initialPosition.x, window.innerWidth - size.width))
       y = Math.max(0, Math.min(initialPosition.y, maxY))
     } else {
-      const centerX = Math.floor((window.innerWidth - defaultSize.width) / 2)
-      const centerY = Math.floor((window.innerHeight - TASKBAR_HEIGHT - defaultSize.height) / 2)
+      const centerX = Math.floor((window.innerWidth - size.width) / 2)
+      const centerY = Math.floor((window.innerHeight - TASKBAR_HEIGHT - size.height) / 2)
 
       const offsetX = Math.floor(Math.random() * (CASCADE_JITTER_PX * 2 + 1)) - CASCADE_JITTER_PX
       const offsetY = Math.floor(Math.random() * (CASCADE_JITTER_PX * 2 + 1)) - CASCADE_JITTER_PX
 
-      x = Math.max(0, Math.min(centerX + offsetX, window.innerWidth - minSize.width))
+      x = Math.max(0, Math.min(centerX + offsetX, window.innerWidth - size.width))
       y = Math.max(0, Math.min(centerY + offsetY, maxY))
     }
 
@@ -208,7 +246,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
       isVisible: true,
       isMaximized: false,
       position: { x, y },
-      size: { width: defaultSize.width, height: defaultSize.height },
+      size,
       zIndex: nextZIndex,
     }
 

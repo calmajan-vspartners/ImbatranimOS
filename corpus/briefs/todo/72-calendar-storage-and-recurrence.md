@@ -28,8 +28,9 @@ is three apps deep.
 calendar. "Every Monday" cannot be expressed, so the app cannot hold a real
 schedule.
 
-**3. Reminders inherit Clock's limitation** — they only fire while Calendar is
-open — and, as with Clock, the user is not told.
+**3. Reminders only fire while Calendar is open.** The app already says so in a
+status bar (`Calendar.tsx:114`), which is correct and stays — the remaining
+problem is the limit itself, not the wording.
 
 **4. Missing calendar basics**: no all-day events, no multi-day/spanning events,
 no day or agenda view (month + week only), no search, no drag-to-move or
@@ -59,8 +60,8 @@ grid compress rather than overflow.
   subset and report what it skipped rather than failing wholesale.
 - **All-day and multi-day events** as a first-class field, since recurrence and
   ICS both depend on the model being right.
-- **Do not build a scheduler here.** Reminders get the same honest label as
-  Clock's, and the real fix is the shared core scheduler brief.
+- **Do not build a scheduler here.** The existing disclosure stays; the real fix
+  is the shared core scheduler brief.
 - **Deferred — the Todo coupling** that brief 40 punted. It is a genuine
   integration (a todo with a due date appearing on the calendar) but it needs the
   no-app-to-app-IPC rule respected: coordination goes through the kernel (shared
@@ -81,7 +82,6 @@ grid compress rather than overflow.
 4. All-day + multi-day rendering in month and week views; add a day/agenda view.
 5. ICS import/export.
 6. Honest `minSize`; grid compresses instead of overflowing.
-7. Inline note that reminders require the app to be open.
 
 ## Must preserve (regression surface)
 
