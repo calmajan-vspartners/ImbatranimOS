@@ -106,3 +106,12 @@ the close-with-unsaved dialog is the themed one, not the browser's; open at
 
 Language servers, extensions, workspace-wide find-in-files (deferred), remote
 editing, notebooks, and any change to the Monaco bundling strategy.
+
+## Outcome — 2026-08-02 (superseded)
+
+Superseded by [brief 88](../todo/88-code-editor-files-and-vscode-features.md),
+written when the user asked directly for file/folder creation and more VS Code
+features. 88 carries this brief's content forward — the native-confirm defect,
+the 680px `defaultSize`, the minimap default, the deferred File-menu todo, and
+the language-server rejection — plus the creation flows. Nothing here is lost;
+this file is closed to avoid two briefs owning one app.
