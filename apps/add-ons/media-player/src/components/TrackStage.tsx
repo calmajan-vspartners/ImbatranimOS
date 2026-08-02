@@ -4,6 +4,13 @@ import { Button, downloadUrl, fileName } from '@imbatranim/core'
 import type { MediaKind } from '../api/listDir'
 import { describeMediaError } from '../lib/mediaError'
 import { TransportBar } from './TransportBar'
+import { useRegisteredHotkeys } from '@imbatranim/core'
+import {
+  ARROW_SKIP_SECONDS,
+  COARSE_SKIP_SECONDS,
+  bufferedRanges,
+  clampSeek,
+} from '../lib/transport'
 
 type TrackStageProps = {
   root: string
@@ -48,6 +55,8 @@ export function TrackStage({
   const [volume, setVolume] = useState(initialVolume)
   const [muted, setMuted] = useState(initialMuted)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [buffered, setBuffered] = useState<[number, number][]>([])
+  const [playbackRate, setPlaybackRate] = useState(1)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
 
   // Wire this track's element exactly once: attach listeners that call
@@ -87,8 +96,10 @@ export function TrackStage({
       setErrorMsg(describeMediaError(el!.error))
     }
 
+    const handleProgress = () => setBuffered(bufferedRanges(el!))
     el.addEventListener('loadedmetadata', handleLoadedMetadata)
     el.addEventListener('timeupdate', handleTimeUpdate)
+    el.addEventListener('progress', handleProgress)
     el.addEventListener('play', handlePlay)
     el.addEventListener('pause', handlePause)
     el.addEventListener('volumechange', handleVolumeChange)
@@ -106,6 +117,7 @@ export function TrackStage({
     return () => {
       el.removeEventListener('loadedmetadata', handleLoadedMetadata)
       el.removeEventListener('timeupdate', handleTimeUpdate)
+      el.removeEventListener('progress', handleProgress)
       el.removeEventListener('play', handlePlay)
       el.removeEventListener('pause', handlePause)
       el.removeEventListener('volumechange', handleVolumeChange)
@@ -133,7 +145,72 @@ export function TrackStage({
 
   function seek(time: number) {
     const el = mediaRef.current
-    if (el) el.currentTime = time
+    if (!el) return
+    const next = clampSeek(time, el.duration)
+    if (next !== null) el.currentTime = next
+  }
+
+  /** Relative skip, clamped — used by the buttons and the arrow keys. */
+  function skip(seconds: number) {
+    const el = mediaRef.current
+    if (!el) return
+    const next = clampSeek(el.currentTime + seconds, el.duration)
+    if (next !== null) el.currentTime = next
+  }
+
+  // VLC's keyboard set, scoped to the top-most window so two players cannot
+  // fight over a keystroke, and registered so it appears in the `?` overlay
+  // instead of being invisible.
+  useRegisteredHotkeys([
+    {
+      id: 'media.playpause',
+      keys: 'space',
+      description: 'Play / pause',
+      scope: 'Editing',
+      handler: togglePlay,
+    },
+    {
+      id: 'media.back',
+      keys: 'left',
+      description: `Back ${ARROW_SKIP_SECONDS}s`,
+      scope: 'Editing',
+      handler: () => skip(-ARROW_SKIP_SECONDS),
+    },
+    {
+      id: 'media.forward',
+      keys: 'right',
+      description: `Forward ${ARROW_SKIP_SECONDS}s`,
+      scope: 'Editing',
+      handler: () => skip(ARROW_SKIP_SECONDS),
+    },
+    {
+      id: 'media.back.coarse',
+      keys: 'shift+left',
+      description: `Back ${COARSE_SKIP_SECONDS}s`,
+      scope: 'Editing',
+      handler: () => skip(-COARSE_SKIP_SECONDS),
+    },
+    {
+      id: 'media.forward.coarse',
+      keys: 'shift+right',
+      description: `Forward ${COARSE_SKIP_SECONDS}s`,
+      scope: 'Editing',
+      handler: () => skip(COARSE_SKIP_SECONDS),
+    },
+    {
+      id: 'media.mute',
+      keys: 'm',
+      description: 'Mute / unmute',
+      scope: 'Editing',
+      handler: toggleMute,
+    },
+  ])
+
+  function changeRate(rate: number) {
+    const el = mediaRef.current
+    if (!el) return
+    el.playbackRate = rate
+    setPlaybackRate(rate)
   }
 
   function changeVolume(next: number) {
@@ -200,6 +277,10 @@ export function TrackStage({
       </div>
 
       <TransportBar
+        buffered={buffered}
+        playbackRate={playbackRate}
+        onRateChange={changeRate}
+        onSkip={skip}
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={duration}

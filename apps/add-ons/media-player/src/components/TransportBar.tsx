@@ -1,6 +1,18 @@
-import { Play, Pause, SkipBack, SkipForward, Volume2, Volume1, VolumeX } from 'lucide-react'
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  Volume1,
+  VolumeX,
+} from 'lucide-react'
 import { Button, Tooltip, cn } from '@imbatranim/core'
 import { formatTime } from '../lib/formatTime'
+import { Timebar } from './Timebar'
+import { SKIP_SECONDS, PLAYBACK_RATES } from '../lib/transport'
 
 type TransportBarProps = {
   isPlaying: boolean
@@ -17,6 +29,12 @@ type TransportBarProps = {
   onToggleMute: () => void
   onPrev: () => void
   onNext: () => void
+  /** Buffered ranges as [start, end] pairs. */
+  buffered: [number, number][]
+  playbackRate: number
+  onRateChange: (rate: number) => void
+  /** Relative skip in seconds; negative goes back. */
+  onSkip: (seconds: number) => void
 }
 
 // Native range inputs, stripped of the browser's default (rounded) chrome and
@@ -50,24 +68,23 @@ export function TransportBar({
   onToggleMute,
   onPrev,
   onNext,
+  buffered,
+  playbackRate,
+  onRateChange,
+  onSkip,
 }: TransportBarProps) {
-  const seekableMax = duration > 0 ? duration : 0
   return (
     <div className="border-outline-variant bg-surface-container-low flex shrink-0 flex-col gap-1.5 border-t px-2 py-1.5">
       <div className="flex items-center gap-2">
         <span className="font-ui text-on-surface-variant w-9 shrink-0 text-right text-[10px] tabular-nums">
           {formatTime(currentTime)}
         </span>
-        <input
-          type="range"
-          aria-label="Seek"
-          className={cn(RANGE_CLASSES, 'w-full flex-1')}
-          min={0}
-          max={seekableMax}
-          step="any"
-          value={Math.min(currentTime, seekableMax)}
-          disabled={disabled || seekableMax <= 0}
-          onChange={(e) => onSeek(Number(e.target.value))}
+        <Timebar
+          currentTime={currentTime}
+          duration={duration}
+          buffered={buffered}
+          disabled={disabled}
+          onSeek={onSeek}
         />
         <span className="font-ui text-on-surface-variant w-9 shrink-0 text-[10px] tabular-nums">
           {formatTime(duration)}
@@ -86,6 +103,17 @@ export function TransportBar({
             <SkipBack size={13} />
           </Button>
         </Tooltip>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 shrink-0 p-0"
+          onClick={() => onSkip(-SKIP_SECONDS)}
+          disabled={disabled}
+          title={`Back ${SKIP_SECONDS}s`}
+          aria-label={`Back ${SKIP_SECONDS} seconds`}
+        >
+          <RotateCcw size={13} />
+        </Button>
         <Tooltip content={isPlaying ? 'Pause' : 'Play'}>
           <Button
             variant="primary"
@@ -97,6 +125,17 @@ export function TransportBar({
             {isPlaying ? <Pause size={14} /> : <Play size={14} />}
           </Button>
         </Tooltip>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 shrink-0 p-0"
+          onClick={() => onSkip(SKIP_SECONDS)}
+          disabled={disabled}
+          title={`Forward ${SKIP_SECONDS}s`}
+          aria-label={`Forward ${SKIP_SECONDS} seconds`}
+        >
+          <RotateCw size={13} />
+        </Button>
         <Tooltip content="Next track">
           <Button
             variant="ghost"
@@ -110,6 +149,21 @@ export function TransportBar({
         </Tooltip>
 
         <div className="flex-1" />
+
+        <select
+          aria-label="Playback speed"
+          title="Playback speed"
+          className="border-outline-variant bg-surface-container-lowest font-ui text-on-surface-variant h-6 shrink-0 border px-1 text-[11px] tabular-nums outline-none"
+          value={playbackRate}
+          disabled={disabled}
+          onChange={(e) => onRateChange(Number(e.target.value))}
+        >
+          {PLAYBACK_RATES.map((r) => (
+            <option key={r} value={r}>
+              {r}×
+            </option>
+          ))}
+        </select>
 
         <Tooltip content={muted ? 'Unmute' : 'Mute'}>
           <Button

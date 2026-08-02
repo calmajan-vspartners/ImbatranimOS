@@ -69,3 +69,33 @@ buffered range is visible; every keyboard shortcut works and appears in `?`.
 
 Filters, equaliser, subtitle-delay tuning, transcoding, playlists as files,
 casting, and the queue/persistence work that stays in brief 68.
+
+## Outcome — 2026-08-02 (done)
+
+Shipped: ±5s skip buttons, a real scrub `Timebar` replacing the native range
+input, playback speed 0.25×–4×, and VLC's keyboard tiering (Space, ←/→ ±10s,
+Shift+←/→ ±60s, M mute) registered through brief 86 so it shows in the `?`
+overlay.
+
+The `Timebar` uses pointer capture, so a drag keeps tracking after the pointer
+leaves the bar — the thing a range input cannot do and the thing that makes
+scrubbing feel right. It draws buffered ranges behind the played range from
+`HTMLMediaElement.buffered`, which was available and unused, and shows the time
+under the cursor on hover. It keeps `role="slider"` with
+`aria-valuenow`/`aria-valuetext`.
+
+`clampSeek` is the safety piece and is unit-tested (7 tests): `duration` is
+`NaN` until metadata loads and `Infinity` on a live stream, and assigning either
+to `currentTime` silently wedges the element — both now return "cannot seek"
+rather than a bad assignment. Added a vitest setup to this add-on to hold them.
+
+**Verified in a browser** against a real 5s WAV: +5s → 5.00 clamped to duration,
+−5s → 0, clicking the bar at 50 % → exactly 2.50s, speed 2× applied to the
+element.
+
+Two lint rules caught real defects: reading `barRef.current` during render (the
+hover time is now computed in the pointer handler, where refs are legitimate).
+
+**Not done**: fullscreen `F` and volume `↑`/`↓` keys, and `[`/`]` speed keys —
+the buttons and the select cover those actions, and the remaining bindings are a
+small follow-up. Subtitles, metadata and queue persistence stay in brief 68.
