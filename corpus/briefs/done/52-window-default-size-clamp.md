@@ -102,3 +102,19 @@ must come back empty.
 
 Snapping/tiling improvements, Alt+Tab, workspaces, per-app `defaultSize` tuning,
 and remembering a per-app last-used size.
+
+## Outcome — 2026-07-31 (done)
+
+Shipped in `b8c0cc9`. `clampToDesktop` added as an exported pure helper;
+`openWindow` now sizes first and clamps position against the rendered size.
+`minSize` still wins over the clamp, as specified.
+
+**Not done**: the conservative reflow-on-resize for already-open windows. The
+open path is fixed, which is what the reproduced bug needed; resizing the
+viewport with a too-tall window already open can still clip it. `restoreLayout`
+also does not yet re-clamp. Both are follow-ups.
+
+**Not done**: unit tests for `clampToDesktop` — `apps/core` has no test runner
+at all (no `test` script, no vitest/jest). Verified in a browser instead: all
+23 apps opened at 1280x577 with zero clipped controls, against Todo and
+Calendar clipping before.

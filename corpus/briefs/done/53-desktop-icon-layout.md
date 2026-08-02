@@ -106,3 +106,22 @@ no longer broken mid-word.
 
 Drag-selection marquee (its own todo), arrow-key grid navigation, icon
 sorting/auto-arrange menus, multi-select drag, and custom icon sizes.
+
+## Outcome — 2026-07-31 (done)
+
+Shipped in `b8c0cc9`. Rows derive from the usable height; `layoutIcons` is a
+pure exported helper; `settings` no longer consumes a cell; `desktopStore` gains
+`pinned` with a v1 migration treating old coordinates as auto-placed.
+
+Verified in a browser: 23 icons, no overlaps, nothing below the taskbar, 3
+columns at 1440x900 and 5 at 1280x577.
+
+**Not done**: the accessibility item (icons are still `<div>` with
+`cursor-default`, so not keyboard-reachable) and the mid-word label truncation
+("Bookmark / s"). Both were in the brief's Fix list and are deliberately left —
+they are independent of the layout bug and belong in a focused a11y pass.
+
+**Caught during implementation**: the first version looped infinitely because
+`useEnabledApps()` returns a fresh array each render. Fixed with a primitive
+dependency key plus a no-op short-circuit in `setAutoPositions`. Worth knowing
+before touching this effect again.
