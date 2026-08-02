@@ -47,8 +47,13 @@ export async function copyEntry(root: string, from: string, to: string): Promise
   return res.data
 }
 
-export async function deleteEntry(root: string, path: string): Promise<void> {
-  await api.delete('/files', { params: { root, path } })
+export async function deleteEntry(root: string, path: string, toTrash = false): Promise<void> {
+  // `trash=1` is only honoured for the home root; the backend falls back to a
+  // permanent delete otherwise, which is what the notes root and Shift+Delete
+  // both want.
+  await api.delete('/files', {
+    params: { root, path, ...(toTrash ? { trash: '1' } : {}) },
+  })
 }
 
 export async function uploadFile(root: string, path: string, file: File): Promise<FsEntry> {
@@ -59,5 +64,35 @@ export async function uploadFile(root: string, path: string, file: File): Promis
   const res = await api.post<FsEntry>('/files/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  return res.data
+}
+
+// ── Trash ─────────────────────────────────────────────────────────────────────
+
+export type TrashEntry = {
+  id: string
+  name: string
+  originalPath: string
+  deletedAt: string
+  isDirectory: boolean
+  sizeBytes: number
+}
+
+export async function listTrash(): Promise<TrashEntry[]> {
+  const res = await api.get<TrashEntry[]>('/files/trash')
+  return res.data
+}
+
+export async function restoreFromTrash(id: string): Promise<{ path: string }> {
+  const res = await api.post<{ path: string }>(`/files/trash/${encodeURIComponent(id)}/restore`)
+  return res.data
+}
+
+export async function deleteFromTrash(id: string): Promise<void> {
+  await api.delete(`/files/trash/${encodeURIComponent(id)}`)
+}
+
+export async function emptyTrash(): Promise<{ removed: number }> {
+  const res = await api.delete<{ removed: number }>('/files/trash')
   return res.data
 }

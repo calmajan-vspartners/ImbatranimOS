@@ -9,7 +9,8 @@ import {
   PanelRight,
   PanelRightClose,
 } from 'lucide-react'
-import { Button } from '@imbatranim/core'
+import { Button, notify } from '@imbatranim/core'
+import { TrashDialog } from './components/TrashDialog'
 import { Input } from '@imbatranim/core'
 import { Dialog } from '@imbatranim/core'
 import { ScrollArea } from '@imbatranim/core'
@@ -103,6 +104,7 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   // Surfaced error for batch delete/upload failures (no toast system here).
   const [actionError, setActionError] = useState<string | null>(null)
+  const [trashOpen, setTrashOpen] = useState(false)
 
   // Right-click context menu
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -132,6 +134,15 @@ export function FileManager({ windowId }: { windowId: string }) {
     setSelected,
     deleteMutation,
     onError: setActionError,
+    // Only the home root has a Trash; notes is a separate tree.
+    trashEnabled: root === 'home',
+    onTrashed: (label, count) =>
+      notify({
+        title: count === 1 ? 'Moved to Trash' : `Moved ${count} items to Trash`,
+        body: count === 1 ? label : undefined,
+        level: 'info',
+        appId: 'file-manager',
+      }),
   })
 
   function switchRoot(nextRoot: string) {
@@ -387,7 +398,7 @@ export function FileManager({ windowId }: { windowId: string }) {
             variant="destructive"
             size="sm"
             className="flex items-center gap-1"
-            onClick={deleteFlow.requestBatch}
+            onClick={(e) => deleteFlow.requestBatch(e.shiftKey)}
           >
             <Trash2 size={12} />
             Delete {selected.size}
@@ -397,6 +408,19 @@ export function FileManager({ windowId }: { windowId: string }) {
         {clipboard.clipboard && (
           <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={clipboard.clear}>
             <X size={11} />
+          </Button>
+        )}
+
+        {root === 'home' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 gap-1 px-1.5"
+            title="Open the Trash"
+            onClick={() => setTrashOpen(true)}
+          >
+            <Trash2 size={11} />
+            Trash
           </Button>
         )}
 
@@ -566,18 +590,40 @@ export function FileManager({ windowId }: { windowId: string }) {
         </div>
       </Dialog>
 
+      <TrashDialog
+        open={trashOpen}
+        onOpenChange={setTrashOpen}
+        root={root}
+        currentPath={path}
+        onRestored={(p) =>
+          notify({
+            title: 'Restored from Trash',
+            body: p,
+            level: 'success',
+            appId: 'file-manager',
+          })
+        }
+        onError={setActionError}
+      />
+
       {/* Delete confirm dialog */}
       <Dialog
         open={deleteFlow.dialogOpen}
         onOpenChange={(open) => {
           if (!open) deleteFlow.cancel()
         }}
-        title="Confirm Delete"
+        title={deleteFlow.willTrash ? 'Move to Trash' : 'Delete permanently'}
       >
         <div className="flex flex-col gap-3">
+          {/* The copy must match what actually happens: claiming "cannot be
+              undone" for a move to the Trash would train the user to distrust
+              the warning that matters. */}
           <p className="font-content text-on-surface text-[13px]">
-            Delete <span className="font-semibold">{deleteFlow.deleteLabel}</span>
-            {deleteFlow.deleteCount > 1 ? '' : ''}? This cannot be undone.
+            {deleteFlow.willTrash ? 'Move ' : 'Permanently delete '}
+            <span className="font-semibold">{deleteFlow.deleteLabel}</span>
+            {deleteFlow.willTrash
+              ? ' to the Trash? You can restore it from there.'
+              : '? This cannot be undone.'}
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="default" size="sm" onClick={deleteFlow.cancel}>
@@ -589,7 +635,7 @@ export function FileManager({ windowId }: { windowId: string }) {
               onClick={deleteFlow.confirm}
               disabled={deleteFlow.isPending}
             >
-              Delete
+              {deleteFlow.willTrash ? 'Move to Trash' : 'Delete permanently'}
             </Button>
           </div>
         </div>

@@ -14,6 +14,14 @@ type UseDeleteFlowArgs = {
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>
   deleteMutation: ReturnType<typeof useDeleteEntryMutation>
   onError: (message: string) => void
+  /**
+   * Whether deletions go to the Trash. Only the `home` root has one — `notes`
+   * is a separate directory tree, so a cross-root rename would fail and it
+   * keeps confirm-then-permanent.
+   */
+  trashEnabled: boolean
+  /** Reports the outcome to the notification centre. */
+  onTrashed: (label: string, count: number) => void
 }
 
 /**
@@ -30,24 +38,36 @@ export function useDeleteFlow({
   setSelected,
   deleteMutation,
   onError,
+  trashEnabled,
+  onTrashed,
 }: UseDeleteFlowArgs) {
   const [request, setRequest] = useState<DeleteRequest>(null)
+  /** Set by Shift+Delete to bypass the Trash for this one request. */
+  const [permanent, setPermanent] = useState(false)
 
-  const requestSingle = useCallback((entry: FsEntry) => {
+  const requestSingle = useCallback((entry: FsEntry, forcePermanent = false) => {
+    setPermanent(forcePermanent)
     setRequest({ kind: 'single', target: entry })
   }, [])
 
-  const requestBatch = useCallback(() => {
-    if (selected.size === 0) return
-    setRequest({ kind: 'batch' })
-  }, [selected])
+  const requestBatch = useCallback(
+    (forcePermanent = false) => {
+      if (selected.size === 0) return
+      setPermanent(forcePermanent)
+      setRequest({ kind: 'batch' })
+    },
+    [selected]
+  )
 
   const cancel = useCallback(() => setRequest(null), [])
 
   const confirm = useCallback(async () => {
     if (request?.kind === 'batch') {
       const paths = Array.from(selected)
-      const results = await Promise.allSettled(paths.map((p) => deleteMutation.mutateAsync(p)))
+      const toTrash = trashEnabled && !permanent
+      const results = await Promise.allSettled(
+        paths.map((p) => deleteMutation.mutateAsync({ path: p, toTrash }))
+      )
       // Keep only the items that failed selected; drop the ones we deleted.
       const failedPaths = paths.filter((_, i) => results[i].status === 'rejected')
       setSelected(new Set(failedPaths))
@@ -56,21 +76,25 @@ export function useDeleteFlow({
           `Failed to delete ${failedPaths.length} item${failedPaths.length !== 1 ? 's' : ''}.`
         )
       }
+      const moved = paths.length - failedPaths.length
+      if (moved > 0 && toTrash) onTrashed(`${moved} items`, moved)
     } else if (request?.kind === 'single') {
       const target = request.target
+      const toTrash = trashEnabled && !permanent
       try {
-        await deleteMutation.mutateAsync(target.path)
+        await deleteMutation.mutateAsync({ path: target.path, toTrash })
         setSelected((prev) => {
           const next = new Set(prev)
           next.delete(target.path)
           return next
         })
+        if (toTrash) onTrashed(target.name, 1)
       } catch {
         onError(`Failed to delete "${target.name}".`)
       }
     }
     setRequest(null)
-  }, [request, selected, deleteMutation, setSelected, onError])
+  }, [request, selected, deleteMutation, setSelected, onError, trashEnabled, permanent, onTrashed])
 
   const dialogOpen = request !== null
   const deleteCount = request?.kind === 'batch' ? selected.size : 1
@@ -82,6 +106,8 @@ export function useDeleteFlow({
         : undefined
 
   return {
+    /** True when confirming will move to the Trash rather than delete forever. */
+    willTrash: trashEnabled && !permanent,
     requestSingle,
     requestBatch,
     cancel,

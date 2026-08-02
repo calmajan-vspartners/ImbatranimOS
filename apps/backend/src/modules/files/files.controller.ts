@@ -21,6 +21,7 @@ import type { Request, Response } from 'express';
 import { basename } from 'path';
 import { tmpdir } from 'os';
 import { FilesService } from './files.service';
+import { TrashService } from './trash.service';
 import { MulterExceptionFilter } from './multer-exception.filter';
 import {
   WriteContentDto,
@@ -41,7 +42,10 @@ const MAX_UPLOAD_BYTES =
 
 @Controller('files')
 export class FilesController {
-  constructor(private readonly filesService: FilesService) {}
+  constructor(
+    private readonly filesService: FilesService,
+    private readonly trashService: TrashService,
+  ) {}
 
   /** GET /api/files?root=&path=  → Entry[] */
   @Get()
@@ -156,9 +160,21 @@ export class FilesController {
   }
 
   /** DELETE /api/files?root=&path= → 204 */
+  /**
+   * `?trash=1` moves the entry to the Trash instead of unlinking it; without
+   * it the old permanent behaviour is unchanged, which is what Shift+Delete
+   * and the `notes` root still use.
+   */
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteItem(@Query() q: RootPathQueryDto) {
+  async deleteItem(
+    @Query() q: RootPathQueryDto,
+    @Query('trash') trash?: string,
+  ) {
+    if (trash === '1' && q.root === 'home') {
+      await this.trashService.trash(q.path);
+      return;
+    }
     await this.filesService.delete(q.root, q.path);
   }
 }

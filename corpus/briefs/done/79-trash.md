@@ -81,3 +81,40 @@ permanent with a confirm; empty the Trash.
 
 Auto-empty policies, per-file version history, trash quotas, and restoring to a
 different location.
+
+## Outcome — 2026-07-31 (done)
+
+Shipped. Backend `TrashService` + `TrashController` following the freedesktop
+spec (`~/.local/share/Trash/{files,info}`, `.trashinfo` per entry), trashing by
+`rename` so it is atomic regardless of size. `DELETE /api/files?trash=1` routes
+to it for the `home` root only; `notes` and Shift+Delete keep the permanent
+path. File Manager gains a Trash toolbar button and dialog (Restore / Delete
+permanently / Empty), and the confirm copy now changes with the outcome —
+claiming "cannot be undone" for a reversible move would train the user to
+ignore the warning that matters.
+
+**Security**: restore treats the recorded original path as untrusted, because a
+`.trashinfo` is ordinary content inside the user's home — writable through the
+normal files API and present in any archive they extract. It goes through
+`resolveSafe` plus an explicit containment check. 20 tests including the
+adversarial set: `../` traversal refused with the payload left in the trash, an
+absolute path contained inside the jail rather than written to `/etc`,
+percent-encoded traversal refused, and non-plain trash ids (`../x`, `a/b`,
+`..`, `.`, empty) rejected on both restore and remove.
+
+**Verified end to end in a browser**: DELETE ?trash=1 → 204, entry appears in
+the Trash with its original path, disappears from home, the dialog lists it,
+Restore puts it back, the trash empties, and both toasts fire.
+
+**Deviations from the brief, deliberate**:
+
+- **No Undo button in the toast.** `notify()` has no action/button support, so
+  this would mean growing a shared core surface every app uses. Recovery is via
+  the Trash dialog instead. Undo-in-toast is worth doing but should be a
+  decision about the notification store, not smuggled in here.
+- **Trash is a toolbar button + dialog, not a node in the folder tree** and not
+  a desktop icon. The dialog delivers restore, which is the data-safety win; the
+  tree node is presentation and can follow.
+
+**Not done**: the desktop Trash icon, and the Storage/Backup integrations
+(briefs 83 and 80 exclude and report it — they are not written yet).

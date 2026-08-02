@@ -3,6 +3,10 @@ import {
   copyEntry,
   createDirectory,
   deleteEntry,
+  listTrash,
+  restoreFromTrash,
+  deleteFromTrash,
+  emptyTrash,
   listDirectory,
   moveEntry,
   readContent,
@@ -56,10 +60,45 @@ export function useCreateDirectoryMutation(root: string, path: string) {
 export function useDeleteEntryMutation(root: string, currentPath: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (entryPath: string) => deleteEntry(root, entryPath),
+    mutationFn: ({ path, toTrash }: { path: string; toTrash: boolean }) =>
+      deleteEntry(root, path, toTrash),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
+      qc.invalidateQueries({ queryKey: ['trash'] })
     },
+  })
+}
+
+export const trashKey = ['trash'] as const
+
+export function useTrashQuery(enabled: boolean) {
+  return useQuery({ queryKey: trashKey, queryFn: listTrash, enabled })
+}
+
+export function useRestoreTrashMutation(root: string, currentPath: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => restoreFromTrash(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: trashKey })
+      qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
+    },
+  })
+}
+
+export function useDeleteFromTrashMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteFromTrash(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: trashKey }),
+  })
+}
+
+export function useEmptyTrashMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => emptyTrash(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: trashKey }),
   })
 }
 
