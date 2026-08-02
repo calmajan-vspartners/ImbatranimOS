@@ -121,7 +121,7 @@ A declarative repo-root file — the thing a repo owner adds to be installable:
 - **Persistence**: installed-apps registry in the SQLite DB or a `$HOME` dotfile
   so it survives container recreation on the volume. Uninstall = stop process +
   rm clone + deregister; update = `git pull` + rebuild.
-- **Pairs with** [addon-manager](addon-manager.md): that todo adds a per-user
+- **Pairs with** [addon-manager](promoted/addon-manager.md): that todo adds a per-user
   enable/disable filter over the roster; installed apps flow through the same
   filtered registry rather than a parallel one.
 - **Reinforces** build-from-source identity (clone + build, no registry) even as

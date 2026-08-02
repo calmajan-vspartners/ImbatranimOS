@@ -20,6 +20,6 @@ separate from the *bundle-size* axis (that's the held
 [eager-bundle-lazy-load](eager-bundle-lazy-load.md) todo).
 
 **Promoted 2026-07-17** after grilling →
-[brief 31 (virtualize-long-lists)](../briefs/done/31-virtualize-long-lists.md).
+[brief 31 (virtualize-long-lists)](../../briefs/done/31-virtualize-long-lists.md).
 Decisions captured there: scope = ProcessTable + FileList; dep centralized in
 `@imbatranim/core` via a `useVirtualList` helper; always-virtualize.

@@ -59,6 +59,17 @@ export class FilesController {
    * Authed by the global SessionAuthGuard (no `@Public()`). Jailed + bounded in
    * the service — see {@link FilesService.search}.
    */
+  /**
+   * Recursive size of a directory. Bounded like search — a huge tree returns a
+   * floor with `truncated: true` rather than hanging. Consumed by Settings →
+   * Storage and (per brief 55) file-manager Properties: one implementation,
+   * two consumers.
+   */
+  @Get('size')
+  dirSize(@Query() q: RootPathQueryDto) {
+    return this.filesService.dirSize(q.root, q.path);
+  }
+
   @Get('search')
   search(@Query() q: SearchQueryDto) {
     return this.filesService.search(q.root, q.query, { content: q.content });

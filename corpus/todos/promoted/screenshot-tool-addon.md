@@ -17,4 +17,4 @@ Flameshot's core loop: grab the screen, select a region, annotate
 web desktop itself.
 
 **Promoted 2026-07-17** after grilling →
-[brief 21 (snipping-tool)](../briefs/done/21-snipping-tool.md).
+[brief 21 (snipping-tool)](../../briefs/done/21-snipping-tool.md).

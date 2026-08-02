@@ -16,7 +16,7 @@ large file freezes the entire desktop for hundreds of milliseconds to
 seconds.
 
 > **Docs slice DONE** (2026-07-17,
-> [brief 27](../briefs/done/27-docx-offthread-unzip.md)): `docxNormalize.ts`
+> [brief 27](../../briefs/done/27-docx-offthread-unzip.md)): `docxNormalize.ts`
 > now uses fflate's async `unzip`/`zip` (off-thread worker pool), identical
 > output. **Xlsx slice below is still open.**
 

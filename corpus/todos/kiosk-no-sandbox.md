@@ -25,4 +25,4 @@ flag with its documented rationale recorded alongside it.
 
 Rated informational — the appliance is unprivileged and localhost-only,
 which is why it is not urgent. Relates to the ISO build work; see
-[scaffold-iso-build.md](./scaffold-iso-build.md).
+[scaffold-iso-build.md](promoted/scaffold-iso-build.md).

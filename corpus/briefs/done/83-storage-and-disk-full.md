@@ -84,3 +84,40 @@ and confirm recovery.
 
 Quotas, real-time watching, a dedicated disk-usage-analyzer app, per-app storage
 attribution, and automatic cleanup.
+
+## Outcome — 2026-07-31 (done)
+
+Shipped. Three pieces, as specced:
+
+1. **`GET /api/files/size`** — a bounded recursive walk reusing `searchBounds()`
+   (entry/depth/time caps), returning `{bytes, files, directories, truncated}`.
+   Computed in Node, not by shelling out to `du`, for the same reason the `ps`
+   fix exists. Symlinks are never followed, so it cannot leave the jail or loop.
+2. **`ENOSPC`/`EDQUOT` translated** to a 503 saying "The disk is full — free some
+   space and try again", via a `withDiskSpaceCheck` wrapper around every write
+   path (write, upload copy, mkdir, rename). Only those two codes are
+   translated; permission and too-large errors keep their own messages.
+3. **Settings → Storage** — volume bar (turns `error`-coloured past 90 %),
+   per-folder sizes sorted largest-first with drill-down, refresh, and a `+`
+   marker plus an explanatory line when a walk was truncated. The 90 % warning
+   fires **once per session off the Tray's existing poll**, not a second poller.
+
+6 new backend tests: known-tree sum, single file, **symlink-out-of-jail
+contributes nothing**, truncation when a cap is hit, 404, traversal refused.
+Backend 168 → 174.
+
+**Verified in a browser**: `/files/size` returns real byte counts; a traversal
+gets 400; Settings → Storage shows `225 GB of 252 GB used · 27 GB free` with
+`.imbatranim 1.5 MB`, `Documents 76 B`, `Pictures 67 B`, `.local` carrying the
+Trash glyph.
+
+Two lint rules caught real defects while building, both the same class as the
+brief-54 picker: a synchronous `setState` in an effect, and a non-component
+export breaking react-refresh. Fixing the first also removed a stale-response
+race — the size walk is slow, so a folder the user had navigated away from could
+have overwritten the current view. State is now tagged with the directory it
+describes and `loading` is derived.
+
+**Not done**: file-manager Properties consuming the same endpoint (that is brief
+55's step, and the endpoint it needs now exists), and the Trash-specific
+"Trash is using X — empty it" row, which reads as a plain `.local` line for now.

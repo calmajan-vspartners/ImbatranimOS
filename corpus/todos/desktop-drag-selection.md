@@ -38,7 +38,7 @@ needs; lift/share it rather than reinventing. See
   (persisted) or ephemeral component state (probably ephemeral — selection
   shouldn't survive reload).
 - The marquee must not start when the press begins on an icon (that's a drag,
-  see [desktop-icon-layout-resolution-bugs](desktop-icon-layout-resolution-bugs.md))
+  see [desktop-icon-layout-resolution-bugs](promoted/desktop-icon-layout-resolution-bugs.md))
   — only on empty background.
 - Rectangle hit-test uses icon boxes; coordinate space must match the icon
   positioning model (absolute x/y within the desktop container).

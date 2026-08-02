@@ -23,7 +23,7 @@ ones worth fixing.
    traced to the FileManager subtree. Invalid HTML — hurts accessibility and
    can swallow/duplicate clicks on the inner control. Fix: make the outer or
    inner element a non-button (`div`/`span` with role, or restructure the row).
-   See [apps/add-ons/file-manager/](../../apps/add-ons/file-manager/).
+   See [apps/add-ons/file-manager/](../../../apps/add-ons/file-manager/).
 
 2. **Window default size spills under the taskbar → hidden controls.** Several
    apps open at a default size/position whose bottom is clipped by the 44px
@@ -35,8 +35,8 @@ ones worth fixing.
    off. This is the window-side sibling of the icon overflow in
    [desktop-icon-layout-resolution-bugs](desktop-icon-layout-resolution-bugs.md)
    — likely a shared "clamp to desktop bounds" fix. Window model lives in
-   [windowStore.ts](../../apps/core/src/shared/store/windowStore.ts) /
-   [Window.tsx](../../apps/core/src/shared/components/window/Window.tsx).
+   [windowStore.ts](../../../apps/core/src/shared/store/windowStore.ts) /
+   [Window.tsx](../../../apps/core/src/shared/components/window/Window.tsx).
 
 3. **Viewer/editor apps have no in-app way to open or create content.** Image
    Viewer, Media Player, PDF Viewer, Sheets, Slides, Markdown Editor, and Code
@@ -64,3 +64,11 @@ container's `imbatranim` home — an artifact of running outside Docker, not a
 product defect.
 
 From the 2026-07-19 headless-browser walkthrough.
+
+> **RESOLVED 2026-07-31.** All three findings are fixed:
+> 1. the nested `<button>` was core's `Tooltip`, not FileManager — fixed at the
+>    root, covering all 33 call sites;
+> 2. window default sizes are now clamped to the desktop ([brief 52](../../briefs/done/52-window-default-size-clamp.md));
+> 3. the eight viewer/editor dead ends now have an Open dialog
+>    ([brief 54](../../briefs/done/54-shared-file-open-dialog.md)).
+> Kept for history.

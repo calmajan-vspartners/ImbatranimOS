@@ -17,4 +17,4 @@ preview column. Here it would mean previewing the selected file
 (text, images, maybe more) alongside the file list.
 
 **Promoted 2026-07-17** after grilling →
-[brief 22 (file-preview-pane)](../briefs/done/22-file-preview-pane.md).
+[brief 22 (file-preview-pane)](../../briefs/done/22-file-preview-pane.md).

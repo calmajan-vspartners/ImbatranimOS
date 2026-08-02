@@ -1,17 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Popover } from '@base-ui/react/popover'
 import { Bell } from 'lucide-react'
 import dayjs from 'dayjs'
 import { cn } from '../../../lib/cn'
 import { api } from '../../../lib/axios'
-import { useNotificationStore } from '../../store/notificationStore'
+import { notify, useNotificationStore } from '../../store/notificationStore'
 import { NotificationPanel } from '../notifications/NotificationPanel'
+
+/** Warn once the volume passes this. */
+const DISK_WARN_PERCENT = 90
 
 // Mirrors the backend's /api/system/stats response (system.service.ts).
 type SystemStats = {
   cpu: { percent: number; cores: number }
   memory: { totalBytes: number; usedBytes: number; availableBytes: number; percent: number }
+  disk: { path: string; totalBytes: number; usedBytes: number; freeBytes: number; percent: number }
 }
 
 const toGb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
@@ -128,6 +132,23 @@ export function Tray() {
     refetchInterval: 60_000,
     staleTime: 55_000,
   })
+
+  // Warn once per session when the volume is nearly full. Driven off the poll
+  // the Tray already runs — the percentage was being fetched every minute and
+  // thrown away, while a full volume showed up to the user only as saves
+  // mysteriously failing. A second poller would be waste.
+  const warnedRef = useRef(false)
+  useEffect(() => {
+    const percent = stats?.disk?.percent
+    if (percent === undefined || percent < DISK_WARN_PERCENT) return
+    if (warnedRef.current) return
+    warnedRef.current = true
+    notify({
+      title: 'Disk almost full',
+      body: `The volume is ${Math.round(percent)}% full. Free some space — Settings › Storage shows what is using it.`,
+      level: 'warning',
+    })
+  }, [stats?.disk?.percent])
 
   return (
     <div className="flex h-full items-center gap-1 pr-1">

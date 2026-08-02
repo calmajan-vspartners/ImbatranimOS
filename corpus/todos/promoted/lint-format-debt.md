@@ -2,7 +2,7 @@
 
 > **RESOLVED 2026-07-17** — formatting was paid in briefs 16/17; the backend
 > `no-unsafe-*` slice is paid in
-> [brief 29](../briefs/done/29-backend-lint-typing.md) (plus CS-5 for
+> [brief 29](../../briefs/done/29-backend-lint-typing.md) (plus CS-5 for
 > bookmarks). `backend#lint` and root `npm run lint` are now green
 > (0 errors, 0 warnings). Kept for history.
 

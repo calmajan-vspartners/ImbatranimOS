@@ -4,13 +4,24 @@ import {
   ACCENT_PRESETS,
   type ThemeMode,
 } from '../../shared/store/appearanceStore'
-import { Monitor, Palette, Moon, Sun, Check, Image, LayoutGrid, Keyboard } from 'lucide-react'
+import {
+  Monitor,
+  Palette,
+  Moon,
+  Sun,
+  Check,
+  Image,
+  LayoutGrid,
+  Keyboard,
+  HardDrive,
+} from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Checkbox } from '../../shared/components/ui'
 import { APP_REGISTRY } from '../../shared/registry/registry'
 import { NON_DISABLEABLE } from '../../shared/registry/enabledApps'
 import { useAddonStore } from '../../shared/store/addonStore'
 import { ShortcutList } from '../../shared/components/shortcuts/ShortcutsOverlay'
+import { StorageSettings } from './StorageSettings'
 import { SecuritySettings } from '../auth/SecuritySettings'
 
 const WALLPAPERS: { id: Wallpaper; name: string; preview: React.CSSProperties }[] = [
@@ -230,6 +241,12 @@ export function Settings() {
               )
             })}
           </div>
+        </section>
+
+        {/* Storage ────────────────────────────────────────────── */}
+        <section className="mb-10">
+          <SectionHeader icon={HardDrive} title="Storage" />
+          <StorageSettings />
         </section>
 
         {/* Keyboard ───────────────────────────────────────────── */}

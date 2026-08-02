@@ -21,10 +21,10 @@ Two related desktop-icon bugs, both reproduced live in a headless Chrome at
 ## Context
 
 Both live in
-[Desktop.tsx](../../apps/core/src/shared/components/desktop/Desktop.tsx) +
-[DesktopIcon.tsx](../../apps/core/src/shared/components/desktop/DesktopIcon.tsx),
+[Desktop.tsx](../../../apps/core/src/shared/components/desktop/Desktop.tsx) +
+[DesktopIcon.tsx](../../../apps/core/src/shared/components/desktop/DesktopIcon.tsx),
 with positions persisted in
-[desktopStore.ts](../../apps/core/src/shared/store/desktopStore.ts)
+[desktopStore.ts](../../../apps/core/src/shared/store/desktopStore.ts)
 (zustand `persist`, localStorage key `desktop-storage`).
 
 **Bug 1 — hardcoded 8-rows-per-column layout ignores viewport height.** The
@@ -60,3 +60,8 @@ forever, and moving to a smaller screen never re-flows.
   whether the "clamp to desktop bounds" fix is shared between icons and windows.
 
 From the 2026-07-19 headless-browser test pass (measured, not guessed).
+
+> **SUPERSEDED 2026-07-31** by [brief 53](../../briefs/done/53-desktop-icon-layout.md),
+> which found the cause was worse than described: icons *overlapped* each other
+> at short viewports, not merely overflowed, so some apps could not be launched
+> at all. Kept for history.

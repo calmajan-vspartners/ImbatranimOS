@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { join, resolve, relative, basename, dirname, sep } from 'path';
 import * as fs from 'fs/promises';
@@ -33,6 +34,40 @@ export interface SearchHit {
   name: string;
   path: string;
   type: 'file' | 'directory';
+}
+
+/** Recursive size of a directory, with the caps that stopped the walk. */
+export interface DirSize {
+  bytes: number;
+  files: number;
+  directories: number;
+  /** True when an entry/depth/time cap stopped the walk — the number is a floor. */
+  truncated: boolean;
+}
+
+/**
+ * Run a write and translate a full disk into something a human can act on.
+ *
+ * Nothing distinguished ENOSPC before, so a full volume surfaced as a raw 500
+ * and every save just "failed" — the OS looked broken rather than out of space,
+ * which on a container volume is a likely failure mode (one big download, one
+ * archive extract, an accumulating Trash).
+ *
+ * Only ENOSPC/EDQUOT are translated. Permission errors, too-large uploads and
+ * the rest keep their own distinct messages.
+ */
+async function withDiskSpaceCheck<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOSPC' || code === 'EDQUOT') {
+      throw new ServiceUnavailableException(
+        'The disk is full — free some space and try again.',
+      );
+    }
+    throw err;
+  }
 }
 
 export interface SearchResult {
@@ -417,8 +452,10 @@ export class FilesService {
     content: string,
   ): Promise<FileEntry> {
     const { rootDir, abs } = await this.resolveSafe(root, virtualPath);
-    await fs.mkdir(dirname(abs), { recursive: true });
-    await fs.writeFile(abs, content, 'utf-8');
+    await withDiskSpaceCheck(async () => {
+      await fs.mkdir(dirname(abs), { recursive: true });
+      await fs.writeFile(abs, content, 'utf-8');
+    });
     return this.toEntry(rootDir, abs);
   }
 
@@ -447,10 +484,12 @@ export class FilesService {
   ): Promise<FileEntry> {
     try {
       const { rootDir, abs } = await this.resolveSafe(root, virtualPath);
-      await fs.mkdir(dirname(abs), { recursive: true });
+      await withDiskSpaceCheck(async () => {
+        await fs.mkdir(dirname(abs), { recursive: true });
+      });
       // copyFile (not rename) so it works when tmp and data are on different
       // mounts; it streams in-kernel without buffering in the heap.
-      await fs.copyFile(tmpPath, abs);
+      await withDiskSpaceCheck(() => fs.copyFile(tmpPath, abs));
       return this.toEntry(rootDir, abs);
     } finally {
       await fs.rm(tmpPath, { force: true });
@@ -460,7 +499,7 @@ export class FilesService {
   async createDirectory(root: string, virtualPath: string): Promise<FileEntry> {
     const { rootDir, abs } = await this.resolveSafe(root, virtualPath);
     if (await this.exists(abs)) throw new BadRequestException('Already exists');
-    await fs.mkdir(abs, { recursive: true });
+    await withDiskSpaceCheck(() => fs.mkdir(abs, { recursive: true }));
     return this.toEntry(rootDir, abs);
   }
 
@@ -471,8 +510,10 @@ export class FilesService {
       throw new NotFoundException('Source not found');
     if (await this.exists(absTo))
       throw new BadRequestException('Destination already exists');
-    await fs.mkdir(dirname(absTo), { recursive: true });
-    await fs.rename(absFrom, absTo);
+    await withDiskSpaceCheck(async () => {
+      await fs.mkdir(dirname(absTo), { recursive: true });
+      await fs.rename(absFrom, absTo);
+    });
     return this.toEntry(rootDir, absTo);
   }
 
@@ -502,5 +543,71 @@ export class FilesService {
     } else {
       await fs.unlink(abs);
     }
+  }
+
+  /**
+   * Recursive size of a directory, bounded exactly like {@link search}.
+   *
+   * Computed in Node rather than by shelling out to `du`: the same lesson the
+   * `ps` fix taught — the shipped image is busybox, and depending on whichever
+   * userland happens to be present is how a feature ends up silently dead in
+   * production.
+   *
+   * The caps mean a query pointed at a huge tree returns an honest floor with
+   * `truncated: true` rather than hanging. Symlinks are never followed, so the
+   * walk cannot leave the jail or loop.
+   */
+  async dirSize(root: string, virtualPath = ''): Promise<DirSize> {
+    const { abs } = await this.resolveSafe(root, virtualPath);
+    const bounds = this.searchBounds();
+    const deadline = Date.now() + bounds.budgetMs;
+
+    let bytes = 0;
+    let files = 0;
+    let directories = 0;
+    let entries = 0;
+    let truncated = false;
+
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (truncated) return;
+      if (depth > bounds.maxDepth) {
+        truncated = true;
+        return;
+      }
+      let dirents: Dirent[];
+      try {
+        dirents = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return; // unreadable subtree — skip it rather than fail the whole query
+      }
+      for (const d of dirents) {
+        if (++entries > bounds.maxEntries || Date.now() > deadline) {
+          truncated = true;
+          return;
+        }
+        if (d.isSymbolicLink()) continue; // never follow — jail + loop safety
+        const full = join(dir, d.name);
+        if (d.isDirectory()) {
+          directories++;
+          await walk(full, depth + 1);
+          if (truncated) return;
+        } else if (d.isFile()) {
+          try {
+            bytes += (await fs.lstat(full)).size;
+            files++;
+          } catch {
+            /* vanished mid-walk */
+          }
+        }
+      }
+    };
+
+    const st = await fs.lstat(abs).catch(() => null);
+    if (!st) throw new NotFoundException('Not found');
+    if (!st.isDirectory()) {
+      return { bytes: st.size, files: 1, directories: 0, truncated: false };
+    }
+    await walk(abs, 0);
+    return { bytes, files, directories, truncated };
   }
 }

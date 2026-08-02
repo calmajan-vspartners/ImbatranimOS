@@ -496,7 +496,7 @@ perf/code-quality wins (debounced layout persist, tab-gated system-monitor
 poll + row cap, streamed uploads, bookmarks index/typing, query-DTO
 validation, dead-code + magic-number cleanup, PTY types). Backend 80 unit
 + 29 e2e green; monorepo typecheck/format clean; backend#lint debt
-unchanged (pre-existing, [lint-format-debt](todos/lint-format-debt.md)).
+unchanged (pre-existing, [lint-format-debt](todos/promoted/lint-format-debt.md)).
 Deferred the larger refactors + product-decision security items as todos.
 Two commits on `main`.
 
@@ -1003,3 +1003,27 @@ rather than a picker.
 
 Gates at the end: typecheck 25/25, lint 26/26, format 26/26, build ok, tests
 **262** (168 backend + 70 engine + 24 core) — up from 135 backend-only.
+
+## [2026-07-31] brief 83 + todo housekeeping | Storage, disk-full, and a legible todos/
+
+**Brief 83 shipped.** `GET /api/files/size` (bounded walk, `truncated` flag,
+symlinks never followed), `ENOSPC`/`EDQUOT` translated to a human 503 across
+every write path, and Settings → Storage with a per-folder breakdown, drill-down
+and a once-per-session 90 % warning driven off the Tray's existing poll. A full
+volume no longer presents as random unexplained save failures. Backend 168 → 174.
+
+**`corpus/todos/` was 28 files of which only 5 were open work.** The rest were
+already `status: promoted` with pointers to their briefs — history the corpus
+deliberately keeps ("Kept for history" in `lint-format-debt`), so deleting them
+would have destroyed the record. Moved the 23 promoted/resolved ones to
+`corpus/todos/promoted/` instead: the top level now shows only genuinely open
+work, and nothing is lost. Two were closed by this session's work and carry a
+resolution note — `app-walkthrough-bugs` (all three findings fixed) and
+`desktop-icon-layout-resolution-bugs` (superseded by brief 53, which found the
+cause was worse than described).
+
+Still open at the top level: `code-editor-file-menu` (consumed by brief 61),
+`csp-connect-src-ws-wildcard` (SEC-9) and `kiosk-no-sandbox` (SEC-10) — both
+human-gated — `desktop-drag-selection`, and `install-apps-from-github`.
+
+corpus lint caught four sibling links into the moved files; repaired.

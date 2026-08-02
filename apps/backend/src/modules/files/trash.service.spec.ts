@@ -201,3 +201,77 @@ describe('notes root honours NOTES_DIR', () => {
     expect(entries.map((e) => e.name)).toContain('note.md');
   });
 });
+
+describe('FilesService.dirSize', () => {
+  const prev = process.env.FILES_ROOT;
+  let home: string;
+  let files: FilesService;
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(join(os.tmpdir(), 'imb-size-'));
+    process.env.FILES_ROOT = home;
+    files = new FilesService();
+  });
+  afterEach(async () => {
+    process.env.FILES_ROOT = prev;
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  it('sums a known tree', async () => {
+    await fs.mkdir(join(home, 'a', 'b'), { recursive: true });
+    await fs.writeFile(join(home, 'a', 'one.txt'), 'x'.repeat(100));
+    await fs.writeFile(join(home, 'a', 'b', 'two.txt'), 'y'.repeat(50));
+    const out = await files.dirSize('home', 'a');
+    expect(out.bytes).toBe(150);
+    expect(out.files).toBe(2);
+    expect(out.directories).toBe(1);
+    expect(out.truncated).toBe(false);
+  });
+
+  it('reports a single file without walking', async () => {
+    await fs.writeFile(join(home, 'solo.txt'), 'z'.repeat(7));
+    expect(await files.dirSize('home', 'solo.txt')).toEqual({
+      bytes: 7,
+      files: 1,
+      directories: 0,
+      truncated: false,
+    });
+  });
+
+  it('never follows a symlink out of the jail', async () => {
+    // A symlink to /etc must contribute nothing, or the walk both leaves the
+    // jail and reports sizes the user cannot see.
+    await fs.mkdir(join(home, 'd'));
+    await fs.writeFile(join(home, 'd', 'real.txt'), 'a'.repeat(10));
+    await fs.symlink('/etc', join(home, 'd', 'escape'));
+    const out = await files.dirSize('home', 'd');
+    expect(out.bytes).toBe(10);
+    expect(out.files).toBe(1);
+  });
+
+  it('truncates instead of walking forever when a cap is hit', async () => {
+    const prevMax = process.env.FILES_SEARCH_MAX_ENTRIES;
+    process.env.FILES_SEARCH_MAX_ENTRIES = '3';
+    try {
+      await fs.mkdir(join(home, 'many'));
+      for (let i = 0; i < 20; i++) {
+        await fs.writeFile(join(home, 'many', `f${i}.txt`), 'q');
+      }
+      const out = await files.dirSize('home', 'many');
+      expect(out.truncated).toBe(true);
+      expect(out.files).toBeLessThan(20);
+    } finally {
+      process.env.FILES_SEARCH_MAX_ENTRIES = prevMax;
+    }
+  });
+
+  it('404s a path that does not exist', async () => {
+    await expect(files.dirSize('home', 'nope')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('refuses a traversal', async () => {
+    await expect(files.dirSize('home', '../../etc')).rejects.toThrow();
+  });
+});

@@ -16,5 +16,5 @@ Minimal support for now; we will expand it later. Lives under
 `apps/add-ons/` alongside the other add-ons per the brief-17 layout.
 
 **Promoted 2026-07-17** after grilling →
-[brief 19 (viewers)](../briefs/done/19-office-viewers.md) and
-[brief 20 (editors)](../briefs/done/20-office-editors.md).
+[brief 19 (viewers)](../../briefs/done/19-office-viewers.md) and
+[brief 20 (editors)](../../briefs/done/20-office-editors.md).

@@ -4,7 +4,7 @@ created: 2026-07-16
 status: promoted
 ---
 
-> Promoted 2026-07-16 → [brief 01](../briefs/superseded/01-build-scaffold.md)
+> Promoted 2026-07-16 → [brief 01](../../briefs/superseded/01-build-scaffold.md)
 > (since superseded by the web-OS pivot).
 
 # Scaffold the ISO build system
@@ -18,10 +18,10 @@ debootstrap → chroot `.sh` steps → mksquashfs → xorriso, and package lists
 
 First milestone toward the friend-install bar — an unbranded ISO that boots
 to LXQt counts. All tech choices are locked in
-[decisions](../wiki/decisions.md); the pipeline shape is in
-[architecture](../wiki/architecture.md). First task inside this work: smoke-
+[decisions](../../wiki/decisions.md); the pipeline shape is in
+[architecture](../../wiki/architecture.md). First task inside this work: smoke-
 test debootstrap + chroot + mksquashfs inside privileged Docker on WSL2
-early (see [open-questions](../wiki/open-questions.md)), with the Hyper-V
+early (see [open-questions](../../wiki/open-questions.md)), with the Hyper-V
 VM fallback if it misbehaves. Vendor a pinned nob.h into the repo.
 
 ## Acceptance
