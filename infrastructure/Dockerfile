@@ -72,6 +72,11 @@ RUN cd node_modules \
 FROM node:24.14.1-alpine AS prod
 LABEL org.opencontainers.image.title="ImbatranimOS" \
       org.opencontainers.image.version="1.0.0"
+# git is a RUNTIME dependency, not a build one: the Git app's backend spawns
+# `git` (modules/git/git.service.ts). node:alpine does not ship it, and this
+# stage previously installed nothing, so the Git app failed on every operation
+# in the shipped image while working in development on a glibc host.
+RUN apk add --no-cache git
 RUN deluser node 2>/dev/null || true; delgroup node 2>/dev/null || true; \
     addgroup -g 1000 imbatranim && adduser -D -u 1000 -G imbatranim imbatranim
 WORKDIR /app

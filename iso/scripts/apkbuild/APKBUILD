@@ -20,9 +20,11 @@ url="https://github.com/gandolh/ImbatranimOS"
 arch="x86_64"
 license="UNLICENSED"
 # Runtime graph: node to run the app, the wayland kiosk stack, GPU/input,
-# fonts, and wget (used by the launcher to wait for the backend).
+# fonts, wget (used by the launcher to wait for the backend), and git (the
+# Git app's backend spawns it — see modules/git/git.service.ts).
 depends="
 	nodejs
+	git
 	chromium
 	cage
 	seatd

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import { sep } from 'path';
@@ -70,6 +71,36 @@ interface ExecResult {
 const FIELD_SEP = '\x1f'; // unit separator — between log fields
 const RECORD_SEP = '\0'; // NUL — between records (status entries / commits)
 
+/**
+ * True when a spawn failed because the binary itself is not on PATH.
+ *
+ * We run execa with `reject: false` so git's benign non-zero exits (e.g.
+ * "nothing to commit") come back as results. That also swallows a missing
+ * binary: the result carries no exitCode and an empty stderr, which the
+ * mapping below would flatten to `exitCode: 1` with no message — every Git
+ * operation failing with nothing to show the user. That is precisely how the
+ * shipped image behaved, since its prod stage installed no git.
+ *
+ * execa reports this as `code: 'ENOENT'`, but the property has moved between
+ * versions and is nested under `cause` in some module/interop combinations, so
+ * check the shapes rather than pin one.
+ */
+export function isBinaryMissing(result: unknown): boolean {
+  if (typeof result !== 'object' || result === null) return false;
+  const r = result as {
+    code?: unknown;
+    cause?: { code?: unknown };
+    originalMessage?: unknown;
+    shortMessage?: unknown;
+  };
+  if (r.code === 'ENOENT') return true;
+  if (r.cause?.code === 'ENOENT') return true;
+  const original =
+    typeof r.originalMessage === 'string' ? r.originalMessage : '';
+  const short = typeof r.shortMessage === 'string' ? r.shortMessage : '';
+  return /\bENOENT\b/.test(`${original} ${short}`);
+}
+
 @Injectable()
 export class GitService {
   constructor(private readonly filesService: FilesService) {}
@@ -96,6 +127,11 @@ export class GitService {
       // Never a shell — array args only.
       shell: false,
     });
+    if (isBinaryMissing(result)) {
+      throw new ServiceUnavailableException(
+        'git is not available in this image — the Git app cannot run',
+      );
+    }
     return {
       stdout: typeof result.stdout === 'string' ? result.stdout : '',
       stderr: typeof result.stderr === 'string' ? result.stderr : '',
