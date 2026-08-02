@@ -935,6 +935,16 @@ development** — which is exactly why they passed review:
    attributed to the File Manager subtree — the subtree was innocent. Note the
    warning is development-only in React, so a production build looks clean.
 
+4. **Notepad's notes were written outside the volume** — found later the same
+   day by chasing a 404 in the browser walkthrough. `NOTES_DIR` is in the env
+   schema, set in both Dockerfile stages, and created by `entrypoint.sh`, but
+   `files.service.ts` hardcoded `resolve(cwd, 'data/notes')` and never read it.
+   In the container that is `/app/data/notes`, the image's writable layer,
+   while the volume is `/home/imbatranim`. Every note was destroyed on
+   container recreation — which the README actively encourages. The 404 was the
+   symptom; the data loss was underneath it. This is the only one of the four
+   that lost user data rather than disabling a feature.
+
 Cleared one claim: busybox `tar` **does** support `--no-same-owner` and the
 `-czf`/`-tzf` forms, so the archive module is not affected.
 
@@ -962,3 +972,34 @@ OS; and unmapped double-clicks silently do nothing.
 Twelve research subagents were dispatched; two returned (parity research and
 the UI conventions), ten died without output or notification, so briefs 52-86
 were written directly instead.
+
+
+## [2026-07-31] build | Implementation wave: briefs 52, 53, 54, 79, 86 + a test runner
+
+Went down the dependency order agreed with the user, building as specified and
+choosing the conservative option wherever a brief flagged a contentious call.
+
+- **Core got a test runner.** `apps/core` had none, so all frontend logic was
+  unverifiable except by driving a browser. vitest, node environment by default,
+  jsdom per-file only where a DOM is genuinely needed. The 11 backfilled tests
+  were mutation-tested: reintroducing the original bugs fails 8 of them.
+- **52 window clamp** and **53 desktop icon layout** — both reproduced at
+  1280×577 before and verified gone after. 53 turned out to have three
+  compounding causes, including `settings` consuming a grid cell it never
+  renders into.
+- **86 shortcut registry** — registration and binding happen in one call, so a
+  binding cannot exist undocumented. `?`/F1 overlay, verified not to steal
+  keystrokes from the Terminal.
+- **79 Trash** — freedesktop spec, `rename` not copy, restore treats the
+  recorded original path as untrusted. 20 tests including the adversarial set.
+- **54 shared Open dialog** — all eight dead-ending apps wired. The pick latches
+  into the store `useOpenIntent` already reads, so each app needed only a button.
+
+Two deviations worth knowing: no Undo button in the Trash toast (`notify()` has
+no action support, and adding one is a change to a shared surface that deserves
+its own decision), and the Open dialog is a new focused picker rather than a
+promotion of Notepad's `FileBrowser`, which on reading is a notes *manager*
+rather than a picker.
+
+Gates at the end: typecheck 25/25, lint 26/26, format 26/26, build ok, tests
+**262** (168 backend + 70 engine + 24 core) — up from 135 backend-only.
