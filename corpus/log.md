@@ -1027,3 +1027,52 @@ Still open at the top level: `code-editor-file-menu` (consumed by brief 61),
 human-gated — `desktop-drag-selection`, and `install-apps-from-github`.
 
 corpus lint caught four sibling links into the moved files; repaired.
+
+## [2026-08-02] briefs 87, 88, 89 | The user's four feature asks, three shipped
+
+Four features requested directly: a file-explorer context menu, code-editor file
+creation with VS Code features, VLC-grade media transport, and medium Word /
+Excel / PowerPoint parity. Briefs 87-90 written; 87, 88 and 89 shipped. 90 is
+gated on briefs 62-64 and is the remaining one.
+
+**Brief 87 — File Manager.** Properties (name, where, type, size with the
+bounded folder walk, modified, created, permissions) and New File… with any
+extension. The find underneath it: the entry context menu was **implemented but
+unreachable**. The row's `onContextMenu` did not stop the bubble, so every
+right-click on a file reached the wrapper's background handler and reopened the
+menu with `entry: null` — the empty-space menu. Rename / Copy / Cut / Delete had
+been shipped and could not be clicked. One `e.stopPropagation()`, matching the
+`onClick` handler three lines above that already had one.
+
+**Brief 89 — Media Player.** ±5s buttons, a real scrub bar with buffered ranges
+and pointer capture, 0.25×-4× speed, VLC's key tiering registered through brief
+86. `clampSeek` is unit-tested because `duration` is `NaN` before metadata and
+`Infinity` on a stream, and assigning either wedges the element.
+
+**Brief 88 — Code Editor.** File / Edit / View menus, New File (name picks the
+Monaco language, same rule as 87), New Folder, Save As with model retargeting,
+and the app's last `window.confirm` replaced by the themed dialog. `FilePicker`
+gained a `directory` mode and `useFileDialog` a `pickDirectory`, so every app
+can ask for a folder now. Manifest default height 680 → 620, which fits a 720px
+viewport.
+
+The brief asked whether the **Monaco workers are genuinely active** or silently
+falling back to the main thread. **They are active**: `editor.worker.js` and
+`ts.worker.js` both spawn, and the TypeScript worker returns a real type error
+for `const answer: number = 'not a number'` in a `.ts` tab. Nothing to fix.
+
+Tab restore shipped narrower than the brief asked and the reason is structural:
+`PersistedWindow` has no window id, so ids are re-minted on reload and a
+per-window record could never be matched to its window. One session record,
+claimed by the first editor window, is what is honest.
+
+**The recurring theme across all three.** `react-hooks`' set-state-in-effect and
+ref-during-render rules fired five times this session, and every one pointed at
+a real defect rather than a style preference — a stale-response race in three
+components, a hover value read from a ref during render in the `Timebar`, and in
+88 a StrictMode bug where cancel-on-cleanup would have discarded the restored
+tabs, because `claimTabSession` answers once and the second mount run no longer
+asks. None were suppressed; each was restructured.
+
+Tests **275 → 283** (174 backend + 70 engine + 24 core + 7 media-player + 8
+code-editor). Eager bundle 125.71 → 125.77 KB gzip; Monaco stayed lazy.

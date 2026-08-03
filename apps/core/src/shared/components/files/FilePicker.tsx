@@ -37,7 +37,11 @@ export function FilePicker({
   /** Preferred extensions, lowercase and without the dot. A hint, not a jail. */
   extensions?: string[]
   onPick: (choice: { root: string; path: string }) => void
-  mode?: 'open' | 'save'
+  /**
+   * `directory` picks the folder currently browsed rather than a file — files
+   * still render (so the user can see what is in there) but are inert.
+   */
+  mode?: 'open' | 'save' | 'directory'
   suggestedName?: string
 }) {
   const [root, setRoot] = useState('home')
@@ -77,7 +81,7 @@ export function FilePicker({
 
   const visible = useMemo(() => {
     const filtered =
-      !extensions || extensions.length === 0 || showAll
+      !extensions || extensions.length === 0 || showAll || mode === 'directory'
         ? entries
         : entries.filter(
             (e) =>
@@ -87,7 +91,7 @@ export function FilePicker({
     return [...filtered].sort((a, b) =>
       a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1
     )
-  }, [entries, extensions, showAll])
+  }, [entries, extensions, showAll, mode])
 
   const goUp = () => setDir((d) => d.split('/').slice(0, -1).join('/'))
 
@@ -142,14 +146,21 @@ export function FilePicker({
               <button
                 key={e.path}
                 type="button"
+                // In directory mode a file is context, not a target: showing it
+                // greyed out is more honest than hiding it, since "is my file
+                // already in here?" is exactly what the user is checking.
+                disabled={mode === 'directory' && e.type === 'file'}
                 className={cn(
-                  'border-outline-variant hover:bg-surface-container-low flex w-full items-center gap-2 border-b px-2 py-1 text-left',
-                  'focus-visible:ring-primary outline-none focus-visible:ring-2 focus-visible:ring-inset'
+                  'border-outline-variant flex w-full items-center gap-2 border-b px-2 py-1 text-left',
+                  'focus-visible:ring-primary outline-none focus-visible:ring-2 focus-visible:ring-inset',
+                  mode === 'directory' && e.type === 'file'
+                    ? 'text-on-surface-variant/50 cursor-default'
+                    : 'hover:bg-surface-container-low'
                 )}
                 onClick={() => {
                   if (e.type === 'directory') setDir(e.path)
                   else if (mode === 'open') onPick({ root, path: e.path })
-                  else setName(e.name)
+                  else if (mode === 'save') setName(e.name)
                 }}
               >
                 {e.type === 'directory' ? (
@@ -167,7 +178,7 @@ export function FilePicker({
       </div>
 
       <div className="border-outline-variant bg-surface-container-low flex flex-none items-center gap-2 border-t px-2 py-1">
-        {extensions && extensions.length > 0 && (
+        {extensions && extensions.length > 0 && mode !== 'directory' && (
           <label className="font-ui text-on-surface-variant flex items-center gap-1 text-[11px]">
             <input
               type="checkbox"
@@ -177,7 +188,17 @@ export function FilePicker({
             All files
           </label>
         )}
+        {mode === 'directory' && (
+          <span className="font-ui text-on-surface-variant min-w-0 truncate text-[11px]">
+            {ROOTS.find((r) => r.id === root)?.label ?? root}/{dir}
+          </span>
+        )}
         <div className="flex-1" />
+        {mode === 'directory' && (
+          <Button size="sm" variant="primary" onClick={() => onPick({ root, path: dir })}>
+            Select this folder
+          </Button>
+        )}
         {mode === 'save' && (
           <>
             <input

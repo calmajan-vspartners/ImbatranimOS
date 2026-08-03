@@ -5,12 +5,15 @@ import {
   Button,
   Tooltip,
   UploadTooLargeError,
+  api,
   cn,
   fetchFileBytes,
   fileName,
   uploadFileBytes,
+  useConfirm,
   useFileDialog,
   useOpenIntent,
+  usePrompt,
   useSaveHotkey,
   useUnsavedGuard,
 } from '@imbatranim/core'
@@ -18,6 +21,9 @@ import {
 // same-origin web workers. MUST run before the editor first renders.
 import './monacoSetup'
 import { languageForPath } from './language'
+import { MenuButton } from './components/MenuButton'
+import { FONT_SIZES, useEditorPrefs } from './lib/editorPrefs'
+import { claimTabSession, saveTabSession } from './lib/tabSession'
 
 // Types are derived from the OnMount callback so we never deep-import Monaco's
 // own type modules here — Monaco stays a runtime-only, lazily-loaded dependency.
@@ -30,8 +36,9 @@ type Disposable = ReturnType<TextModel['onDidChangeContent']>
 type Tab = {
   /** Stable per-file id — also the Monaco model URI. Unique across roots. */
   id: string
-  root: string
-  path: string
+  /** null until the buffer has been written somewhere (a New File tab). */
+  root: string | null
+  path: string | null
   name: string
   language: string
 }
@@ -45,6 +52,22 @@ function tabId(root: string, path: string): string {
   return `file:///${encodeURI(root)}/${encodeURI(clean)}`
 }
 
+/**
+ * Reject the characters that make a *name* not a name. Path separators are the
+ * real target: the backend's `resolveSafe` would refuse them anyway, but a
+ * clear message beats a 400 the user has to interpret.
+ */
+function invalidNameReason(name: string): string | null {
+  if (!name) return 'Enter a name.'
+  if (name.includes('/') || name.includes('\\')) return 'A name cannot contain slashes.'
+  if (name === '.' || name === '..') return 'That name is reserved.'
+  // Control characters, checked by code point rather than a regex literal —
+  // a regex with a raw \x00 in it is unreadable and lint-hostile.
+  if ([...name].some((c) => (c.codePointAt(0) ?? 0) < 0x20))
+    return 'That name contains an invalid character.'
+  return null
+}
+
 export function CodeEditor({ windowId }: { windowId: string }) {
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
@@ -52,8 +75,11 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile, pickDirectory, fileDialog } = useFileDialog(windowId)
+  const { confirm, confirmDialog } = useConfirm()
+  const { prompt, promptDialog } = usePrompt()
   const pickFile = () => void openFile({})
+
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
@@ -61,6 +87,9 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const prefs = useEditorPrefs()
+  const setPref = useEditorPrefs((s) => s.set)
 
   const editorRef = useRef<StandaloneEditor | null>(null)
   const monacoRef = useRef<MonacoInstance | null>(null)
@@ -73,6 +102,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   const pendingContentRef = useRef<Map<string, string>>(new Map())
   const openedIdsRef = useRef<Set<string>>(new Set())
   const lastActiveRef = useRef<string | null>(null)
+  const untitledSeqRef = useRef(0)
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null
   const activeName = activeTab?.name ?? ''
@@ -93,14 +123,16 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   const options = useMemo(
     () => ({
       automaticLayout: true,
-      fontSize: 13,
+      fontSize: prefs.fontSize,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-      minimap: { enabled: true },
+      minimap: { enabled: prefs.minimap },
+      wordWrap: (prefs.wordWrap ? 'on' : 'off') as 'on' | 'off',
+      bracketPairColorization: { enabled: true },
       scrollBeyondLastLine: false,
       smoothScrolling: true,
       tabSize: 2,
     }),
-    []
+    [prefs.fontSize, prefs.minimap, prefs.wordWrap]
   )
 
   // Recompute the dirty flag for one tab from its model's alternative version id
@@ -166,46 +198,85 @@ export function CodeEditor({ windowId }: { windowId: string }) {
     editor.focus()
   }, [activeId, ready, tabs, recomputeDirty])
 
-  // Open the file delivered by the launch intent (StrictMode-safe via the id guard).
+  /**
+   * Everything that becomes a tab arrives here: the launch intent, the Open
+   * dialog (which latches into the same store the intent reads) and the tabs
+   * restored from the session record. One loader, so there is no second way for
+   * a file to become a tab and drift from this one.
+   *
+   * Deliberately not cancelled on cleanup. StrictMode runs this effect twice on
+   * mount and `claimTabSession` only answers once, so a cancel-on-cleanup guard
+   * would throw away the restored tabs the first run had already started
+   * fetching and the second run would no longer ask for. Re-entry is prevented
+   * by `openedIdsRef` instead, which is the guard that actually matters — and a
+   * late state update after the window closes is a no-op in React 19.
+   */
   useEffect(() => {
-    if (!source) return
-    const id = tabId(source.root, source.path)
-    if (openedIdsRef.current.has(id)) {
-      setActiveId(id)
-      return
+    const targets = claimTabSession()
+    if (source) targets.push({ root: source.root, path: source.path })
+    if (targets.length === 0) return
+
+    const toLoad: { id: string; root: string; path: string }[] = []
+    const alreadyOpen: string[] = []
+    for (const t of targets) {
+      const id = tabId(t.root, t.path)
+      // Already open: it gets focused, not re-read. Re-reading would replace a
+      // buffer that may hold unsaved edits.
+      if (openedIdsRef.current.has(id)) {
+        alreadyOpen.push(id)
+        continue
+      }
+      openedIdsRef.current.add(id)
+      toLoad.push({ id, root: t.root, path: t.path })
     }
-    openedIdsRef.current.add(id)
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    ;(async () => {
-      try {
-        const bytes = await fetchFileBytes(source.root, source.path)
-        if (cancelled) return
-        pendingContentRef.current.set(id, decoder.decode(bytes))
-        const tab: Tab = {
-          id,
-          root: source.root,
-          path: source.path,
-          name: fileName(source.path, 'untitled'),
-          language: languageForPath(source.path),
-        }
-        setTabs((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, tab]))
-        setActiveId(id)
-      } catch (err) {
-        if (!cancelled) {
-          openedIdsRef.current.delete(id)
-          console.error('[code-editor] failed to open', err)
+    if (toLoad.length === 0 && alreadyOpen.length === 0) return
+
+    // Every state update below happens inside the async body, one microtask
+    // after this commit — never synchronously inside it, which would cascade a
+    // render out of the effect that scheduled it.
+    void (async () => {
+      if (toLoad.length === 0) {
+        // Every target was already open: bring the last one forward.
+        setActiveId(alreadyOpen[alreadyOpen.length - 1])
+        return
+      }
+      setLoading(true)
+      setError(null)
+      for (const t of toLoad) {
+        try {
+          const bytes = await fetchFileBytes(t.root, t.path)
+          pendingContentRef.current.set(t.id, decoder.decode(bytes))
+          const tab: Tab = {
+            id: t.id,
+            root: t.root,
+            path: t.path,
+            name: fileName(t.path, 'untitled'),
+            language: languageForPath(t.path),
+          }
+          setTabs((prev) => (prev.some((x) => x.id === tab.id) ? prev : [...prev, tab]))
+          setActiveId(t.id)
+        } catch (err) {
+          // One unreadable file (deleted since the session was recorded, say)
+          // must not stop the rest of the set from opening.
+          openedIdsRef.current.delete(t.id)
+          console.error('[code-editor] failed to open', t.path, err)
           setError('Could not open this file.')
         }
-      } finally {
-        if (!cancelled) setLoading(false)
       }
+      setLoading(false)
     })()
-    return () => {
-      cancelled = true
-    }
   }, [source])
+
+  // Record the on-disk tabs for this session on every change.
+  useEffect(() => {
+    saveTabSession(
+      tabs
+        .filter(
+          (t): t is Tab & { root: string; path: string } => t.root !== null && t.path !== null
+        )
+        .map((t) => ({ root: t.root, path: t.path }))
+    )
+  }, [tabs])
 
   // Dispose every model + listener when the window closes.
   useEffect(() => {
@@ -219,48 +290,197 @@ export function CodeEditor({ windowId }: { windowId: string }) {
     }
   }, [])
 
-  const handleSave = useCallback(async () => {
-    const id = activeId
-    const tab = tabs.find((t) => t.id === id)
-    const model = id ? modelsRef.current.get(id) : undefined
-    if (!id || !tab || !model || saving) return
-    // Snapshot the version being uploaded; if the user edits mid-flight the
-    // version advances and the tab stays dirty (those edits aren't on disk yet).
-    const uploadedVersion = model.getAlternativeVersionId()
-    const text = model.getValue()
-    setSaving(true)
-    setError(null)
-    try {
-      await uploadFileBytes(tab.root, tab.path, encoder.encode(text), tab.name)
-      savedVersionRef.current.set(id, uploadedVersion)
-      recomputeDirty(id)
-    } catch (err) {
-      if (err instanceof UploadTooLargeError) {
-        setError(err.message)
-      } else {
-        console.error('[code-editor] failed to save', err)
-        setError('Could not save this file.')
+  /**
+   * Write one tab's buffer to `{root, path}`. Runs format-on-save first when it
+   * is enabled, and only then reads the text — formatting after the read would
+   * store the unformatted bytes and leave the buffer looking modified.
+   */
+  const writeTab = useCallback(
+    async (id: string, root: string, path: string, name: string): Promise<boolean> => {
+      const model = modelsRef.current.get(id)
+      if (!model) return false
+      setSaving(true)
+      setError(null)
+      try {
+        if (useEditorPrefs.getState().formatOnSave && editorRef.current?.getModel() === model) {
+          // No formatter for this language is not a failure — the action
+          // resolves having done nothing, and the save proceeds.
+          await editorRef.current.getAction('editor.action.formatDocument')?.run()
+        }
+        // Snapshot after formatting: if the user edits mid-flight the version
+        // advances and the tab stays dirty (those edits aren't on disk yet).
+        const uploadedVersion = model.getAlternativeVersionId()
+        const text = model.getValue()
+        await uploadFileBytes(root, path, encoder.encode(text), name)
+        savedVersionRef.current.set(id, uploadedVersion)
+        recomputeDirty(id)
+        return true
+      } catch (err) {
+        if (err instanceof UploadTooLargeError) {
+          setError(err.message)
+        } else {
+          console.error('[code-editor] failed to save', err)
+          setError('Could not save this file.')
+        }
+        return false
+      } finally {
+        setSaving(false)
       }
-    } finally {
-      setSaving(false)
+    },
+    [recomputeDirty]
+  )
+
+  const handleSaveAs = useCallback(async () => {
+    const tab = tabs.find((t) => t.id === activeId)
+    if (!tab || saving) return
+    const choice = await saveFile({ title: 'Save as', suggestedName: tab.name })
+    if (!choice) return
+
+    const newId = tabId(choice.root, choice.path)
+    if (newId !== tab.id && tabs.some((t) => t.id === newId)) {
+      // Retargeting onto an id another tab owns would leave two tabs sharing one
+      // Monaco model URI, and the loser's unsaved edits would vanish with it.
+      setError('That file is already open in another tab.')
+      return
     }
-  }, [activeId, tabs, saving, recomputeDirty])
+
+    const name = fileName(choice.path, tab.name)
+    const ok = await writeTab(tab.id, choice.root, choice.path, name)
+    if (!ok || newId === tab.id) return
+
+    // The model URI is immutable, so retargeting means moving the buffer to a
+    // new model. Hand the text to pendingContent and let the activation effect
+    // build it, rather than duplicating model creation here.
+    const oldId = tab.id
+    const model = modelsRef.current.get(oldId)
+    const value = model?.getValue() ?? ''
+    const editor = editorRef.current
+    const viewState = editor?.saveViewState() ?? null
+    if (editor && model && editor.getModel() === model) editor.setModel(null)
+    listenersRef.current.get(oldId)?.dispose()
+    listenersRef.current.delete(oldId)
+    model?.dispose()
+    modelsRef.current.delete(oldId)
+    viewStatesRef.current.delete(oldId)
+    savedVersionRef.current.delete(oldId)
+    pendingContentRef.current.delete(oldId)
+    openedIdsRef.current.delete(oldId)
+    openedIdsRef.current.add(newId)
+    if (lastActiveRef.current === oldId) lastActiveRef.current = null
+
+    pendingContentRef.current.set(newId, value)
+    if (viewState) viewStatesRef.current.set(newId, viewState)
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === oldId
+          ? {
+              id: newId,
+              root: choice.root,
+              path: choice.path,
+              name,
+              language: languageForPath(choice.path),
+            }
+          : t
+      )
+    )
+    setDirtyIds((prev) => {
+      if (!prev.has(oldId)) return prev
+      const next = new Set(prev)
+      next.delete(oldId)
+      return next
+    })
+    setActiveId(newId)
+  }, [activeId, tabs, saving, saveFile, writeTab])
+
+  const handleSave = useCallback(async () => {
+    const tab = tabs.find((t) => t.id === activeId)
+    if (!tab || saving) return
+    // A New File tab has no home yet; Save is Save As until it does.
+    if (tab.root === null || tab.path === null) {
+      await handleSaveAs()
+      return
+    }
+    await writeTab(tab.id, tab.root, tab.path, tab.name)
+  }, [activeId, tabs, saving, writeTab, handleSaveAs])
 
   // Ctrl/Cmd+S saves the active tab — only for the top-most window.
   useSaveHotkey(windowId, handleSave)
 
+  const handleNewFile = useCallback(async () => {
+    const raw = await prompt({
+      title: 'New file',
+      message: 'Include the extension — it decides the syntax highlighting.',
+      placeholder: 'script.ts',
+      confirmLabel: 'Create',
+    })
+    if (raw === null) return
+    const name = raw.trim()
+    const reason = invalidNameReason(name)
+    if (reason) {
+      setError(reason)
+      return
+    }
+    // Untitled until saved: the buffer is real, the file is not. Save As is what
+    // gives it a home, which is also where the user gets to choose one.
+    const id = `untitled:///${++untitledSeqRef.current}/${encodeURIComponent(name)}`
+    pendingContentRef.current.set(id, '')
+    openedIdsRef.current.add(id)
+    setError(null)
+    setTabs((prev) => [
+      ...prev,
+      { id, root: null, path: null, name, language: languageForPath(name) },
+    ])
+    setActiveId(id)
+  }, [prompt])
+
+  const handleNewFolder = useCallback(async () => {
+    const where = await pickDirectory({ title: 'New folder — choose where' })
+    if (!where) return
+    const raw = await prompt({
+      title: 'New folder',
+      message: `Inside /${where.path}`,
+      placeholder: 'src',
+      confirmLabel: 'Create',
+    })
+    if (raw === null) return
+    const name = raw.trim()
+    const reason = invalidNameReason(name)
+    if (reason) {
+      setError(reason)
+      return
+    }
+    try {
+      await api.post('/files/directory', {
+        root: where.root,
+        path: where.path ? `${where.path}/${name}` : name,
+      })
+      setError(null)
+    } catch (err) {
+      console.error('[code-editor] failed to create folder', err)
+      setError('Could not create that folder.')
+    }
+  }, [pickDirectory, prompt])
+
   const closeTab = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const tab = tabs.find((t) => t.id === id)
       if (dirtyIds.has(id)) {
-        const ok = window.confirm(
-          `"${tab?.name ?? 'This file'}" has unsaved changes. Close without saving?`
-        )
+        const ok = await confirm({
+          title: 'Unsaved changes',
+          message: `"${tab?.name ?? 'This file'}" has unsaved changes. Close without saving?`,
+          confirmLabel: 'Discard',
+          destructive: true,
+        })
         if (!ok) return
       }
+      const model = modelsRef.current.get(id)
+      const editor = editorRef.current
+      // Detach before dispose — leaving the editor holding a disposed model
+      // throws on its next layout pass.
+      if (editor && model && editor.getModel() === model) editor.setModel(null)
       listenersRef.current.get(id)?.dispose()
       listenersRef.current.delete(id)
-      modelsRef.current.get(id)?.dispose()
+      model?.dispose()
       modelsRef.current.delete(id)
       viewStatesRef.current.delete(id)
       savedVersionRef.current.delete(id)
@@ -280,19 +500,108 @@ export function CodeEditor({ windowId }: { windowId: string }) {
         const idx = tabs.findIndex((t) => t.id === id)
         const nextTab = remaining[idx] ?? remaining[idx - 1] ?? null
         setActiveId(nextTab?.id ?? null)
-        if (!nextTab) editorRef.current?.setModel(null)
       }
     },
-    [tabs, dirtyIds, activeId]
+    [tabs, dirtyIds, activeId, confirm]
   )
+
+  const goToLine = useCallback(() => {
+    editorRef.current?.focus()
+    void editorRef.current?.getAction('editor.action.gotoLine')?.run()
+  }, [])
+
+  const findInFile = useCallback(() => {
+    editorRef.current?.focus()
+    void editorRef.current?.getAction('actions.find')?.run()
+  }, [])
+
+  const formatNow = useCallback(() => {
+    editorRef.current?.focus()
+    void editorRef.current?.getAction('editor.action.formatDocument')?.run()
+  }, [])
 
   const hasTabs = tabs.length > 0
   const activeDirty = activeId != null && dirtyIds.has(activeId)
 
   return (
     <div className="bg-surface-container-lowest flex h-full flex-col">
-      {/* App toolbar (Save) */}
-      <div className="border-outline-variant bg-surface-container-low flex items-center gap-1 border-b px-2 py-1">
+      {/* Menu bar + Save. The menus own the file operations; Save stays a button
+          because it is the one action used often enough to deserve one. */}
+      <div className="border-outline-variant bg-surface-container-low flex items-center gap-1 border-b px-1 py-0.5">
+        <MenuButton
+          label="File"
+          items={[
+            { label: 'New File…', hint: 'name + extension', onSelect: () => void handleNewFile() },
+            { label: 'New Folder…', onSelect: () => void handleNewFolder() },
+            { type: 'separator' },
+            { label: 'Open…', onSelect: pickFile },
+            { type: 'separator' },
+            {
+              label: 'Save',
+              hint: 'Ctrl+S',
+              disabled: !activeTab || saving,
+              onSelect: () => void handleSave(),
+            },
+            {
+              label: 'Save As…',
+              disabled: !activeTab || saving,
+              onSelect: () => void handleSaveAs(),
+            },
+            { type: 'separator' },
+            {
+              label: 'Close Tab',
+              disabled: !activeId,
+              onSelect: () => {
+                if (activeId) void closeTab(activeId)
+              },
+            },
+          ]}
+        />
+
+        <MenuButton
+          label="Edit"
+          items={[
+            { label: 'Find…', hint: 'Ctrl+F', disabled: !activeTab, onSelect: findInFile },
+            { label: 'Go to Line…', hint: 'Ctrl+G', disabled: !activeTab, onSelect: goToLine },
+            { type: 'separator' },
+            {
+              label: 'Format Document',
+              hint: 'Shift+Alt+F',
+              disabled: !activeTab,
+              onSelect: formatNow,
+            },
+          ]}
+        />
+
+        <MenuButton
+          label="View"
+          items={[
+            {
+              label: 'Minimap',
+              checked: prefs.minimap,
+              onSelect: () => setPref('minimap', !prefs.minimap),
+            },
+            {
+              label: 'Word Wrap',
+              checked: prefs.wordWrap,
+              onSelect: () => setPref('wordWrap', !prefs.wordWrap),
+            },
+            {
+              label: 'Format on Save',
+              checked: prefs.formatOnSave,
+              onSelect: () => setPref('formatOnSave', !prefs.formatOnSave),
+            },
+            { type: 'separator' },
+            ...FONT_SIZES.map((size) => ({
+              label: `Font size ${size}`,
+              checked: prefs.fontSize === size,
+              onSelect: () => setPref('fontSize', size),
+            })),
+          ]}
+        />
+
+        <div className="w-1" />
+
         <Tooltip content="Save (Ctrl+S)">
           <Button
             variant="default"
@@ -337,7 +646,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
                     ? 'bg-surface-container-lowest text-on-surface'
                     : 'text-on-surface-variant hover:bg-surface-container-high'
                 )}
-                title={tab.path}
+                title={tab.path ?? `${tab.name} — not saved yet`}
               >
                 <span className="truncate">{tab.name}</span>
                 <button
@@ -345,7 +654,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
                   aria-label={`Close ${tab.name}`}
                   onMouseDown={(e) => {
                     e.stopPropagation()
-                    closeTab(tab.id)
+                    void closeTab(tab.id)
                   }}
                   className={cn(
                     'hover:bg-surface-container-highest flex h-4 w-4 items-center justify-center rounded-sm',
@@ -390,13 +699,21 @@ export function CodeEditor({ windowId }: { windowId: string }) {
           <div className="bg-surface-container-lowest text-on-surface-variant absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
             <FileCode2 size={40} strokeWidth={1} />
             <span className="font-ui text-[12px]">Nothing open</span>
-            <Button size="sm" variant="primary" onClick={pickFile}>
-              Open a file
-            </Button>
-            {fileDialog}
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="primary" onClick={pickFile}>
+                Open a file
+              </Button>
+              <Button size="sm" variant="default" onClick={() => void handleNewFile()}>
+                New file
+              </Button>
+            </div>
           </div>
         )}
       </div>
+
+      {fileDialog}
+      {confirmDialog}
+      {promptDialog}
     </div>
   )
 }

@@ -43,6 +43,16 @@ export default function App() {
       description: 'Save the document in the focused editor',
       scope: 'Editing',
     },
+    {
+      id: 'editing.goto-line',
+      keys: 'mod+g',
+      description: 'Go to line, in Code Editor',
+      scope: 'Editing',
+      // Monaco owns this binding and only sees it while the text area has
+      // focus. Documented here rather than from the add-on so the row does not
+      // appear and vanish as editor windows open and close.
+      note: 'Only while the code editor itself has focus',
+    },
   ])
 
   // SWARM:S4 layout restore boot ──────────────────────────────────────────────

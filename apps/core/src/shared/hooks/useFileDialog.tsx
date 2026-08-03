@@ -26,7 +26,7 @@ type SaveOptions = OpenOptions & { suggestedName?: string }
  */
 export function useFileDialog(windowId?: string) {
   const [state, setState] = useState<{
-    mode: 'open' | 'save'
+    mode: 'open' | 'save' | 'directory'
     title: string
     extensions?: string[]
     suggestedName?: string
@@ -69,6 +69,20 @@ export function useFileDialog(windowId?: string) {
     []
   )
 
+  /**
+   * Choose a folder rather than a file. Resolves `{ root, path }` where `path`
+   * is the folder itself (`''` at a root) — the shape everything that takes a
+   * directory already expects.
+   */
+  const pickDirectory = useCallback(
+    (opts: Pick<OpenOptions, 'title'> = {}) =>
+      new Promise<FileChoice | null>((resolve) => {
+        resolveRef.current = resolve
+        setState({ mode: 'directory', title: opts.title ?? 'Choose a folder' })
+      }),
+    []
+  )
+
   const fileDialog: ReactNode = state ? (
     <Dialog
       open
@@ -87,5 +101,5 @@ export function useFileDialog(windowId?: string) {
     </Dialog>
   ) : null
 
-  return { openFile, saveFile, fileDialog }
+  return { openFile, saveFile, pickDirectory, fileDialog }
 }
