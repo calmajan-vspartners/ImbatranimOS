@@ -1229,3 +1229,47 @@ load-bearing runtime behaviour that is *invisible in dev* because Vite sets no C
 at all. Three of this sweep's bugs came from that blind spot.
 
 Tests **360 → 369** (core 36 → 45).
+
+## [2026-08-03] brief 64 | Slides is a viewer, and now a good one
+
+**The decision is locked: Slides stays a viewer.** pptx-preview has no editing
+model, so "light editing" would mean a second engine and owning write fidelity for
+a third Office format — the risk surface briefs 62 and 63 spent their time
+containing. Brief 90 inherits the answer.
+
+Shipped: a thumbnail rail, keyboard navigation, presenter mode, zoom, speaker
+notes, `notify()` on failure, and PNG export of the current slide.
+
+The thumbnails are **clones of the rendered slides**, scaled with a transform.
+Exact by construction, and no second parse — which is the expensive part, since
+pptx-preview rebuilds everything from OpenXML on each call. Clones are
+`aria-hidden` and `pointer-events: none` so a link inside a slide is unreachable
+from the rail. Zoom is a transform for the same reason: re-rendering to change
+zoom would re-parse the deck and hand the stale-render interleave a fresh chance.
+
+Two findings worth keeping:
+
+**`notesSlideN.xml` is not numbered to match slides.** Notes parts are allocated
+only for slides that have them, so a deck with notes on 1, 2, 4 and 5 produces
+`notesSlide1..4` — index by slide number and slide 4 shows slide 5's note. The
+parser follows `<p:sldIdLst>` → `presentation.xml.rels` → the slide's own rels,
+finding the notesSlide *by relationship type*. The fixture leaves slide 3 without
+notes precisely so the wrong-mapping case is under test.
+
+**pptx-preview consumes the buffer.** Parsing notes after the render came back
+empty every time, because there was nothing left to unzip. Notes are read first
+now.
+
+And a bug of my own, caught in the browser: `requestFullscreen` can be refused,
+presenting in-window is a fair fallback, but then no `fullscreenchange` fires and
+the user was trapped in a black overlay. Escape is handled independently now, plus
+a visible Exit button.
+
+**Also worth naming: two of this session's "failures" were my test, not the app.**
+The notes panel appeared broken because my regex was case-sensitive against
+CSS-uppercased text, and the merged-cell test passed while the bug was in front of
+it because it only checked the anchor cell. Verifying in a browser catches things
+tests miss; it also produces its own false signals, and both directions need
+checking before anything is reported.
+
+Tests **369 → 384** (slides 0 → 15).

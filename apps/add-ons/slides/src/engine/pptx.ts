@@ -9,6 +9,26 @@
  * a visible hint and a Download escape hatch.
  */
 
+export type RenderedDeck = {
+  /** One element per slide, in deck order. Empty when nothing was rendered. */
+  slides: HTMLElement[]
+}
+
+/**
+ * The slide elements inside a completed render.
+ *
+ * pptx-preview builds `.pptx-preview-wrapper` and appends one child per slide
+ * (verified against a real five-slide deck). Reading them is what makes
+ * navigation, the thumbnail rail and per-slide export possible without
+ * re-parsing. If that class ever changes, the fallback treats the container's own
+ * children as slides — degraded, probably to a single entry, rather than broken.
+ */
+function findSlides(container: HTMLElement): HTMLElement[] {
+  const wrapper = container.querySelector('.pptx-preview-wrapper')
+  const parent = wrapper ?? container
+  return [...parent.children].filter((el): el is HTMLElement => el instanceof HTMLElement)
+}
+
 /**
  * Render every slide of `data` into `container`, stacked vertically (the host
  * scrolls). Each slide is drawn at `width`×`height` px. Any previous render in
@@ -18,9 +38,10 @@ export async function renderPptx(
   container: HTMLElement,
   data: ArrayBuffer,
   size: { width: number; height: number }
-): Promise<void> {
+): Promise<RenderedDeck> {
   const { init } = await import('pptx-preview')
   container.innerHTML = ''
   const previewer = init(container, { width: size.width, height: size.height })
   await previewer.preview(data)
+  return { slides: findSlides(container) }
 }
