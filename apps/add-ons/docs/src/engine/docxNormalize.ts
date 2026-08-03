@@ -13,8 +13,51 @@
  * get minimal valid stand-ins and are wired into `[Content_Types].xml` /
  * `_rels/.rels`. Files that already contain a part are left untouched, and a
  * docx that already has all three is returned byte-for-byte unchanged. `fflate`
- * is dynamically imported so it never lands in the desktop boot bundle.
+ * is dynamically imported so it never lands in the desktop boot bundle, and only
+ * its **synchronous** API is used — see the note at the top of `normalizeDocx`
+ * for why the async one cannot work here.
+ *
+ * ## Coverage audit (brief 62)
+ *
+ * What this module repairs — and therefore what cannot fall through to the
+ * silent-original-bytes failure — is exactly the three parts SuperDoc's exporter
+ * dereferences without a guard:
+ *
+ * | Part                            | Missing → | Repair                        |
+ * |---------------------------------|-----------|-------------------------------|
+ * | `word/styles.xml`               | export throws | `docDefaults` + Word's four default styles, declared in `[Content_Types].xml` |
+ * | `word/_rels/document.xml.rels`  | export throws | a rels part pointing at `styles.xml` |
+ * | `docProps/custom.xml`           | export throws | an empty `Properties` element, declared in `[Content_Types].xml` **and** wired into `_rels/.rels` |
+ *
+ * Nothing else is repaired, and nothing else needs to be: the failure mode is
+ * specifically an unguarded `convertedXml[part].elements[0]`, and these are the
+ * three parts read that way. Other missing optional parts (`word/numbering.xml`,
+ * `word/settings.xml`, `word/theme/theme1.xml`, headers/footers) are read
+ * defensively by the exporter and their absence does not throw — a document
+ * without them exports its edits correctly.
+ *
+ * What is *not* covered, and is reported rather than repaired: a file that is
+ * not a readable zip at all. `readable: false` comes back so the app can refuse
+ * it with a clear message instead of letting the engine fail like a broken app.
  */
+
+/** The parts this module can synthesise when a document is missing them. */
+export type RepairablePart =
+  | 'word/styles.xml'
+  | 'word/_rels/document.xml.rels'
+  | 'docProps/custom.xml'
+
+export type NormalizeResult = {
+  /** Bytes to hand the engine. Identical to the input when nothing was needed. */
+  bytes: Uint8Array
+  /** Parts that were absent and have been synthesised. Empty when none were. */
+  repaired: RepairablePart[]
+  /**
+   * False when the input is not a readable zip. The bytes are handed back
+   * unchanged, but the caller should refuse the file rather than load it.
+   */
+  readable: boolean
+}
 
 // A complete-enough styles part: SuperDoc's importer hangs on an *empty*
 // `<w:styles/>`, so this carries `docDefaults` plus the four default styles Word
@@ -45,34 +88,44 @@ const CUSTOM_REL =
  * Ensure a docx contains the parts SuperDoc's exporter requires. Returns the
  * original bytes untouched if nothing was missing; otherwise a repacked zip.
  */
-export async function normalizeDocx(bytes: ArrayBuffer): Promise<Uint8Array> {
-  const { unzip, zip, strToU8, strFromU8 } = await import('fflate')
+export async function normalizeDocx(bytes: ArrayBuffer): Promise<NormalizeResult> {
+  const { unzipSync, zipSync, strToU8, strFromU8 } = await import('fflate')
   const original = new Uint8Array(bytes)
 
-  // fflate's async unzip/zip run off the main thread (its worker pool), so a
-  // large docx doesn't freeze the desktop while it's unpacked/repacked. Output
-  // is identical to the sync variants.
-  const unzipAsync = (data: Uint8Array) =>
-    new Promise<Record<string, Uint8Array>>((resolve, reject) =>
-      unzip(data, (err, out) => (err ? reject(err) : resolve(out)))
-    )
-  const zipAsync = (files: Record<string, Uint8Array>) =>
-    new Promise<Uint8Array>((resolve, reject) =>
-      zip(files, (err, out) => (err ? reject(err) : resolve(out)))
-    )
-
+  // SYNC on purpose. fflate's async `unzip`/`zip` run in a worker it spawns from
+  // a `blob:` URL, and the OS's own CSP refuses that: `worker-src` is unset, so
+  // it falls back to `script-src 'self'`, and a blob URL is not 'self'. The
+  // browser logs "Refused to create a worker from 'blob:…'", fflate 0.4.8 then
+  // throws inside its own error handler instead of calling our callback, and the
+  // promise never settles — so Docs sat on "Loading document…" forever and could
+  // not open ANY .docx in a shipped image. There was no error, no timeout and no
+  // notification, because nothing ever rejected.
+  //
+  // The sync variants produce identical output with no worker and no blob URL. A
+  // docx is a small zip (tens of KB to a few MB) and this runs once, behind the
+  // open overlay, so the main-thread cost is not perceptible. If a genuinely
+  // huge document ever makes it jank, the fix is our own module worker — the
+  // `?worker` pattern Monaco and the Sheets ExcelJS bridge already use, which is
+  // same-origin and therefore CSP-clean. Do NOT go back to fflate's async API.
   let files: Record<string, Uint8Array>
   try {
-    files = await unzipAsync(original)
+    files = unzipSync(original)
   } catch {
-    // Not a readable zip — hand the bytes back and let SuperDoc surface the error.
-    return original
+    // Not a readable zip. Hand the bytes back and say so, so the caller can
+    // refuse the file with a real message instead of letting the engine fail.
+    return { bytes: original, repaired: [], readable: false }
   }
 
   const addedStyles = !files[STYLES_PART]
   const addedRels = !files[DOCUMENT_RELS_PART]
   const addedCustom = !files[CUSTOM_PART]
-  if (!addedStyles && !addedRels && !addedCustom) return original
+  const repaired: RepairablePart[] = []
+  if (addedStyles) repaired.push(STYLES_PART)
+  if (addedRels) repaired.push(DOCUMENT_RELS_PART)
+  if (addedCustom) repaired.push(CUSTOM_PART)
+  // Byte-stable when nothing is missing: the same array comes back, so an
+  // open→save with no edits cannot rewrite the package as a side effect.
+  if (repaired.length === 0) return { bytes: original, repaired, readable: true }
 
   if (addedStyles) files[STYLES_PART] = strToU8(STYLES_XML)
   if (addedRels) files[DOCUMENT_RELS_PART] = strToU8(DOCUMENT_RELS_XML)
@@ -99,5 +152,5 @@ export async function normalizeDocx(bytes: ArrayBuffer): Promise<Uint8Array> {
     }
   }
 
-  return zipAsync(files)
+  return { bytes: zipSync(files), repaired, readable: true }
 }

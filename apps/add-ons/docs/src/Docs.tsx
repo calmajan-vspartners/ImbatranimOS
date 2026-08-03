@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FileText, Loader2, Save } from 'lucide-react'
+import { FileText, FileWarning, Loader2, Save } from 'lucide-react'
 import {
   Button,
   Tooltip,
-  UploadTooLargeError,
   fetchFileBytes,
   fileName,
+  reportFileFailure,
+  reportFileRefusal,
   uploadFileBytes,
   useFileDialog,
   useOpenIntent,
@@ -14,6 +15,8 @@ import {
 } from '@imbatranim/core'
 import { createDocEngine, type DocEngine } from './engine/superdoc'
 import { normalizeDocx } from './engine/docxNormalize'
+import { unsupportedReason } from './lib/formats'
+import { shouldClearDirty } from './lib/saveOutcome'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
@@ -34,11 +37,22 @@ export function Docs({ windowId }: { windowId: string }) {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
-  const name = source ? fileName(source.path, 'document.docx') : ''
+  const docName = source ? fileName(source.path, 'document.docx') : ''
+  // Refuse what the engine cannot read, before it is asked to try. Computed from
+  // the path alone, so it is known before a single byte is fetched.
+  const refusal = source ? unsupportedReason(source.path) : null
 
   // Reflect filename + dirty marker in the window title and warn before closing
   // with unsaved changes.
-  useUnsavedGuard(windowId, dirty, name)
+  useUnsavedGuard(windowId, dirty, docName)
+
+  // Say so once, in the notification centre as well as in the window — the same
+  // reason every other failure here does. `notify` writes to an external store
+  // rather than this component's state, which is what an effect is for.
+  useEffect(() => {
+    if (!refusal || !source) return
+    reportFileRefusal(refusal, { appId: 'docs', name: docName })
+  }, [refusal, source, docName])
 
   // Boot SuperDoc and load the docx. Each run mounts into FRESH host nodes
   // (not the persistent wrappers) so React StrictMode's mount→cleanup→mount and
@@ -46,7 +60,7 @@ export function Docs({ windowId }: { windowId: string }) {
   // DOM — the discarded instance's nodes are removed whole on cleanup, and the
   // surviving instance owns its own untouched nodes (so export reads live edits).
   useEffect(() => {
-    if (!source) return
+    if (!source || refusal) return
     const editorWrap = editorWrapRef.current
     const toolbarWrap = toolbarWrapRef.current
     if (!editorWrap || !toolbarWrap) return
@@ -72,7 +86,24 @@ export function Docs({ windowId }: { windowId: string }) {
         // re-serializes edits instead of silently re-emitting the original.
         const normalized = await normalizeDocx(bytes)
         if (cancelled) return
-        const file = new File([normalized as BlobPart], fileName(source.path, 'document.docx'), {
+        if (!normalized.readable) {
+          // Not a zip at all — a renamed file, or a truncated download. Refuse
+          // it here rather than letting the engine fail like a broken app.
+          setError(
+            reportFileRefusal('This file is not a readable .docx package.', {
+              appId: 'docs',
+              name: docName,
+            })
+          )
+          setLoading(false)
+          return
+        }
+        if (normalized.repaired.length > 0) {
+          // Worth knowing when a save is investigated later, not worth a toast:
+          // the repair is exactly what makes the save correct.
+          console.info('[docs] repaired missing docx parts', normalized.repaired)
+        }
+        const file = new File([normalized.bytes as BlobPart], docName, {
           type: DOCX_MIME,
         })
         engine = await createDocEngine({
@@ -90,8 +121,9 @@ export function Docs({ windowId }: { windowId: string }) {
           },
           onError: (err) => {
             if (!cancelled) {
-              console.error('[docs] document error', err)
-              setError('Could not open this document.')
+              setError(
+                reportFileFailure('open', err, { appId: 'docs', noun: 'document', name: docName })
+              )
               setLoading(false)
             }
           },
@@ -103,8 +135,9 @@ export function Docs({ windowId }: { windowId: string }) {
         engineRef.current = engine
       } catch (err) {
         if (!cancelled) {
-          console.error('[docs] failed to open', err)
-          setError('Could not open this document.')
+          setError(
+            reportFileFailure('open', err, { appId: 'docs', noun: 'document', name: docName })
+          )
           setLoading(false)
         }
       }
@@ -116,7 +149,7 @@ export function Docs({ windowId }: { windowId: string }) {
       editorHost.remove()
       toolbarHost.remove()
     }
-  }, [source, windowId])
+  }, [source, refusal, windowId, docName])
 
   const handleSave = useCallback(async () => {
     const engine = engineRef.current
@@ -129,22 +162,41 @@ export function Docs({ windowId }: { windowId: string }) {
     setError(null)
     try {
       const bytes = await engine.exportDocx()
-      await uploadFileBytes(source.root, source.path, bytes, fileName(source.path, 'document.docx'))
-      if (engine.editCount() === savedAtEditCount) setDirty(false)
-    } catch (err) {
-      if (err instanceof UploadTooLargeError) {
-        setError(err.message)
-      } else {
-        console.error('[docs] failed to save', err)
-        setError('Could not save this document.')
+      await uploadFileBytes(source.root, source.path, bytes, docName)
+      if (
+        shouldClearDirty({
+          uploaded: true,
+          editCountBefore: savedAtEditCount,
+          editCountAfter: engine.editCount(),
+        })
+      ) {
+        setDirty(false)
       }
+    } catch (err) {
+      // `dirty` is deliberately untouched: the bytes did not land, so the
+      // document still differs from disk and the close guard must stay armed.
+      setError(reportFileFailure('save', err, { appId: 'docs', noun: 'document', name: docName }))
     } finally {
       setSaving(false)
     }
-  }, [source, saving])
+  }, [source, saving, docName])
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
   useSaveHotkey(windowId, handleSave)
+
+  if (source && refusal) {
+    return (
+      <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+        <FileWarning size={40} strokeWidth={1} className="text-error" />
+        <span className="font-ui text-on-surface text-[12px] font-semibold">{docName}</span>
+        <span className="font-ui max-w-[340px] text-[12px]">{refusal}</span>
+        <Button size="sm" variant="primary" onClick={pickFile}>
+          Open a .docx instead
+        </Button>
+        {fileDialog}
+      </div>
+    )
+  }
 
   if (!source) {
     return (
@@ -184,7 +236,7 @@ export function Docs({ windowId }: { windowId: string }) {
           </span>
         )}
         <span className="font-ui text-on-surface-variant max-w-[200px] truncate text-[11px]">
-          {name}
+          {docName}
           {dirty ? ' •' : ''}
         </span>
       </div>

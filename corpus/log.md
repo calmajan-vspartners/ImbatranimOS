@@ -1076,3 +1076,49 @@ asks. None were suppressed; each was restructured.
 
 Tests **275 → 283** (174 backend + 70 engine + 24 core + 7 media-player + 8
 code-editor). Eager bundle 125.71 → 125.77 KB gzip; Monaco stayed lazy.
+
+## [2026-08-03] brief 62 | Docs could not open a single .docx in any shipped image
+
+Brief 62 was written as "a failed save is silent". It was. Verifying that turned
+up something worse.
+
+**`docxNormalize` used fflate's async API, which spawns a worker from a `blob:`
+URL — and this OS's own CSP refuses that.** `worker-src` is unset, so it falls
+back to `script-src 'self'`, and a blob URL is not `'self'`. fflate 0.4.8 then
+throws inside its *own* error handler instead of calling our callback, so the
+promise never settled: no rejection, no timeout, no notification, and the window
+sat on "Loading document…" forever. Every `.docx`, every shipped image.
+
+Confirmed against the production build served by the real backend with the real
+CSP, and reproduced identically on `HEAD` before any of this brief's changes.
+It failed in dev too, by a different route (Vite's optimized fflate dep breaks
+its inlined worker source) — which is exactly why it had never been diagnosed as
+environment-specific. Fixed with fflate's synchronous API: same output, no
+worker, no blob URL, and a comment saying not to go back.
+
+That makes six production bugs from this sweep, and the second whose symptom was
+"the app looks like it is working". The first five were "green in dev, dead in
+the image"; this one was dead in both, which is the harder kind to notice,
+because there is nothing to compare against.
+
+**Second find, from the same CSP log:** SuperDoc defaults to
+`telemetry: { enabled: true }` and POSTs to `ingest.superdoc.dev` on every
+document open. The CSP refused it — that refusal is how it was found — but
+relying on CSP to suppress a call the app deliberately makes is the wrong layer.
+Now disabled at the source. The desktop's only offsite request is the Google
+Fonts stylesheet the CSP already allows.
+
+**Shared error reporting landed in core.** `reportFileFailure` /
+`reportFileRefusal` return the inline banner text *and* raise the notification,
+so the two cannot drift and neither can be forgotten — brief 86's
+`useRegisteredHotkeys` reasoning applied to failures. Briefs 63 and 64 adopt it
+rather than each growing their own. A disk-full 503's message (brief 83) is
+passed through verbatim instead of being replaced by a generic failure, and "the
+backend did not answer" reads differently from "the backend said no".
+
+The dirty-clear condition was already correct and is now a tested pure function,
+because "never clear dirty unless the write succeeded" is one accidental
+`finally` away from wrong and that mistake loses work silently.
+
+Tests **283 → 317** (174 backend + 70 engine + 36 core + 22 docs + 8
+code-editor + 7 media-player): core 24 → 36, docs 0 → 22.

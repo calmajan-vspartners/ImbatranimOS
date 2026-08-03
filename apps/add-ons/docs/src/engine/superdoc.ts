@@ -50,6 +50,14 @@ export async function createDocEngine(opts: CreateDocEngineOptions): Promise<Doc
     toolbar: opts.toolbar,
     document: opts.file,
     documentMode: 'editing',
+    // SuperDoc defaults to `telemetry: { enabled: true }` and POSTs to
+    // `https://ingest.superdoc.dev/v1/collect` on every document open. The
+    // desktop's CSP (`connect-src 'self'`) already refuses it — that refusal is
+    // how it was found — but blocking an outbound call the app deliberately
+    // makes is the wrong layer to rely on: a deployment behind a proxy that
+    // relaxes the CSP would start leaking. The user's documents are their own,
+    // and nothing about opening one should reach a third party.
+    telemetry: { enabled: false },
     onReady: () => {
       if (!readyFired) {
         readyFired = true

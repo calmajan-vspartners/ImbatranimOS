@@ -50,6 +50,14 @@ export {
   fileName,
 } from './lib/fileBytes'
 
+// Shared add-on kit — one way to report a failed open/save (briefs 62-64)
+export {
+  describeFileFailure,
+  reportFileFailure,
+  reportFileRefusal,
+  type FileFailureOptions,
+} from './lib/fileFailure'
+
 // Shared add-on kit — opened-file store + editor hooks
 export { createOpenedFileStore } from './shared/store/createOpenedFileStore'
 export type { OpenedFile } from './shared/store/createOpenedFileStore'

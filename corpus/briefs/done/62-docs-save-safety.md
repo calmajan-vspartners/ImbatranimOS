@@ -1,6 +1,6 @@
 # Brief 62 — Docs: make a failed save impossible to miss, and widen the normalizer
 
-Status: **todo (ungrilled)** · From the 2026-07-31 app+OS improvement sweep.
+Status: **done 2026-08-03** · From the 2026-07-31 app+OS improvement sweep.
 MEDIUM · add-on `apps/add-ons/docs` (402 LOC, SuperDoc + a docx normalizer).
 Standalone. Shares its headline with briefs 63 and 64 — fix the shared pattern
 once and adopt it in all three.
@@ -96,3 +96,89 @@ Restart the backend and save successfully. Open a `.doc` and read the message.
 
 Track changes, comments, print/export-to-PDF (own brief), autosave, format
 conversion, collaborative editing, and templates.
+
+## Outcome — 2026-08-03 (done)
+
+The brief's premise was that a failed save was silent. It was — but verifying
+that turned up something worse, and it is the headline: **Docs could not open a
+single `.docx` in any shipped image, and showed no error while failing.**
+
+### The bug the brief did not know about
+
+`docxNormalize` called fflate's **async** `unzip`/`zip`. fflate spawns its worker
+from a `blob:` URL, and this OS's own CSP refuses that — `worker-src` is unset,
+so it falls back to `script-src 'self'`, and a blob URL is not `'self'`. The
+browser logs:
+
+> Refused to create a worker from 'blob:…' because it violates the following
+> Content Security Policy directive: "script-src 'self'". Note that
+> 'worker-src' was not explicitly set…
+
+fflate 0.4.8 then throws inside its **own** error handler (`cbl` dereferences
+null) rather than calling our callback, so the promise never settled. No
+rejection, no timeout, no notification: the window sat on "Loading document…"
+forever. Confirmed against the real production build served by the real backend
+with the real CSP, and reproduced identically on `HEAD` before any of this
+brief's changes — so it was not introduced here. It failed in dev too, for a
+different reason (Vite's optimized fflate dep breaks its own inlined worker
+source), which is why it had never been noticed as *environment-specific*.
+
+Fixed by using fflate's **synchronous** API. Identical output, no worker, no blob
+URL. A docx is a small zip and this runs once behind the open overlay. If a huge
+document ever janks, the fix is our own module worker — the same-origin `?worker`
+pattern Monaco and the Sheets ExcelJS bridge already use — not fflate's async
+API. That is written into the code as a warning.
+
+### The second find: SuperDoc phones home
+
+SuperDoc defaults to `telemetry: { enabled: true }` and POSTs to
+`https://ingest.superdoc.dev/v1/collect` on **every document open**. The CSP
+refused it — that refusal is how it was found — but relying on CSP to suppress an
+outbound call the app deliberately makes is the wrong layer: a deployment behind
+a proxy that relaxes the CSP would start leaking. Now `telemetry: { enabled:
+false }`. After the fix the only offsite requests the whole desktop makes are the
+Google Fonts stylesheet the CSP already allows.
+
+### What the brief asked for
+
+- **`notify()` on every failure**, via a new core helper
+  `reportFileFailure` / `reportFileRefusal` (`apps/core/src/lib/fileFailure.ts`).
+  It returns the banner text *and* raises the notification, so the two cannot
+  drift and neither can be forgotten — brief 86's `useRegisteredHotkeys`
+  reasoning applied to error reporting. Written as shared on purpose: briefs 63
+  and 64 adopt the same helper. 12 tests, including that a disk-full 503's
+  message (brief 83) is passed through verbatim rather than replaced with a
+  generic failure, and that "the backend did not answer" reads differently from
+  "the backend said no".
+- **Dirty-clear audit.** The condition was already correct; it is now a tested
+  pure function (`shouldClearDirty`, 5 tests) instead of the shape of a
+  try/catch, because "never clear dirty unless the write succeeded" is one
+  accidental `finally` away from being wrong and that mistake loses work
+  silently.
+- **Normalizer coverage documented and fixtured.** The three parts SuperDoc
+  dereferences unguarded are repaired; other optional parts (`numbering.xml`,
+  `settings.xml`, `theme1.xml`, headers/footers) are read defensively and need no
+  repair. 10 fixtures: one per part, all three at once, the body untouched during
+  repair, no duplicate `Content_Types` override, and **byte-stability** — a
+  complete document returns the identical array, so open→save with no edits
+  cannot rewrite the package.
+- **Unsupported formats refused up front**, by name, before the engine loads,
+  and always answering "then what does this app read?" — `.doc`/`.odt`/`.rtf`
+  name the format; `.txt`/`.md`/`.xlsx`/`.pptx` name the app that owns it. A
+  non-zip `.docx` is refused too, using the normalizer's new `readable: false`.
+- **Brief 54's Open** was already adopted.
+
+### Verified in the shipped production build
+
+Served by the real backend with the real CSP: `minimal.docx` (missing
+`word/styles.xml` *and* `docProps/custom.xml`) opens, its table survives import,
+and the repair is logged as both parts. Edit → dirty → save → dirty cleared →
+a valid zip on disk. Second edit → upload cut off at the wire → **still dirty**,
+inline banner "Could not reach the OS to save this document.", a toast on screen,
+and a sticky error in the notification centre naming the file. `.odt` and a
+non-zip `.docx` are refused with their own messages plus a warning-level
+notification. No page errors.
+
+**Not done**: print/export-to-PDF (the brief defers it to its own brief, since
+three apps want it), find & replace and the formatting toolbar (brief 90 stage
+2), autosave (rejected), and format conversion (rejected). Tests 283 → 317.
