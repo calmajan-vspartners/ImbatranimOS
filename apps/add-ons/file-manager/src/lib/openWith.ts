@@ -64,6 +64,9 @@ export const EXTENSION_APP_MAP: Record<string, OpenWithRule> = {
   ppt: { appId: 'slides' },
   // Office editors → Sheets / Docs (any root; root-aware like the viewers)
   xlsx: { appId: 'sheets' },
+  // CSV was not mapped at all, so double-clicking one did nothing — a dead end
+  // on the most common interchange format a spreadsheet app has (brief 63).
+  csv: { appId: 'sheets' },
   xls: { appId: 'sheets' },
   docx: { appId: 'docs' },
   // Images → Image Viewer (any root; root-aware)

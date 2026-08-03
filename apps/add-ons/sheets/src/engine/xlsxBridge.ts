@@ -19,7 +19,20 @@
  * rewritten) so fidelity is unchanged — this module only owns the threading.
  */
 import type { IWorkbookData } from '@univerjs/presets'
+import type { ParseResult } from './xlsxMapping'
 import type { WorkerReply, WorkerRequest } from './xlsxWorker'
+
+/**
+ * A request that never gets an answer must still end.
+ *
+ * `onerror`/`onmessageerror` cover a worker that fails loudly, but not one that
+ * is alive and silent — and brief 62 is the standing lesson here: fflate's
+ * blocked worker produced a promise that never settled, so Docs showed a
+ * spinner forever with no error to report. A ceiling turns that class of bug
+ * into a message. Generous, because a genuinely large workbook takes time and a
+ * timeout that fires on real work is worse than none.
+ */
+const REQUEST_TIMEOUT_MS = 120_000
 
 // One worker instance, created lazily on first use and cached like pdf.js's
 // `pdfjsPromise`: repeated opens/saves reuse the same worker. Each request gets
@@ -28,7 +41,11 @@ let worker: Worker | null = null
 let nextId = 0
 const pending = new Map<
   number,
-  { resolve: (value: unknown) => void; reject: (reason: Error) => void }
+  {
+    resolve: (value: unknown) => void
+    reject: (reason: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }
 >()
 
 function getWorker(): Worker {
@@ -38,6 +55,7 @@ function getWorker(): Worker {
       const reply = ev.data
       const entry = pending.get(reply.id)
       if (!entry) return
+      clearTimeout(entry.timer)
       pending.delete(reply.id)
       if ('error' in reply) {
         // Reject with a real Error so Sheets.tsx's catch fires on a corrupt or
@@ -51,7 +69,10 @@ function getWorker(): Worker {
     // id-tagged reply, so fail every in-flight request rather than hang, and
     // drop the instance so the next call spawns a fresh worker.
     const failAll = (message: string) => {
-      for (const entry of pending.values()) entry.reject(new Error(message))
+      for (const entry of pending.values()) {
+        clearTimeout(entry.timer)
+        entry.reject(new Error(message))
+      }
       pending.clear()
       worker = null
     }
@@ -74,16 +95,23 @@ function request<T>(
   const w = getWorker()
   const id = nextId++
   return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
+    const timer = setTimeout(() => {
+      pending.delete(id)
+      reject(new Error('The spreadsheet engine stopped responding.'))
+    }, REQUEST_TIMEOUT_MS)
+    pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
     w.postMessage({ ...msg, id }, transfer)
   })
 }
 
-/** Parse xlsx bytes into a Univer workbook snapshot. */
-export function xlsxToUniver(bytes: ArrayBuffer): Promise<Partial<IWorkbookData>> {
+/**
+ * Parse xlsx bytes into a Univer workbook snapshot, plus the list of features
+ * the package holds that a save will not preserve.
+ */
+export function xlsxToUniver(bytes: ArrayBuffer): Promise<ParseResult> {
   // Transfer the input buffer into the worker (neuters `bytes` here — the caller
   // does not read it again after this call).
-  return request<Partial<IWorkbookData>>({ kind: 'parse', bytes }, [bytes])
+  return request<ParseResult>({ kind: 'parse', bytes }, [bytes])
 }
 
 /** Serialize a Univer workbook snapshot back to xlsx bytes. */

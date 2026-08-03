@@ -13,14 +13,16 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "format:check": "prettier --check src"
+    "format:check": "prettier --check src",
+    "test": "vitest run"
   },
   "dependencies": {
     "@imbatranim/core": "*",
     "@univerjs/presets": "^0.25.1",
     "@univerjs/preset-sheets-core": "^0.25.1",
     "exceljs": "^4.4.0",
-    "lucide-react": "^1.14.0"
+    "lucide-react": "^1.14.0",
+    "fflate": "^0.4.8"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.100.7",
@@ -37,6 +39,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "prettier": "3.8.3",
-    "prettier-plugin-tailwindcss": "^0.8.0"
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "vitest": "^4.1.10"
   }
 }

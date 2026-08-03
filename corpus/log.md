@@ -1122,3 +1122,61 @@ because "never clear dirty unless the write succeeded" is one accidental
 
 Tests **283 → 317** (174 backend + 70 engine + 36 core + 22 docs + 8
 code-editor + 7 media-player): core 24 → 36, docs 0 → 22.
+
+## [2026-08-03] brief 63 | No workbook with a chart would open, and merges were multiplied
+
+Brief 63 asked what the ExcelJS bridge drops on write. Measuring it turned up
+three defects that mattered more than the inventory.
+
+**Sheets could not open any `.xlsx` containing a chart.** `xlsx.load` reconciles
+drawings against their rels and reads `drawing.anchors`, but ExcelJS only builds
+anchors for `<xdr:pic>`; a chart's `<xdr:graphicFrame>` leaves the model empty and
+it throws. Verified with both absolute and Excel-style relative rel targets, so
+not a writer quirk — charts are one of the most common things in a real workbook
+and every one of those files failed.
+
+**Comments broke for anything not written by Excel.** ExcelJS matches
+`xl/commentsN.xml` at the package root only; openpyxl writes
+`xl/comments/comment1.xml`. Excel's files loaded, a Python pipeline's did not.
+
+**A merged range was multiplied rather than dropped.** ExcelJS reports the
+master's value for every cell in a merge, so `A8:D8` came back as four copies of
+"merged header" and a save wrote four copies into the file — data it never
+contained. Found by looking at a screenshot, not by a test; the test that claimed
+to cover merges only checked the anchor cell, so it passed while the bug was in
+front of it.
+
+All three fixed in the pass that already had to unzip: strip the parts ExcelJS
+cannot be handed (drawings, charts, media, comments), prune the rels and sheet
+references that point at them, and read only the master cell of a merge. The
+stripped copy exists only as ExcelJS's input — the saved file is built fresh — and
+stripping is not hiding, because the open-time warning still names them.
+
+**The fidelity matrix is a test, not a paragraph.** An openpyxl-built fixture
+(independent writer, so not our own bug reflected back) carries charts, CF, data
+validation, defined names, comments, merges, frozen panes, autofilter,
+hyperlinks, currency/percent formats and two sheets. The test asserts both
+directions — what survives, and that every feature the scan reports is genuinely
+gone after a round-trip — so the warning list cannot drift from the loss list.
+
+The warning is a standing banner, not only a toast: the moment it matters is the
+moment the user reaches for Save, which can be an hour after a toast has gone.
+
+**CSV in and out**, no dependency, and `csv → sheets` in `openWith` — it was not
+mapped at all, so double-clicking one did nothing. Three coercions are refused on
+purpose: a leading zero stays text (`01234` is a postcode; coercing it makes the
+save write `1234`), >15 significant digits stays text (a double cannot hold them),
+and a field starting with `=` stays a literal rather than becoming a formula.
+
+Also added a 120s request timeout to the bridge. `onerror` catches a worker that
+fails loudly, not one that is alive and silent — brief 62's fflate hang is the
+standing lesson that an unsettled promise is a spinner forever with nothing to
+report.
+
+That is nine production bugs from this sweep. The pattern worth naming: **three of
+the last four were found by looking at the running app rather than by reading the
+code** — the fflate hang, the chart failure, and the merge smear. Two of them had
+passing tests nearby.
+
+Tests **317 → 360** (174 backend + 70 engine + 43 sheets + 36 core + 22 docs + 8
+code-editor + 7 media-player).
