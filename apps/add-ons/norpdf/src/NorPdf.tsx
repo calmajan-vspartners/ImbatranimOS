@@ -30,7 +30,14 @@ import type { JSX } from 'react'
 // documented escape hatch). Runs once when this lazy chunk first loads.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { configureWorker } from '@pdfcore/engine'
-import { fetchFileBytes, fileName, notify, useOpenIntent, useSaveHotkey } from '@imbatranim/core'
+import {
+  fetchFileBytes,
+  fileName,
+  installMapGetOrInsert,
+  notify,
+  useOpenIntent,
+  useSaveHotkey,
+} from '@imbatranim/core'
 import { Download, FileText } from 'lucide-react'
 import { ReaderContext } from './app/context'
 import { useReaderController } from './app/useReaderController'
@@ -46,6 +53,10 @@ import { FormsPanel } from './forms/FormsPanel'
 import { OrganizeView } from './organize/OrganizeView'
 import './norpdf.css'
 
+// pdf.js 6.1 calls Map.prototype.getOrInsertComputed on every render; without
+// it every page is blank on Chrome 141 and earlier (brief 91). Installed here,
+// at module scope of this lazy chunk, so it is in place before the first render.
+installMapGetOrInsert()
 configureWorker(workerUrl)
 
 export function NorPdf({ windowId }: { windowId: string }): JSX.Element {

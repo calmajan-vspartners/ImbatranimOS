@@ -1180,3 +1180,52 @@ passing tests nearby.
 
 Tests **317 → 360** (174 backend + 70 engine + 43 sheets + 36 core + 22 docs + 8
 code-editor + 7 media-player).
+
+## [2026-08-03] briefs 91-92 | Every PDF page was blank, and wasm cannot run here at all
+
+Both found while gathering evidence for a study, not from a brief.
+
+**Brief 91 — the PDF Viewer rendered nothing, for every PDF.** pdf.js 6.1 calls
+`Map.prototype.getOrInsertComputed` inside `getOptionalContentConfig`, which
+`render()` runs for every page. That method shipped in Chrome 142; the browser
+under test was Chromium **141**, released weeks earlier and entirely current,
+where it is `undefined`. So `render()` threw and the canvas stayed empty — a
+595×841 surface with **zero** non-white pixels, in the shipped production build,
+with no error shown to the user. Measured by counting pixels rather than looking
+at a screenshot, which is how it was distinguished from "still loading".
+
+Fixed with a polyfill in core (and a deliberate copy inside `pdfcore-engine`,
+which is standalone by design), installed before pdf.js loads in all three PDF
+surfaces. Same canvas now has 17 822 non-white pixels. pdf.js also calls these
+methods inside its worker on conditional paths; that gap is recorded in the brief
+rather than papered over.
+
+**Brief 92 — the study.** Answer to "can we use wasm": not today, not one byte.
+The shipped CSP refuses every WebAssembly entry point —
+`new WebAssembly.Module`, `compile`, `instantiate`, `instantiateStreaming` — with
+"Refused to compile or instantiate WebAssembly module because 'unsafe-eval' is
+not an allowed source of script". It would take adding `'wasm-unsafe-eval'` to
+`script-src`, which is a security decision in the same file and class as SEC-9
+and therefore human-gated. Not done.
+
+The repo already has a wasm dependency: `pdfjs-dist` ships openjpeg, jbig2, qcms
+and quickjs-eval. None are copied into the build output, so they would 404 before
+the CSP refused the compile. A plain PDF never asks for them; a scanned PDF with
+a JBIG2 image would render that image as nothing.
+
+Workers, measured rather than assumed: xlsx at 50 000 cells costs 240 ms to parse
+and 328 ms to serialize, so its worker is vindicated by the numbers. The docx
+normalize brief 62 made synchronous is 31 ms for a real file and 76 ms for a
+pathological one — a worker there would add a round-trip and a failure mode to
+save nothing perceptible. CSV is the one genuine candidate: 95 ms at 1.5 MB is
+fine, the same code at 15 MB is a second of frozen desktop, and the xlsx worker
+already speaks a request/reply protocol, so it is a message kind rather than new
+infrastructure. Archive, hashing and SQLite — the classic wasm candidates — are
+already server-side.
+
+The rule that comes out of both: **our own module workers are fine, any library
+that builds its own worker from a `blob:` URL is not**, and the CSP is
+load-bearing runtime behaviour that is *invisible in dev* because Vite sets no CSP
+at all. Three of this sweep's bugs came from that blind spot.
+
+Tests **360 → 369** (core 36 → 45).

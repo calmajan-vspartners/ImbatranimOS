@@ -4,6 +4,7 @@
  * dynamic import, so the whole engine becomes its own chunk. Nothing here is
  * imported at module top level (the `import type` is erased at build time).
  */
+import { installMapGetOrInsert } from '@imbatranim/core'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 
 // The library + worker are configured exactly once, then cached: repeated opens
@@ -13,6 +14,10 @@ let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null
 async function getPdfjs() {
   if (!pdfjsPromise) {
     pdfjsPromise = (async () => {
+      // Before the library loads: pdf.js 6.1 calls Map.prototype
+      // .getOrInsertComputed on every render, and without it every page is blank
+      // on Chrome 141 and earlier (brief 91).
+      installMapGetOrInsert()
       const lib = await import('pdfjs-dist')
       const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
       lib.GlobalWorkerOptions.workerSrc = workerUrl

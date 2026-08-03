@@ -1,4 +1,5 @@
 import { GlobalWorkerOptions } from "pdfjs-dist";
+import { installMapGetOrInsert } from "./mapGetOrInsert.js";
 
 /**
  * Browser pdf.js worker ownership.
@@ -41,6 +42,9 @@ export function configureWorker(src: string): void {
 
 /** Idempotently point pdf.js at the vendored worker. Called by the Render path. */
 export function ensureBrowserWorker(): void {
+  // Runs even when the worker is already configured: this is about the engine's
+  // own missing Map methods, not the worker URL, and every render needs them.
+  installMapGetOrInsert();
   if (configured || GlobalWorkerOptions.workerSrc) {
     configured = true;
     return;

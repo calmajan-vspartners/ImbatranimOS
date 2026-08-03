@@ -50,6 +50,10 @@ export {
   fileName,
 } from './lib/fileBytes'
 
+// Shared add-on kit — Map.prototype.getOrInsert{,Computed} for pdf.js on
+// browsers that do not have them yet (brief 91)
+export { installMapGetOrInsert } from './lib/mapGetOrInsert'
+
 // Shared add-on kit — one way to report a failed open/save (briefs 62-64)
 export {
   describeFileFailure,
