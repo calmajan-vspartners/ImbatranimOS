@@ -58,8 +58,16 @@ export const EXTENSION_APP_MAP: Record<string, OpenWithRule> = {
   toml: CODE_EDITOR,
   xml: CODE_EDITOR,
   sql: CODE_EDITOR,
-  // Documents → viewers (any root)
-  pdf: { appId: 'pdf-viewer' },
+  // Documents → viewers (any root).
+  //
+  // `.pdf` goes to **norPDF**, not the small PDF Viewer (brief 65). norPDF is a
+  // strict superset — outline, thumbnails, search, annotate, forms, page
+  // organise, and a real save path — and while the default pointed at the
+  // 340-line viewer, those 3886 lines were reachable only by launching the app
+  // from the desktop, which almost nobody does. PDF Viewer stays in the tree as
+  // the deliberately light option (measured: ~1.2s faster to first page, a
+  // fraction of the bytes); brief 81's "Open with ▸" is how a user picks it.
+  pdf: { appId: 'norpdf' },
   pptx: { appId: 'slides' },
   ppt: { appId: 'slides' },
   // Office editors → Sheets / Docs (any root; root-aware like the viewers)
@@ -114,6 +122,8 @@ export function openAppLabel(appId: string | null): string {
       return 'Open in Notepad'
     case 'pdf-viewer':
       return 'Open in PDF Viewer'
+    case 'norpdf':
+      return 'Open in norPDF'
     case 'slides':
       return 'Open in Slides'
     case 'sheets':

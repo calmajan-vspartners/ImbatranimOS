@@ -1323,3 +1323,46 @@ point. Moved into `onReady`.
 
 **This closes briefs 62, 63, 64 and 90 — the whole Office group — plus 87, 88, 89
 from the user's four asks, and 91/92 found while verifying.** Tests **384 → 406** (174 backend + 70 engine + 51 sheets + 45 core + 36 docs + 15 slides + 8 code-editor + 7 media-player).
+
+## [2026-08-03] brief 65 | norPDF owns .pdf, and its Open was reading the wrong computer
+
+Brief 65 was a decision: which of the two PDF apps the OS opens. Measured on the
+same 40-page PDF, cold, in the shipped build — PDF Viewer reaches first inked page
+in **4.2 s** and costs **5.2 KB gzip** of its own code; norPDF takes **5.3 s** and
+202 KB, and pdf.js's 642 KB is shared by both.
+
+**`openWith` now routes `pdf` → `norpdf`, and PDF Viewer is kept.** The default had
+to move — while it pointed at the 340-line viewer, norPDF's 3886 lines of outline,
+thumbnails, search, annotate, forms, organise and save were reachable only by
+launching it from the desktop. But the brief's preferred "retire PDF Viewer" is
+what the measurement argues against: it buys 5 KB, because the weight is pdf.js and
+that is shared. It is also faster with a fraction of the bytes, and brief 81's
+"Open with ▸" is the chooser that makes keeping it worthwhile. Deleting the
+alternative before the chooser exists removes the option to gain nothing.
+
+Time-to-first-page was measured by **sampling canvas pixels**, not by waiting for a
+canvas element — brief 91 is the standing reason that distinction matters.
+
+**Found while doing it: norPDF's "Open a PDF" was a native `<input type="file">`,
+which reads the host machine.** Brief 54 rules that out by name — "the computer is
+the container", and a dialog browsing the user's laptop instead of their home
+directory is actively wrong here. Now `useFileDialog`, so the pick runs the same
+path a File Manager double-click does. Drag-and-drop from the host stays: that is an
+explicit, visible gesture, not a dialog impersonating the OS's.
+
+The routing table now has **tests**, which is the actual reason `.pdf` pointed at
+the weaker app unnoticed for so long. One of them documents a dead end instead of
+fixing it: **`.txt` under `home` resolves to nothing**, because Notepad is not
+root-aware and its rule is notes-only. That is brief 59's headline, so it is
+asserted as current behaviour with a pointer — brief 59 gets a test to flip rather
+than a surprise to find.
+
+**Recorded, not hidden:** norPDF is ~1.2 s slower to first page, because it paints
+seven canvases (page + thumbnail rail) and fetches several times the code. The fix
+is first-page-before-rail, and it belongs to brief 66, which owns norPDF.
+
+Also split `decisions.md` — adding this decision pushed it past the 200-line cap,
+so the ISO-era inheritance moved to `decisions-iso-era.md`. Still binding; only the
+location changed.
+
+Tests **406 → 415** (file-manager 0 → 9).

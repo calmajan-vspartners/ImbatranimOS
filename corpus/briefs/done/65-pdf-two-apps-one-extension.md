@@ -1,6 +1,6 @@
 # Brief 65 — Two PDF apps, one extension: decide which one the OS opens
 
-Status: **todo (ungrilled)** · From the 2026-07-31 app+OS improvement sweep.
+Status: **done 2026-08-03** · From the 2026-07-31 app+OS improvement sweep.
 MEDIUM · `apps/add-ons/pdf-viewer` (340 LOC), `apps/add-ons/norpdf` (3886 LOC),
 `apps/add-ons/file-manager/src/lib/openWith.ts`. **Decide this before investing
 further in either app** — brief 66 depends on the answer.
@@ -89,3 +89,83 @@ the desktop, or Settings → Apps.
 
 norPDF's own feature and save-safety work (brief 66), PDF creation from other
 apps, printing, and OCR.
+
+## Outcome — 2026-08-03 (done)
+
+**Decision: `openWith` routes `pdf` → `norpdf`. PDF Viewer is kept, not deleted.**
+Recorded in [decisions.md](../../wiki/decisions.md).
+
+The brief's preferred option was "make norPDF the default and retire PDF Viewer".
+The first half is right and shipped. The second half the measurement argues
+against, so it was not done — and the numbers are why, not a preference.
+
+Measured on the same 40-page PDF, cold, in the shipped production build:
+
+| | PDF Viewer | norPDF |
+|---|---|---|
+| time to first inked page | **4.2 s** | **5.3 s** |
+| own code (gzip) | **5.2 KB** | 202 KB |
+| pdf.js (shared by both) | 642 KB gzip | 642 KB gzip |
+
+"Time to first inked page" is measured by sampling canvas pixels, not by waiting
+for a canvas element to exist — brief 91 is the standing reason that distinction
+matters, since a correctly-sized blank canvas is exactly what a broken renderer
+produces.
+
+- **The default had to move.** While it pointed at the 340-line viewer, norPDF's
+  3886 lines — outline, thumbnails, search, annotate, forms, page organise, save —
+  were reachable only by launching it from the desktop.
+- **Retiring PDF Viewer buys 5.2 KB gzip.** pdf.js, the actual weight, is shared
+  by both, so there is no size win to collect. It is also faster to first page
+  with a fraction of the bytes, which is a real use case.
+- **Brief 81's "Open with ▸" is the chooser.** Deleting the alternative before the
+  chooser exists removes the user's option to gain 5 KB.
+
+### Also fixed here: norPDF's Open read the wrong computer
+
+`pickFile` was `fileInputRef.current?.click()` on a native `<input type="file">`.
+That reads the **host machine**. Brief 54 rules it out by name — "the computer is
+the container", and an Open dialog that browses the user's laptop instead of their
+home directory is actively wrong in this OS. It now uses `useFileDialog`, so the
+pick latches into the same store `useOpenIntent` reads and runs the identical load
+path a File Manager double-click does. Drag-and-drop from the host is kept: that is
+an explicit, visible host gesture, not a dialog pretending to be the OS's.
+
+This is also Fix step 5 ("give norPDF an in-app Open via brief 54") — and it was
+not merely missing, it was wrong.
+
+### The routing table now has tests
+
+It had none, which is how `.pdf` came to point at the weaker app unnoticed. Nine
+tests pin the decisions that are easy to flip and hard to see: `.pdf` → norPDF,
+the office formats, case-insensitivity, `null` for unmapped extensions rather than
+a guess, and a check that **every** app the map can resolve to has a context-menu
+label — a resolved app with no label renders "Open in undefined".
+
+One of those tests documents a dead end rather than fixing it: **`.txt` under
+`home` resolves to nothing at all**, because Notepad is not root-aware and its
+rule is `onlyRoots: ['notes']`. Double-clicking a text file in the home directory
+does nothing. That is brief 59's headline, so it is asserted here as current
+behaviour with a pointer, giving brief 59 a test to flip rather than a surprise to
+discover.
+
+### Known regression, recorded rather than hidden
+
+norPDF is **~1.2 s slower to first page**. The cause is visible in the same run:
+it paints 7 canvases (the page plus its thumbnail rail) and fetches several times
+the code. The fix is getting the first page up before the rail, which belongs to
+brief 66 — norPDF is the largest undocumented, untested thing in the repo and that
+brief owns it. Not fixed here, and not pretended away.
+
+**Not done**: deleting `pdf-viewer` (deliberate, above), the README/architecture
+app-list touch-ups (norPDF is still absent from both — folded into brief 66, which
+has to document it anyway), and the first-page perf fix.
+
+### Verified in the shipped production build
+
+Double-clicking `sample.pdf` in File Manager opens **norPDF** with its outline and
+thumbnail chrome and real ink on the canvas. norPDF's own "Open a PDF" shows the
+OS dialog titled "Open file" with the Home and Notes roots, opens `big.pdf` from
+the container filesystem and renders it, and **no native file chooser is
+triggered** (Playwright's `filechooser` event never fires, and there is no
+`input[type=file]` left in the DOM). No page errors. Tests 406 → 415.

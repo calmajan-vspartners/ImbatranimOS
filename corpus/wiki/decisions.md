@@ -1,6 +1,6 @@
 ---
 summary: Locked choices of the web-OS era (2026-07-16 pivot grilling) plus the 2026-07-17 office-suite/post-v1 set, the 2026-07-18 REST-client SSRF stance, and a compressed record of the superseded ISO-era decisions — do not relitigate without an explicit revisit and a log entry.
-updated: 2026-07-18
+updated: 2026-08-03
 ---
 
 # Decisions (locked)
@@ -108,46 +108,13 @@ Changing any entry requires an explicit revisit + a `log.md` entry.
   getDisplayMedia (permission dialog breaks the OS illusion) and not
   server-side rendering (slim-image invariant).
 
-## Carried over from the ISO era (still binding)
+## Inherited from the ISO era
 
-- **Identity: Windows-7-classic layout** (taskbar, start button + compact
-  menu, tray, desktop icons) rendered **modern flat, classy black & white
-  with parameterized accent colors** (accent picked from mockups during the
-  reskin work). Name stays ImbatranimOS.
-- **Versioning: semantic.** v1.0 = the friend-run bar met.
-- **Finish line: friend-run bar** (adapted from friend-install): a friend
-  with Docker runs one documented command, logs in, and uses
-  terminal/files/notes unaided.
-- **Distribution: build-from-source** (clone + docker build/compose);
-  registry publishing is an open question, not a promise.
-- **Lightweight as identity** — REVISED 2026-07-16 after brief 09 measured
-  the prod image at 364 MB. The old "~150 MB image target / 200 MB tripwire"
-  is retired as unrealistic for Node+Nest (floor ~300 MB). New target:
-  **image ≤ ~400 MB**, and "lightweight" is measured primarily by
-  **cold-start time and idle RAM** (recorded in brief 15), not image bytes.
-  NestJS is kept — the fork reuse it enabled (terminal/files/system/all
-  apps) is worth far more than image bytes for a run-once container.
-- **REST-client backend proxy — SSRF stance** (2026-07-18, brief 43). The REST
-  API client sends outbound HTTP through an authed backend proxy (`POST
-  /api/http/request`) because the SPA's CSP (`connect-src` same-origin) + CORS
-  block direct browser fetches. It sits behind the global `SessionAuthGuard` —
-  **only the single logged-in owner can call it; that owner-auth is the primary
-  control.** It is the owner's own `curl`, not an open relay, so it **MAY reach
-  LAN/localhost/private ranges by design** — we deliberately do NOT hard-block
-  private IP ranges (that would gut the tool, and the caller is already trusted).
-  The guardrails that bound blast radius (NOT a public-safe SSRF filter):
-  (1) scheme allowlist http/https only, re-checked on every redirect hop, never
-  downgrading to a non-http(s) scheme; (2) response caps — 10 MB streamed body
-  (aborts + `truncated`) and a 30 s timeout; (3) redirect cap 5, manual, scheme
-  re-validated per hop; (4) header hygiene — hop-by-hop + `proxy-*` stripped,
-  only user-set headers sent, and the user's own Authorization/Cookie dropped on
-  a cross-host redirect; (5) no credential reflection — the OS session cookie /
-  Authorization are never forwarded (outbound headers built solely from user
-  input); CRLF rejected in URL + header values. Enforced in
-  `apps/backend/src/modules/http-proxy/http-proxy.service.ts`; 13 unit tests +
-  an adversarial security review confirmed it. Backend git/archive modules from
-  the same wave (42/44) reuse `FilesService.resolveSafe` for their FS jail and
-  run subprocesses with array args / no shell.
+Moved to [decisions-iso-era.md](decisions-iso-era.md) — the carried-over
+decisions that still bind (build-from-source, no runtime package manager, the
+locked visual identity) and the compressed record of the ones the pivot
+superseded. **Still binding**; split out only because this page has a 200-line
+cap.
 
 ## 2026-07-19 — v1 finish-line decisions (first human walkthrough)
 
@@ -193,12 +160,42 @@ client-rendered desktop; single-container/build-from-source/no-sudo/first-party 
   (`manifest.ts` is it), session-manager daemon, app-to-app IPC/D-Bus. **DOM
   stays substrate; canvas/WebGPU parked.** Specs: briefs 47 (first), 48, 49.
 
-## Superseded (ISO era, 2026-07-16 — record only)
+## 2026-08-03 — norPDF owns `.pdf`; PDF Viewer stays as the light option
 
-Ubuntu 26.04 + LXQt/X11 install-on-hardware distro; hand-rolled
-debootstrap→chroot→squashfs→xorriso pipeline driven by build.c on tsoding's
-nob.h with .sh chroot steps; privileged-Docker-on-WSL2 build host (smoke
-test PASSED — durable finding: debootstrap/chroot/mksquashfs work fine in
-privileged Docker on WSL2); Calamares, Secure Boot shim, dual-boot, SDDM,
-PipeWire, VLC, Fluent-fork theming, QML welcome app, 2GB-with-zram floor.
-Full detail: superseded briefs 01–07 and log.md entries of 2026-07-16.
+Brief 65 asked which of the two PDF apps the OS opens. Measured on the same
+40-page PDF, cold, in the shipped production build:
+
+| | PDF Viewer | norPDF |
+|---|---|---|
+| time to first inked page | **4.2 s** | **5.3 s** |
+| own code (gzip) | **5.2 KB** | 202 KB |
+| pdf.js (shared by both) | 642 KB gzip | 642 KB gzip |
+| chrome | one canvas, zoom + paging | outline, thumbnails, search, annotate, forms, organise, save |
+
+**Decision: `openWith` routes `pdf` → `norpdf`. PDF Viewer is kept, not deleted.**
+
+- The default had to move. While it pointed at the 340-line viewer, norPDF's 3886
+  lines were reachable only by launching it from the desktop, which almost nobody
+  does.
+- Deleting PDF Viewer was the brief's preferred option and the measurement argues
+  against it: it costs **5.2 KB gzip**, because pdf.js — the actual weight — is
+  shared. There is no size win to collect, and it is measurably faster to first
+  page with a fraction of the bytes fetched, which is a real use case ("just look
+  at this file").
+- Brief 81's "Open with ▸" is the mechanism for choosing it. Deleting the
+  alternative *before* the chooser exists would remove the user's option and
+  gain 5 KB.
+
+**Known regression, recorded rather than hidden:** norPDF is ~1.2 s slower to
+first page. Cause is visible in the numbers — it paints 7 canvases (the page plus
+its thumbnail rail) and fetches several times the code. The fix is to get the
+first page up before the rail, which is brief 66's territory (norPDF is
+undocumented and untested; that brief owns it). Not fixed here, and not pretended
+away.
+
+**Also fixed under this brief:** norPDF's own "Open a PDF" was a native
+`<input type="file">`, which reads the **host machine**. Brief 54 rules that out
+by name — "the computer is the container", and a dialog browsing the user's laptop
+instead of their home directory is actively wrong. It now uses the OS's own picker.
+Drag-and-drop from the host is kept, because dropping a file is an explicit,
+visible host action rather than a dialog pretending to be the OS's.

@@ -35,6 +35,7 @@ import {
   fileName,
   installMapGetOrInsert,
   notify,
+  useFileDialog,
   useOpenIntent,
   useSaveHotkey,
 } from '@imbatranim/core'
@@ -63,7 +64,6 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
   const ctrl = useReaderController()
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [fetching, setFetching] = useState(false)
   const dragDepth = useRef(0)
@@ -100,8 +100,17 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
     }
   }, [source, openBytes])
 
-  /* ── Manual open (picker + drag-drop) ──────────────────────────────────── */
-  const pickFile = useCallback(() => fileInputRef.current?.click(), [])
+  /* ── Manual open (OS picker + drag-drop) ───────────────────────────────── */
+  // The OS's own Open dialog, browsing the CONTAINER's filesystem. It used to be
+  // a native `<input type="file">`, which reads the *host* machine — the one
+  // thing brief 54 rules out by name, because "the computer is the container"
+  // and a dialog that browses the user's laptop instead of their home directory
+  // is actively wrong here. The pick latches into the same store `useOpenIntent`
+  // reads, so it runs the identical load path a File Manager double-click does.
+  const { openFile: pickFromOs, fileDialog } = useFileDialog(windowId)
+  const pickFile = useCallback(() => {
+    void pickFromOs({ extensions: ['pdf'] })
+  }, [pickFromOs])
 
   const takeFile = useCallback(
     (file: File | undefined | null) => {
@@ -158,16 +167,7 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
           onDragLeave={onDragLeave}
           onDrop={onDrop}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            hidden
-            onChange={(e) => {
-              takeFile(e.target.files?.[0])
-              e.target.value = ''
-            }}
-          />
+          {fileDialog}
 
           {/* 1. PART B annotate toolbar mounts via `toolbarSlot` when a doc is open. */}
           <TopBar onOpenClick={pickFile} toolbarSlot={ctrl.doc ? <AnnotateToolbar /> : undefined} />
