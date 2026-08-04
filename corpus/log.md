@@ -1273,3 +1273,53 @@ tests miss; it also produces its own false signals, and both directions need
 checking before anything is reported.
 
 Tests **369 → 384** (slides 0 → 15).
+
+## [2026-08-03] brief 90 | The Office gap was not missing UI — it was the bridge dropping what the UI produced
+
+The brief said Docs "exposes almost no editing surface — no find/replace, no
+styles UI, no tables". That was measured against the app's *own* toolbar.
+**SuperDoc mounts its own, with 31 controls** — including tables and table
+actions, linked styles, lists, alignment, colour, highlight, and accept/reject
+tracked changes. Almost the whole Docs list was already shipped; building a second
+toolbar would have duplicated it worse.
+
+**The real gap was Sheets, and it was silent data loss reachable from the toolbar
+the app already had.** Univer's ribbon sets underline, strikethrough, font family,
+font size, alignment, wrap and borders — and the ExcelJS bridge carried none of
+them. Univer's `IStyleData` has `ul`, `st`, `ff`, `fs`, `ht`, `vt`, `tb`, `bd`; the
+mapping handled `bl`, `it`, `cl`, `bg`, `n`. Underline a heading, set 18pt
+Georgia, centre a column, draw a border → save → reopen → gone, with no warning,
+because brief 63's open-time scan reports what the *package* holds and not what the
+*ribbon* can produce.
+
+All eight now map in both directions, with the awkward parts written down: ExcelJS
+reports vertical centre as `middle` (xlsx writes `center`); borders are per-edge
+with independent styles, so a double bottom and a dashed left must both survive;
+Excel's border vocabulary is wider than Univer's, so `dashDot` and friends map to
+their nearest neighbour rather than vanishing; Univer requires a colour on a
+border and Excel's default is black; wrap wins over shrink-to-fit because Univer
+has one strategy. And no style is invented on a plain cell, which has its own test.
+
+There is a combined-attributes test on purpose: an implementation that assigns
+`cell.font` twice, or replaces `cell.alignment` while setting borders, passes every
+single-attribute test and loses half a cell that has everything.
+
+**Docs got the two things genuinely absent:** find (`Ctrl+F`, match counter,
+wrapping next/previous) and word count. The search text is regex-escaped —
+unescaped, `a.b` matches `axb` and a bare `(` throws mid-typing. The count reads
+the rendered text, turns block tags into newlines so `end</p><p>Begin` is two
+words, and counts code points so an emoji is one character.
+
+**Replace is not built and is recorded as blocked on the engine.** SuperDoc
+exposes `search` but no replace command; `replaceAll` in its types is a label for
+its own search UI. Doing it anyway means driving ProseMirror transactions against
+the docx model and owning mark and tracked-change correctness by hand — the exact
+silent-corruption surface briefs 62 and 63 exist to contain.
+
+One self-inflicted bug caught in the browser: the word count read "0 words" over a
+19-word document, because it was computed when the engine object was constructed
+rather than when the document was loaded — `getHTML()` has nothing to give at that
+point. Moved into `onReady`.
+
+**This closes briefs 62, 63, 64 and 90 — the whole Office group — plus 87, 88, 89
+from the user's four asks, and 91/92 found while verifying.** Tests **384 → 406** (174 backend + 70 engine + 51 sheets + 45 core + 36 docs + 15 slides + 8 code-editor + 7 media-player).

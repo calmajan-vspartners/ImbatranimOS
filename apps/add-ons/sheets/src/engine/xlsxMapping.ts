@@ -39,22 +39,131 @@ function hexToArgb(hex?: string | null): string | undefined {
   return 'FF' + hex.replace(/^#/, '').slice(-6).toUpperCase()
 }
 
+// ── Style vocabularies ─────────────────────────────────────────────────────
+// Brief 90's real Sheets gap was not missing UI — Univer ships a full ribbon —
+// but that the ribbon let a user set underline, font size, font family,
+// alignment, wrap and borders, and this bridge carried NONE of them. Set a
+// border, save, reopen: gone, silently. So the mapping below covers everything
+// the ribbon can produce that xlsx can store, in BOTH directions, and the
+// fidelity matrix asserts each one round-trips.
+//
+// Numeric literals rather than importing Univer's enums: this module is imported
+// by the worker AND by tests, and pulling @univerjs/core in for six constants
+// would drag the engine into both. The values are from
+// `@univerjs/core/types/enum/text-style` and `border-style-types`, and the tests
+// pin them.
+
+/** Univer HorizontalAlign */
+const H_LEFT = 1
+const H_CENTER = 2
+const H_RIGHT = 3
+/** Univer VerticalAlign */
+const V_TOP = 1
+const V_MIDDLE = 2
+const V_BOTTOM = 3
+/** Univer WrapStrategy */
+const WRAP_OVERFLOW = 1
+const WRAP_CLIP = 2
+const WRAP_WRAP = 3
+/** Univer BorderStyleTypes — the subset Excel's own border picker offers. */
+const B_NONE = 0
+const B_THIN = 1
+const B_HAIR = 2
+const B_DOTTED = 3
+const B_DASHED = 4
+const B_DOUBLE = 7
+const B_MEDIUM = 8
+const B_THICK = 13
+
+/** ExcelJS border style name ↔ Univer BorderStyleTypes. */
+const BORDER_TO_UNIVER: Record<string, number> = {
+  thin: B_THIN,
+  hair: B_HAIR,
+  dotted: B_DOTTED,
+  dashed: B_DASHED,
+  double: B_DOUBLE,
+  medium: B_MEDIUM,
+  thick: B_THICK,
+  dashDot: B_DASHED,
+  dashDotDot: B_DASHED,
+  mediumDashed: B_MEDIUM,
+  mediumDashDot: B_MEDIUM,
+  mediumDashDotDot: B_MEDIUM,
+  slantDashDot: B_MEDIUM,
+}
+const UNIVER_TO_BORDER: Record<number, ExcelJS.BorderStyle> = {
+  [B_THIN]: 'thin',
+  [B_HAIR]: 'hair',
+  [B_DOTTED]: 'dotted',
+  [B_DASHED]: 'dashed',
+  [B_DOUBLE]: 'double',
+  [B_MEDIUM]: 'medium',
+  [B_THICK]: 'thick',
+}
+
+/** The four edges, in the two libraries' own names. */
+const EDGES = [
+  { univer: 't', excel: 'top' },
+  { univer: 'r', excel: 'right' },
+  { univer: 'b', excel: 'bottom' },
+  { univer: 'l', excel: 'left' },
+] as const
+
 // ── ExcelJS cell → Univer ──────────────────────────────────────────────────
 function cellToUniverStyle(cell: ExcelJS.Cell): IStyleData | undefined {
   const st: IStyleData = {}
   const font = cell.font
   if (font?.bold) st.bl = 1
   if (font?.italic) st.it = 1
+  // `s: 1` is Univer's "show this decoration"; the colour follows the font.
+  if (font?.underline) st.ul = { s: 1 }
+  if (font?.strike) st.st = { s: 1 }
+  if (font?.name) st.ff = font.name
+  // Excel stores size in points and so does Univer, so this is a copy, not a
+  // conversion — but guard the value: a 0 or a NaN renders as invisible text.
+  if (typeof font?.size === 'number' && font.size > 0) st.fs = font.size
   const fontColor = argbToHex(font?.color?.argb)
   if (fontColor) st.cl = { rgb: fontColor }
+
   const fill = cell.fill
   if (fill && fill.type === 'pattern' && fill.pattern === 'solid') {
     const bg = argbToHex(fill.fgColor?.argb)
     if (bg) st.bg = { rgb: bg }
   }
+
+  const align = cell.alignment
+  if (align?.horizontal === 'left') st.ht = H_LEFT
+  else if (align?.horizontal === 'center') st.ht = H_CENTER
+  else if (align?.horizontal === 'right') st.ht = H_RIGHT
+  if (align?.vertical === 'top') st.vt = V_TOP
+  else if (align?.vertical === 'middle') st.vt = V_MIDDLE
+  else if (align?.vertical === 'bottom') st.vt = V_BOTTOM
+  // Excel models wrap and shrink separately; Univer has one strategy, so wrap
+  // wins where both are set — losing "shrink to fit" is visible, losing the wrap
+  // reflows the text.
+  if (align?.wrapText) st.tb = WRAP_WRAP
+
+  const borders = cellToUniverBorders(cell)
+  if (borders) st.bd = borders
+
   const nf = cell.numFmt
   if (nf && nf !== 'General') st.n = { pattern: nf }
   return Object.keys(st).length ? st : undefined
+}
+
+function cellToUniverBorders(cell: ExcelJS.Cell): IStyleData['bd'] | undefined {
+  const src = cell.border
+  if (!src) return undefined
+  const bd: Record<string, { s: number; cl: { rgb: string } }> = {}
+  for (const edge of EDGES) {
+    const side = src[edge.excel]
+    if (!side?.style) continue
+    const s = BORDER_TO_UNIVER[side.style] ?? B_THIN
+    if (s === B_NONE) continue
+    // Univer requires a colour on a border; Excel's default is black.
+    bd[edge.univer] = { s, cl: { rgb: argbToHex(side.color?.argb) ?? '#000000' } }
+  }
+  return Object.keys(bd).length ? (bd as IStyleData['bd']) : undefined
 }
 
 function cellValueToUniver(cell: ExcelJS.Cell): Pick<ICellData, 'v' | 'f'> {
@@ -164,21 +273,70 @@ function resolveStyle(
   return raw
 }
 
+/** A decoration is on when Univer says `s: 1`. */
+function decorationOn(d: IStyleData['ul' | 'st']): boolean {
+  return !!d && typeof d === 'object' && d.s === 1
+}
+
+function rgbOf(color: unknown): string | undefined {
+  if (!color || typeof color !== 'object') return undefined
+  const rgb = (color as { rgb?: unknown }).rgb
+  return typeof rgb === 'string' ? rgb : undefined
+}
+
 function applyUniverStyle(cell: ExcelJS.Cell, st: IStyleData | undefined): void {
   if (!st) return
+
   const font: Partial<ExcelJS.Font> = {}
   if (st.bl) font.bold = true
   if (st.it) font.italic = true
-  const clRgb = st.cl && typeof st.cl === 'object' ? (st.cl.rgb as string | undefined) : undefined
-  const cl = hexToArgb(clRgb)
+  if (decorationOn(st.ul)) font.underline = true
+  if (decorationOn(st.st)) font.strike = true
+  if (typeof st.ff === 'string' && st.ff) font.name = st.ff
+  if (typeof st.fs === 'number' && st.fs > 0) font.size = st.fs
+  const cl = hexToArgb(rgbOf(st.cl))
   if (cl) font.color = { argb: cl }
   if (Object.keys(font).length) cell.font = font
-  const bgRgb = st.bg && typeof st.bg === 'object' ? (st.bg.rgb as string | undefined) : undefined
-  const bgArgb = hexToArgb(bgRgb)
+
+  const bgArgb = hexToArgb(rgbOf(st.bg))
   if (bgArgb) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } }
   }
+
+  const alignment: Partial<ExcelJS.Alignment> = {}
+  if (st.ht === H_LEFT) alignment.horizontal = 'left'
+  else if (st.ht === H_CENTER) alignment.horizontal = 'center'
+  else if (st.ht === H_RIGHT) alignment.horizontal = 'right'
+  if (st.vt === V_TOP) alignment.vertical = 'top'
+  else if (st.vt === V_MIDDLE) alignment.vertical = 'middle'
+  else if (st.vt === V_BOTTOM) alignment.vertical = 'bottom'
+  // OVERFLOW and CLIP both mean "do not wrap" as far as xlsx is concerned; only
+  // WRAP has a representation, so only WRAP is written.
+  if (st.tb === WRAP_WRAP) alignment.wrapText = true
+  else if (st.tb === WRAP_OVERFLOW || st.tb === WRAP_CLIP) alignment.wrapText = false
+  if (Object.keys(alignment).length) cell.alignment = alignment
+
+  const border = univerToExcelBorders(st.bd)
+  if (border) cell.border = border
+
   if (st.n && typeof st.n === 'object' && st.n.pattern) cell.numFmt = st.n.pattern
+}
+
+function univerToExcelBorders(bd: IStyleData['bd']): Partial<ExcelJS.Borders> | undefined {
+  if (!bd || typeof bd !== 'object') return undefined
+  const out: Record<string, ExcelJS.Border> = {}
+  for (const edge of EDGES) {
+    const side = (bd as Record<string, unknown>)[edge.univer]
+    if (!side || typeof side !== 'object') continue
+    const s = (side as { s?: unknown }).s
+    if (typeof s !== 'number' || s === B_NONE) continue
+    const style = UNIVER_TO_BORDER[s] ?? 'thin'
+    // ExcelJS's Border type requires a colour, so default to black — which is
+    // also Excel's own default when a border has no explicit colour.
+    const argb = hexToArgb(rgbOf((side as { cl?: unknown }).cl)) ?? 'FF000000'
+    out[edge.excel] = { style, color: { argb } }
+  }
+  return Object.keys(out).length ? (out as Partial<ExcelJS.Borders>) : undefined
 }
 
 /** Serialize a Univer workbook snapshot back to xlsx bytes. */

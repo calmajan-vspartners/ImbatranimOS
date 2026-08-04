@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FileText, FileWarning, Loader2, Save } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  FileWarning,
+  Loader2,
+  Save,
+  Search,
+  X,
+} from 'lucide-react'
 import {
   Button,
   Tooltip,
@@ -17,6 +26,8 @@ import { createDocEngine, type DocEngine } from './engine/superdoc'
 import { normalizeDocx } from './engine/docxNormalize'
 import { unsupportedReason } from './lib/formats'
 import { shouldClearDirty } from './lib/saveOutcome'
+import { countText, htmlToText } from './lib/wordCount'
+import type { DocMatch } from './engine/superdoc'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
@@ -36,6 +47,14 @@ export function Docs({ windowId }: { windowId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findText, setFindText] = useState('')
+  // Matches are opaque engine tokens; kept in a ref because they are not rendered
+  // and a new search replaces them wholesale.
+  const matchesRef = useRef<DocMatch[]>([])
+  const [matchCount, setMatchCount] = useState(0)
+  const [matchIndex, setMatchIndex] = useState(0)
+  const [counts, setCounts] = useState({ words: 0, characters: 0, charactersNoSpaces: 0 })
 
   const docName = source ? fileName(source.path, 'document.docx') : ''
   // Refuse what the engine cannot read, before it is asked to try. Computed from
@@ -111,10 +130,15 @@ export function Docs({ windowId }: { windowId: string }) {
           toolbar: `#${toolbarId}`,
           file,
           onReady: () => {
-            if (!cancelled) {
-              setLoading(false)
-              setDirty(false)
-            }
+            if (cancelled) return
+            setLoading(false)
+            setDirty(false)
+            // Count once the document is actually loaded. Doing it when the
+            // engine object is constructed is too early — `getHTML()` has
+            // nothing to give yet, and the toolbar read "0 words" over a
+            // document with nineteen, which is worse than no counter at all.
+            const ready = engineRef.current
+            if (ready) setCounts(countText(htmlToText(ready.html())))
           },
           onEdit: () => {
             if (!cancelled) setDirty(true)
@@ -150,6 +174,67 @@ export function Docs({ windowId }: { windowId: string }) {
       toolbarHost.remove()
     }
   }, [source, refusal, windowId, docName])
+
+  // ── Word count ──────────────────────────────────────────────────────────────
+  // Recomputed on demand rather than on every keystroke: reading the whole
+  // document's HTML is cheap but not free, and a live counter that re-serializes
+  // the document per character typed is the kind of thing that makes an editor
+  // feel heavy for a number nobody is watching that closely.
+  const refreshCounts = useCallback(() => {
+    const engine = engineRef.current
+    if (!engine) return
+    setCounts(countText(htmlToText(engine.html())))
+  }, [])
+
+  // ── Find ────────────────────────────────────────────────────────────────────
+  const runSearch = useCallback((text: string) => {
+    const engine = engineRef.current
+    setFindText(text)
+    if (!engine || text.trim() === '') {
+      matchesRef.current = []
+      setMatchCount(0)
+      setMatchIndex(0)
+      return
+    }
+    const matches = engine.search(text)
+    matchesRef.current = matches
+    setMatchCount(matches.length)
+    setMatchIndex(matches.length > 0 ? 1 : 0)
+    if (matches.length > 0) engine.goToMatch(matches[0])
+  }, [])
+
+  const stepMatch = useCallback((direction: 1 | -1) => {
+    const engine = engineRef.current
+    const matches = matchesRef.current
+    if (!engine || matches.length === 0) return
+    setMatchIndex((prev) => {
+      // 1-based, wrapping — a find bar that stops at the last hit makes the user
+      // retype the query to go round again.
+      const next = ((prev - 1 + direction + matches.length) % matches.length) + 1
+      engine.goToMatch(matches[next - 1])
+      return next
+    })
+  }, [])
+
+  const openFind = useCallback(() => {
+    setFindOpen(true)
+    refreshCounts()
+  }, [refreshCounts])
+
+  // Ctrl/Cmd+F opens the find bar. Bound only while a document is open, and
+  // preventDefault so the browser's own find does not take it — the OS's find is
+  // the one that can reach inside the editor's document model.
+  useEffect(() => {
+    if (!source || refusal) return
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        openFind()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [source, refusal, openFind])
 
   const handleSave = useCallback(async () => {
     const engine = engineRef.current
@@ -228,6 +313,28 @@ export function Docs({ windowId }: { windowId: string }) {
           </Button>
         </Tooltip>
 
+        <Tooltip content="Find (Ctrl+F)">
+          <Button
+            variant={findOpen ? 'primary' : 'ghost'}
+            size="sm"
+            className="h-6 w-6 p-0"
+            aria-label="Find in document"
+            aria-pressed={findOpen}
+            onClick={openFind}
+          >
+            <Search size={12} />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Word count">
+          <button
+            type="button"
+            onClick={refreshCounts}
+            className="font-ui text-on-surface-variant hover:text-on-surface text-[11px] tabular-nums"
+          >
+            {counts.words} words
+          </button>
+        </Tooltip>
+
         <div className="flex-1" />
 
         {error && (
@@ -240,6 +347,64 @@ export function Docs({ windowId }: { windowId: string }) {
           {dirty ? ' •' : ''}
         </span>
       </div>
+
+      {findOpen && (
+        <div className="border-outline-variant bg-surface-container flex items-center gap-1 border-b px-2 py-1">
+          <Search size={12} className="text-on-surface-variant shrink-0" />
+          <input
+            autoFocus
+            value={findText}
+            placeholder="Find in document"
+            aria-label="Find in document"
+            onChange={(e) => runSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') stepMatch(e.shiftKey ? -1 : 1)
+              if (e.key === 'Escape') setFindOpen(false)
+            }}
+            className="border-outline-variant bg-surface-container-lowest font-ui text-on-surface w-[220px] border px-1.5 py-0.5 text-[12px] outline-none"
+          />
+          <span className="font-ui text-on-surface-variant min-w-[64px] text-[11px] tabular-nums">
+            {findText.trim() === ''
+              ? ''
+              : matchCount === 0
+                ? 'No matches'
+                : `${matchIndex} of ${matchCount}`}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            aria-label="Previous match"
+            disabled={matchCount === 0}
+            onClick={() => stepMatch(-1)}
+          >
+            <ChevronUp size={12} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            aria-label="Next match"
+            disabled={matchCount === 0}
+            onClick={() => stepMatch(1)}
+          >
+            <ChevronDown size={12} />
+          </Button>
+          <div className="flex-1" />
+          <span className="font-ui text-on-surface-variant text-[11px] tabular-nums">
+            {counts.words} words · {counts.charactersNoSpaces} characters
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            aria-label="Close find"
+            onClick={() => setFindOpen(false)}
+          >
+            <X size={12} />
+          </Button>
+        </div>
+      )}
 
       {/* SuperDoc's own formatting toolbar mounts into a fresh child here. */}
       <div

@@ -9,9 +9,24 @@
  */
 import type { SuperDoc as SuperDocClass } from '@harbour-enterprises/superdoc'
 
+/** One hit from {@link DocEngine.search}, opaque apart from being passable back. */
+export type DocMatch = { readonly __brand?: 'DocMatch' }
+
 export type DocEngine = {
   /** Export the current document back to docx bytes. */
   exportDocx: () => Promise<ArrayBuffer>
+  /**
+   * Find every occurrence of `text`, highlighted in the document.
+   *
+   * SuperDoc's own `search` command; the matches are opaque tokens that
+   * {@link goToMatch} resolves back to positions. Returns `[]` when nothing
+   * matches and when the engine has no active editor yet.
+   */
+  search: (text: string, opts?: { caseSensitive?: boolean }) => DocMatch[]
+  /** Scroll to and select a match returned by {@link search}. */
+  goToMatch: (match: DocMatch) => void
+  /** The document's rendered HTML, for the word count. */
+  html: () => string
   /**
    * Monotonic count of every editor update. Save records this before exporting
    * and only clears dirty if it is unchanged once the upload resolves — so edits
@@ -80,6 +95,23 @@ export async function createDocEngine(opts: CreateDocEngineOptions): Promise<Doc
       const blob = await superdoc.export({ exportType: ['docx'], triggerDownload: false })
       return blob.arrayBuffer()
     },
+    search: (text, opts) => {
+      // The facade's `search` takes only a pattern, so case sensitivity is
+      // expressed as a RegExp flag rather than an option — and the user's text is
+      // escaped first, or a search for "a.b" would match "axb" and a stray "("
+      // would throw a SyntaxError mid-typing.
+      const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const pattern = new RegExp(escaped, opts?.caseSensitive ? 'g' : 'gi')
+      // Returns undefined when there is no active editor or the active projection
+      // has no search command — both mean "no matches" here, not an error.
+      return (superdoc.search(pattern) ?? []) as DocMatch[]
+    },
+    goToMatch: (match) => {
+      superdoc.goToSearchResult(match as Parameters<typeof superdoc.goToSearchResult>[0])
+    },
+    // getHTML returns one entry per editor; a docx is one document, so join
+    // rather than assume [0] — a multi-editor future would silently under-count.
+    html: () => (superdoc.getHTML() ?? []).join('\n'),
     editCount: () => editCount,
     destroy: () => {
       try {

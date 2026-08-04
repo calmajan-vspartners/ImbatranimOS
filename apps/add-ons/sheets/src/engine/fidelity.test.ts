@@ -248,3 +248,108 @@ describe('inspectXlsx — the parts ExcelJS cannot be handed', () => {
     expect(cell(workbook, 0, 10, 0)?.v).toBe('commented')
   })
 })
+
+/**
+ * Brief 90's Sheets stage. Univer's ribbon lets a user set underline,
+ * strikethrough, font family, font size, alignment, wrap and borders — and this
+ * bridge carried none of them, so every one was silently dropped on save. These
+ * assertions are the contract that says they survive now, and they are written
+ * against a fixture built by openpyxl rather than by our own writer.
+ */
+const stylesBytes = () => {
+  const buf = readFileSync(join(__dirname, '__fixtures__', 'styles.xlsx'))
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+}
+
+/** parse → serialize → parse, so a claim covers the write path too. */
+async function roundTrip(bytes: ArrayBuffer) {
+  const first = await parse(bytes)
+  const out = await serialize(first.workbook as IWorkbookData)
+  return (await parse(out)).workbook
+}
+
+describe('brief 90 — the styles Univer can set now survive a save', () => {
+  it('preserves underline and strikethrough', async () => {
+    const wb = await roundTrip(stylesBytes())
+    expect(cell(wb, 0, 0, 0)?.s).toMatchObject({ ul: { s: 1 } })
+    expect(cell(wb, 0, 1, 0)?.s).toMatchObject({ st: { s: 1 } })
+  })
+
+  it('preserves font family and size', async () => {
+    const wb = await roundTrip(stylesBytes())
+    expect(cell(wb, 0, 2, 0)?.s).toMatchObject({ ff: 'Georgia', fs: 18 })
+  })
+
+  it('preserves horizontal and vertical alignment', async () => {
+    const wb = await roundTrip(stylesBytes())
+    // 1/2/3 are Univer's LEFT/CENTER/RIGHT and TOP/MIDDLE/BOTTOM. Pinned here on
+    // purpose: the mapping uses the numbers rather than importing the enums, so
+    // this test is what stops them drifting.
+    expect(cell(wb, 0, 0, 1)?.s).toMatchObject({ ht: 1, vt: 1 })
+    expect(cell(wb, 0, 1, 1)?.s).toMatchObject({ ht: 2, vt: 2 })
+    expect(cell(wb, 0, 2, 1)?.s).toMatchObject({ ht: 3, vt: 3 })
+  })
+
+  it('preserves text wrap', async () => {
+    const wb = await roundTrip(stylesBytes())
+    // 3 is WrapStrategy.WRAP.
+    expect(cell(wb, 0, 3, 1)?.s).toMatchObject({ tb: 3 })
+  })
+
+  it('preserves a four-sided border with its colour', async () => {
+    const wb = await roundTrip(stylesBytes())
+    const bd = cell(wb, 0, 0, 2)?.s as { bd?: Record<string, { s: number; cl: { rgb: string } }> }
+    expect(Object.keys(bd.bd ?? {}).sort()).toEqual(['b', 'l', 'r', 't'])
+    // 1 is BorderStyleTypes.THIN.
+    expect(bd.bd?.t).toMatchObject({ s: 1, cl: { rgb: '#333333' } })
+  })
+
+  it('preserves per-edge border styles rather than flattening them', async () => {
+    const wb = await roundTrip(stylesBytes())
+    const one = cell(wb, 0, 1, 2)?.s as { bd?: Record<string, { s: number }> }
+    // A thick top and nothing else: 13 is THICK.
+    expect(Object.keys(one.bd ?? {})).toEqual(['t'])
+    expect(one.bd?.t?.s).toBe(13)
+
+    const two = cell(wb, 0, 2, 2)?.s as { bd?: Record<string, { s: number }> }
+    // 7 is DOUBLE, 4 is DASHED — a bottom and a left that differ from each other.
+    expect(two.bd?.b?.s).toBe(7)
+    expect(two.bd?.l?.s).toBe(4)
+    expect(two.bd?.t).toBeUndefined()
+  })
+
+  it('preserves every attribute at once on a single cell', async () => {
+    // The combination matters: an implementation that writes `cell.font` twice,
+    // or replaces alignment while setting borders, passes the single-attribute
+    // tests and loses half of this one.
+    const wb = await roundTrip(stylesBytes())
+    const s = cell(wb, 0, 0, 3)?.s as Record<string, unknown>
+    expect(s).toMatchObject({
+      bl: 1,
+      it: 1,
+      ul: { s: 1 },
+      st: { s: 1 },
+      ff: 'Courier New',
+      fs: 14,
+      cl: { rgb: '#008800' },
+      bg: { rgb: '#FFEECC' },
+      ht: 2,
+      vt: 2,
+      tb: 3,
+      n: { pattern: '0.000' },
+    })
+    expect(Object.keys((s.bd as Record<string, unknown>) ?? {}).sort()).toEqual([
+      'b',
+      'l',
+      'r',
+      't',
+    ])
+  })
+
+  it('does not invent a style on a plain cell', async () => {
+    // Writing an empty font/alignment/border on every cell would bloat the file
+    // and mark unformatted cells as formatted in Excel.
+    const wb = await roundTrip(fixtureBytes())
+    expect(cell(wb, 0, 1, 0)?.s).toBeUndefined()
+  })
+})
