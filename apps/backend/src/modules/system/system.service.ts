@@ -8,10 +8,34 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import {
+  bytesPerSecond,
+  parseNetDev,
+  toSwapStats,
+  type NetTotals,
+  type SwapStats,
+} from './proc-net';
 
 export type CpuStats = {
   percent: number;
   cores: number;
+  /**
+   * Busy percent per core, same order as `os.cpus()`.
+   *
+   * `sampleCpus()` already computed per-core samples and then threw the detail
+   * away by summing them — this exposes what was already being measured. Empty on
+   * the very first poll, which has no baseline to diff against.
+   */
+  perCore: number[];
+};
+
+/** 1 / 5 / 15-minute load average, straight from `os.loadavg()`. */
+export type LoadAverage = { one: number; five: number; fifteen: number };
+
+export type NetStats = NetTotals & {
+  /** Bytes/sec since the previous poll; 0 on the first one. */
+  rxPerSec: number;
+  txPerSec: number;
 };
 
 export type MemoryStats = {
@@ -29,17 +53,36 @@ export type DiskStats = {
   percent: number;
 };
 
+/**
+ * Everything the Overview shows.
+ *
+ * Fields were ADDED here, never renamed — the tray polls the same endpoint and a
+ * rename would break it silently (`/api/system/stats` stays backward-compatible,
+ * per brief 58's regression surface).
+ */
 export type SystemStats = {
   cpu: CpuStats;
   memory: MemoryStats;
   disk: DiskStats;
+  swap: SwapStats;
+  loadAvg: LoadAverage;
+  net: NetStats;
+  uptimeSeconds: number;
 };
 
 export type ProcessInfo = {
   pid: number;
   uid: number;
   name: string;
-  cpuPercent: number;
+  /**
+   * Busy percent since the previous poll, or **null when there is no baseline yet**.
+   *
+   * Nullable rather than 0 because the two are different facts and the UI must not
+   * conflate them: on the very first poll nothing is known about any process's CPU
+   * use, and printing a confident `0.0` for a busy process is a lie that
+   * self-corrects 1.5s later — long enough for the user to read it.
+   */
+  cpuPercent: number | null;
   memPercent: number;
   memBytes: number;
 };
@@ -51,6 +94,16 @@ export type AboutInfo = {
   arch: string;
   uptimeSeconds: number;
   imageVersion: string;
+  /**
+   * The pid of this backend process.
+   *
+   * Exposed so System Monitor can warn before you kill the process serving the
+   * desktop. The kill is uid-scoped, but the backend runs as that same uid — so
+   * "you are allowed to" and "you meant to" are different questions, and only the
+   * client can ask the second one. Not a secret: any process listing inside the
+   * container shows it, and the caller is already authenticated.
+   */
+  serverPid: number;
 };
 
 type CpuSample = { idle: number; total: number };
@@ -142,40 +195,122 @@ export class SystemService {
   // request with an internal setTimeout. Cheap and stateless per-request.
   private lastCpuSample: CpuSample[] | null = null;
   private lastCpuPercent = 0;
+  private lastPerCore: number[] = [];
 
   // Previous per-pid CPU jiffies, so getProcesses() can report busy time
   // between polls rather than a since-boot average.
   private lastProcSample: ProcSample | null = null;
 
+  /** Previous cumulative network counters, for the per-second rate. */
+  private lastNetSample: { at: number; totals: NetTotals } | null = null;
+  private lastNetRate = { rxPerSec: 0, txPerSec: 0 };
+
   async getStats(): Promise<SystemStats> {
-    const [cpu, memory, disk] = await Promise.all([
+    const [cpu, mem, disk, net] = await Promise.all([
       Promise.resolve(this.getCpuStats()),
       this.getMemoryStats(),
       this.getDiskStats(),
+      this.getNetStats(),
     ]);
-    return { cpu, memory, disk };
+    return {
+      cpu,
+      memory: mem.memory,
+      swap: mem.swap,
+      disk,
+      net,
+      loadAvg: this.getLoadAverage(),
+      uptimeSeconds: os.uptime(),
+    };
+  }
+
+  private getLoadAverage(): LoadAverage {
+    const [one, five, fifteen] = os.loadavg();
+    // Rounded to two decimals to match what `uptime` prints; the raw floats carry
+    // more precision than the number means.
+    const round = (n: number) =>
+      Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+    return { one: round(one), five: round(five), fifteen: round(fifteen) };
+  }
+
+  /**
+   * Cumulative network counters plus a per-second rate.
+   *
+   * The baseline-age guard mirrors the CPU delta's: the sample is shared by every
+   * caller, so a second poll arriving milliseconds after the first (two System
+   * Monitor windows, or the tray racing the app) would divide a tiny byte delta by a
+   * near-zero window and report an absurd rate. Below the threshold the last
+   * computed rate is reused and the baseline is left in place.
+   */
+  private async getNetStats(): Promise<NetStats> {
+    let totals: NetTotals = { rxBytes: 0, txBytes: 0 };
+    try {
+      totals = parseNetDev(await fsp.readFile('/proc/net/dev', 'utf8'));
+    } catch (err) {
+      // No /proc/net/dev (non-Linux dev machine): report zeros rather than failing
+      // the whole stats call, which would blank the entire Overview.
+      this.logger.warn(`/proc/net/dev unavailable: ${(err as Error).message}`);
+      return { ...totals, ...this.lastNetRate };
+    }
+
+    const now = Date.now();
+    const previous = this.lastNetSample;
+    if (previous) {
+      const elapsed = now - previous.at;
+      if (elapsed >= MIN_CPU_WINDOW_MS) {
+        this.lastNetRate = {
+          rxPerSec: bytesPerSecond(
+            previous.totals.rxBytes,
+            totals.rxBytes,
+            elapsed,
+          ),
+          txPerSec: bytesPerSecond(
+            previous.totals.txBytes,
+            totals.txBytes,
+            elapsed,
+          ),
+        };
+        this.lastNetSample = { at: now, totals };
+      }
+    } else {
+      this.lastNetSample = { at: now, totals };
+    }
+
+    return { ...totals, ...this.lastNetRate };
   }
 
   private getCpuStats(): CpuStats {
     const samples = this.sampleCpus();
     let percent = this.lastCpuPercent;
+    let perCore = this.lastPerCore;
 
     if (this.lastCpuSample && this.lastCpuSample.length === samples.length) {
       let totalIdle = 0;
       let totalTick = 0;
+      const next: number[] = [];
       for (let i = 0; i < samples.length; i++) {
-        totalIdle += samples[i].idle - this.lastCpuSample[i].idle;
-        totalTick += samples[i].total - this.lastCpuSample[i].total;
+        const idleDelta = samples[i].idle - this.lastCpuSample[i].idle;
+        const tickDelta = samples[i].total - this.lastCpuSample[i].total;
+        totalIdle += idleDelta;
+        totalTick += tickDelta;
+        // Per-core comes free from the sample that was already being taken; the
+        // old code summed it and discarded the detail.
+        next.push(
+          tickDelta <= 0
+            ? 0
+            : Math.round(((tickDelta - idleDelta) / tickDelta) * 1000) / 10,
+        );
       }
       percent =
         totalTick <= 0
           ? this.lastCpuPercent
           : Math.round(((totalTick - totalIdle) / totalTick) * 1000) / 10;
+      perCore = next;
     }
 
     this.lastCpuSample = samples;
     this.lastCpuPercent = percent;
-    return { percent, cores: samples.length };
+    this.lastPerCore = perCore;
+    return { percent, cores: samples.length, perCore };
   }
 
   private sampleCpus(): CpuSample[] {
@@ -185,7 +320,16 @@ export class SystemService {
     });
   }
 
-  private async getMemoryStats(): Promise<MemoryStats> {
+  /**
+   * Memory AND swap from one read.
+   *
+   * Both come out of `/proc/meminfo`, so reading it twice would be two syscalls and
+   * two chances for the halves to disagree about the same instant.
+   */
+  private async getMemoryStats(): Promise<{
+    memory: MemoryStats;
+    swap: SwapStats;
+  }> {
     try {
       const raw = await fsp.readFile('/proc/meminfo', 'utf8');
       const kv: Record<string, number> = {};
@@ -196,12 +340,20 @@ export class SystemService {
       const totalBytes = kv.MemTotal ?? os.totalmem();
       // MemAvailable accounts for reclaimable cache/buffers, unlike freemem().
       const availableBytes = kv.MemAvailable ?? os.freemem();
-      return this.toMemoryStats(totalBytes, availableBytes);
+      return {
+        memory: this.toMemoryStats(totalBytes, availableBytes),
+        // Absent on a container with no swap — `toSwapStats` reports zeros rather
+        // than dividing by a zero total.
+        swap: toSwapStats(kv.SwapTotal ?? 0, kv.SwapFree ?? 0),
+      };
     } catch (err) {
       this.logger.warn(
         `/proc/meminfo unavailable, falling back to os module: ${(err as Error).message}`,
       );
-      return this.toMemoryStats(os.totalmem(), os.freemem());
+      return {
+        memory: this.toMemoryStats(os.totalmem(), os.freemem()),
+        swap: toSwapStats(0, 0),
+      };
     }
   }
 
@@ -289,8 +441,9 @@ export class SystemService {
           if (!stat) return null;
           jiffiesNow.set(pid, stat.jiffies);
 
-          // Busy time since the previous poll. The first poll has no baseline,
-          // so every row reports 0 % until the next one ~1.5 s later.
+          // Busy time since the previous poll. With no baseline — the first poll,
+          // or a process that appeared since the last one — this is genuinely
+          // UNKNOWN, so it is null and the UI renders an em dash.
           const before = previous?.jiffies.get(pid);
           const cpuPercent =
             before !== undefined && elapsedSec > 0
@@ -299,14 +452,15 @@ export class SystemService {
                   ((stat.jiffies - before) / CLOCK_TICKS_PER_SEC / elapsedSec) *
                     100,
                 )
-              : 0;
+              : null;
 
           const memBytes = stat.rssPages * PAGE_SIZE_BYTES;
           return {
             pid,
             uid,
             name: stat.comm,
-            cpuPercent: Math.round(cpuPercent * 10) / 10,
+            cpuPercent:
+              cpuPercent === null ? null : Math.round(cpuPercent * 10) / 10,
             memPercent:
               totalMem > 0 ? Math.round((memBytes / totalMem) * 1000) / 10 : 0,
             memBytes,
@@ -323,10 +477,14 @@ export class SystemService {
       return (
         rows
           .filter((r): r is ProcessInfo => r !== null)
-          // Memory is the tie-break so the very first poll, where every
-          // cpuPercent is still 0, is ordered by something meaningful.
+          // Memory is the tie-break so the very first poll, where every cpuPercent
+          // is still unknown, is ordered by something meaningful. `?? -1` keeps a
+          // null out of the subtraction — NaN there would make the sort order
+          // depend on the input order and on the engine's sort implementation.
           .sort(
-            (a, b) => b.cpuPercent - a.cpuPercent || b.memBytes - a.memBytes,
+            (a, b) =>
+              (b.cpuPercent ?? -1) - (a.cpuPercent ?? -1) ||
+              b.memBytes - a.memBytes,
           )
           .slice(0, MAX_PROCESSES)
       );
@@ -343,6 +501,7 @@ export class SystemService {
       platform: os.platform(),
       arch: os.arch(),
       uptimeSeconds: Math.round(os.uptime()),
+      serverPid: process.pid,
       imageVersion: this.getImageVersion(),
     });
   }

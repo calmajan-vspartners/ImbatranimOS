@@ -1416,7 +1416,7 @@ reason written down: it previews ink on paper and must match what lands in the P
 so a semantic token would show white ink in dark mode for a signature that saves
 black. §46 read it as an oversight; it is a decision.
 
-Noted, not fixed: **the backend has no `typecheck` script**, so its `test/`
+Noted, not fixed (FIXED 2026-08-04 in brief 58): **the backend has no `typecheck` script**, so its `test/`
 directory has never been type-checked and carries two pre-existing supertest typing
 errors. `src/` is still compiled by `nest build` under `turbo build`.
 
@@ -1678,3 +1678,66 @@ Backend **192 unit + 46 e2e** (was 182 + 36). Frontend vitest **321 → 336**.
 
 Still worth a todo: **TOTP recovery codes.** Lose your phone today and you are locked
 out with no fallback — the same class of gap this brief just closed for passwords.
+
+## 2026-08-04 — brief 58 (System Monitor): the kill asks first, and the OS knows its own pid
+
+[Brief 58](briefs/done/58-system-monitor-history-and-safety.md) done. All five problems
+closed, plus a piece of missing test infrastructure the work itself exposed.
+
+**The kill now confirms**, naming the process and pid, with the outcome through
+`notify()` instead of an inline "not permitted" sitting in a virtualized row that
+scrolls away. The case worth building: `/api/system/about` now reports `serverPid`, so
+the backend's own row is marked `(this OS)` and killing it gets a *different* dialog
+saying it will disconnect every app and end the session. **Warned, not forbidden** — a
+real OS lets you shoot your own foot, it just should not happen by accident. The kill
+was already uid-scoped, but the backend runs as that same uid, so "you are allowed to"
+and "you meant to" are different questions and only the client can ask the second.
+
+**Three of the new stats were already being measured and thrown away.** Per-core CPU
+came free — `sampleCpus()` computed per-core samples and then summed them, discarding
+the detail. Swap comes out of the same `/proc/meminfo` read as memory (reading twice
+would be two syscalls and two chances for the halves to disagree about one instant).
+Load average and uptime are one call each. Only network is genuinely new.
+
+**Two `/proc/net/dev` traps, both now tested.** Loopback *must* be excluded and that is
+the load-bearing one: in this OS the desktop talks to its own backend over `lo` — every
+file read, every stats poll, the whole PTY stream — so counting it would report the
+machine's internal chatter as network traffic and a box with no network at all would
+show megabytes. And there may be **no space after the colon**: once a counter outgrows
+its column the kernel prints `eth0:123456789012` flush against it, so tokenising the
+line on whitespace reads the byte count as the interface name — only on the busy
+machines whose numbers you care about.
+
+**`cpuPercent` is now `number | null`** and renders `—`. The first poll has no baseline,
+so nothing is known, and a confident `0.0` for a busy process is a lie that lasts 1.5s.
+An existing test asserted `=== 0` on the first poll; that encoded the behaviour being
+fixed, so it was changed deliberately with the reason written into it.
+
+**History with no charting dependency**: a 120-sample ring buffer (~3 min at the
+existing poll), gone when the window closes — honest, since nothing records while the
+app is shut. The scale is **fixed at 0–100, not auto-fitted**, and the tests pin that:
+auto-fitting would make a series wobbling between 0.1% and 0.4% fill the box and turn
+idle noise into a crisis.
+
+**Found while working: the backend was never type-checked.** `nest build` rejected a
+change `turbo run typecheck` had just passed, because the backend had **no `typecheck`
+script** — only `build` ever checked `src/`. It also carried two long-standing supertest
+typing errors in `test/`, which is presumably why nobody added one. Both fixed:
+`binaryParser` takes `unknown` and narrows (superagent declares its parser's first
+parameter as its own `Response` type, so a `ReadableStream` parameter was never
+assignable, even though the runtime object *is* a readable stream — which is why it
+worked), and the script exists. `turbo run typecheck` went 25 → 26 tasks. This closes
+the "noted, not fixed" item from the 2026-08-03 brief-66 entry.
+
+Also worth remembering: I filtered away the error I was hunting. `tsc | grep "^src/"`
+matches nothing when tsc emits colour, because the line begins with an ANSI escape.
+
+Verified in the shipped bundle by spawning a **real** `sleep 600` in the container: the
+confirm names it, **Cancel leaves it alive** (checked with `kill -0` from outside the
+browser), confirming really ends it, and the backend row produces the backend-specific
+warning. `loadAvg {0.34, 0.62, 0.3}`, 4 per-core cells for 4 cores, real network rates,
+and this swapless host reports zeros → "none configured". First poll renders `—`; the
+filter narrows to one row by name and by pid; sparklines grow 3 → 8 points. No page
+errors.
+
+Tests: backend **208 unit + 46 e2e** (was 192 + 46), frontend vitest **336 → 353**.

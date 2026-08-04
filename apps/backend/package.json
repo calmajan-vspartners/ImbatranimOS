@@ -7,6 +7,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "build": "nest build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "nest start --watch",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",

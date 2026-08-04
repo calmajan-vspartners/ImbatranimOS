@@ -151,7 +151,11 @@ describe('SystemService.getProcesses', () => {
     expect(Array.isArray(first)).toBe(true);
     // /proc always has at least this process.
     expect(first.length).toBeGreaterThan(0);
-    expect(first.every((p) => p.cpuPercent === 0)).toBe(true);
+    // NULL, not 0, on the first poll — brief 58. There is no baseline to diff
+    // against yet, so nothing is known about any process's CPU use, and a confident
+    // `0.0` for a busy process is a lie that persists until the next poll. This
+    // assertion previously required 0; the change is deliberate.
+    expect(first.every((p) => p.cpuPercent === null)).toBe(true);
 
     // Every row must be shaped correctly and carry real memory numbers.
     for (const p of first) {
@@ -168,7 +172,10 @@ describe('SystemService.getProcesses', () => {
       /* busy */
     }
     const second = await service.getProcesses();
-    expect(second.some((p) => p.cpuPercent > 0)).toBe(true);
+    // Second poll HAS a baseline, so the values are real numbers again.
+    expect(second.some((p) => p.cpuPercent !== null && p.cpuPercent > 0)).toBe(
+      true,
+    );
   });
 
   it('finds this very process in the table', async () => {

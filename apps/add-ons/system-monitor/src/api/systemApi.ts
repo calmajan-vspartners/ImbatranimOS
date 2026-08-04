@@ -5,6 +5,24 @@ import { api } from '@imbatranim/core'
 export type CpuStats = {
   percent: number
   cores: number
+  /** Busy percent per core; empty on the first poll, which has no baseline. */
+  perCore: number[]
+}
+
+export type LoadAverage = { one: number; five: number; fifteen: number }
+
+export type SwapStats = {
+  totalBytes: number
+  usedBytes: number
+  freeBytes: number
+  percent: number
+}
+
+export type NetStats = {
+  rxBytes: number
+  txBytes: number
+  rxPerSec: number
+  txPerSec: number
 }
 
 export type MemoryStats = {
@@ -26,13 +44,18 @@ export type SystemStats = {
   cpu: CpuStats
   memory: MemoryStats
   disk: DiskStats
+  swap: SwapStats
+  loadAvg: LoadAverage
+  net: NetStats
+  uptimeSeconds: number
 }
 
 export type ProcessInfo = {
   pid: number
   uid: number
   name: string
-  cpuPercent: number
+  /** null until a baseline exists — render an em dash, not `0.0`. */
+  cpuPercent: number | null
   memPercent: number
   memBytes: number
 }
@@ -44,6 +67,8 @@ export type AboutInfo = {
   arch: string
   uptimeSeconds: number
   imageVersion: string
+  /** This backend's own pid, so killing it can be warned about rather than forbidden. */
+  serverPid: number
 }
 
 export type KillResult = {

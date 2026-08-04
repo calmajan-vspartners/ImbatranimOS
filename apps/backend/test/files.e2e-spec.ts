@@ -27,14 +27,24 @@ interface HttpErrorResponse {
   statusCode: number;
 }
 
-/** superagent parser that yields the raw response bytes as a Buffer. */
+/**
+ * superagent parser that yields the raw response bytes as a Buffer.
+ *
+ * `res` is typed `unknown` and narrowed here rather than declared as
+ * `NodeJS.ReadableStream`. superagent's `.parse()` declares its callback's first
+ * parameter as its own `Response` type, so a `ReadableStream` parameter is not
+ * assignable to it — even though at runtime the object it hands over IS a readable
+ * stream, which is why this worked. The narrowing keeps the code honest about the
+ * cast instead of the file quietly failing to type-check.
+ */
 function binaryParser(
-  res: NodeJS.ReadableStream,
+  res: unknown,
   cb: (err: Error | null, body: Buffer) => void,
 ) {
+  const stream = res as NodeJS.ReadableStream;
   const chunks: Buffer[] = [];
-  res.on('data', (c: Buffer) => chunks.push(Buffer.from(c)));
-  res.on('end', () => cb(null, Buffer.concat(chunks)));
+  stream.on('data', (c: Buffer) => chunks.push(Buffer.from(c)));
+  stream.on('end', () => cb(null, Buffer.concat(chunks)));
 }
 
 describe('Files (e2e) — auth + binary round-trip', () => {
