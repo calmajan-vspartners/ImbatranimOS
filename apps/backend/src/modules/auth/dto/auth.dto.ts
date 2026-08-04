@@ -39,3 +39,26 @@ export class DisableTotpDto {
   @IsString()
   password: string;
 }
+
+/**
+ * Rotate the password.
+ *
+ * `currentPassword` carries no `MinLength`: the stored password predates any rule
+ * change, and rejecting it structurally would leak that it is too short before it
+ * is even verified. The new one gets the same ≥10 check as first-run, and
+ * `AuthService` enforces the real rule regardless.
+ */
+export class ChangePasswordDto {
+  @IsString()
+  currentPassword: string;
+
+  @IsString()
+  @MinLength(10, { message: 'Password must be at least 10 characters' })
+  newPassword: string;
+
+  // Required by the service when TOTP is enabled; optional in the shape because
+  // most installs have it off.
+  @IsOptional()
+  @IsString()
+  token?: string;
+}

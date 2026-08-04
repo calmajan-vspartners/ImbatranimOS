@@ -154,6 +154,70 @@ export class AuthService {
       .run();
   }
 
+  /**
+   * Rotate the password.
+   *
+   * The OS had no way to do this at all: a password typed once at first-run could
+   * never be changed, and a password you suspected was compromised could only be
+   * replaced by deleting the database and losing the account. For a system the
+   * README recommends exposing behind a reverse proxy, that is a real gap.
+   *
+   * Four things have to be true, and each is a deliberate choice:
+   *
+   * 1. **The current password is re-proved**, even though the caller already holds
+   *    a valid session. A session cookie is a bearer token; if one leaks, the
+   *    thief must not be able to lock the owner out of their own machine by
+   *    changing the password. This is the same step-up `disableTotp` demands.
+   * 2. **A current TOTP code is required when TOTP is enabled.** Rotating the
+   *    password is at least as sensitive as turning 2FA off, which already asks.
+   *    Without it, a stolen session plus a phished password would be enough.
+   * 3. **The new password meets the same minimum as first-run.** One rule, one
+   *    place — a weaker bar for rotation would make rotating a downgrade.
+   * 4. **The old hash is replaced with a fresh argon2id hash** using the same
+   *    parameters, so a rotated password is exactly as costly to attack as a new
+   *    install's.
+   *
+   * Session invalidation is the caller's job (the controller), because only it can
+   * re-issue the cookie. See the route for why every session dies rather than all
+   * but the caller's.
+   */
+  async changePassword(
+    currentPassword: string,
+    nextPassword: string,
+    totpToken?: string,
+  ): Promise<void> {
+    if (!this.isSetup()) throw new BadRequestException('Not set up');
+
+    // Order matters: verify BEFORE validating the new password's strength. The
+    // reverse would let an attacker with a session probe the strength rule (and
+    // get a distinguishable error) without knowing the current password at all.
+    if (!(await this.verifyPassword(currentPassword))) {
+      throw new UnauthorizedException('Invalid password');
+    }
+    if (this.totpEnabled() && !(totpToken && this.verifyTotp(totpToken))) {
+      throw new UnauthorizedException('Invalid code');
+    }
+
+    this.assertStrongPassword(nextPassword);
+    // Refusing a no-op change is not pedantry: silently "succeeding" while
+    // invalidating every other session would look like a rotation that did not
+    // actually rotate anything.
+    if (await this.verifyPassword(nextPassword)) {
+      throw new BadRequestException(
+        'The new password must differ from the current one',
+      );
+    }
+
+    const hash = await argon2.hash(nextPassword, ARGON2_OPTS);
+    this.db.db
+      .prepare(
+        'UPDATE auth_user SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+      )
+      .run(hash);
+    // TOTP is deliberately untouched: a password change must not silently drop
+    // the second factor.
+  }
+
   private assertStrongPassword(password: string): void {
     if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
       throw new BadRequestException(

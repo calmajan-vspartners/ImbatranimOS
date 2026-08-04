@@ -19,6 +19,7 @@ import { ThrottleService } from './throttle.service';
 import { Public } from './public.decorator';
 import { SESSION_COOKIE_NAME, readSessionCookie } from './auth.constants';
 import {
+  ChangePasswordDto,
   DisableTotpDto,
   EnrollTotpDto,
   LoginDto,
@@ -126,6 +127,61 @@ export class AuthController {
   async disableTotp(@Body() dto: DisableTotpDto) {
     await this.auth.disableTotp(dto.password);
     return { ok: true, totpEnabled: false };
+  }
+
+  /**
+   * Rotate the password. Authenticated (no `@Public()`), so the global session
+   * guard already requires a valid cookie before this runs.
+   *
+   * ## Throttled on the same counter as login
+   *
+   * The route re-verifies the current password, which makes it an oracle for it.
+   * Without the throttle, someone holding a stolen session could brute-force the
+   * password from inside the OS while the lock screen stayed protected. Sharing
+   * login's per-IP counter means those guesses cost the same as guesses at the
+   * front door.
+   *
+   * ## Every session dies, including the caller's — then the caller gets a new one
+   *
+   * `destroyAll()` rather than "all but mine". The point of a rotation is usually
+   * that a credential may have leaked, and the caller's *current* token is as
+   * plausibly leaked as any other. Killing everything and issuing a fresh cookie
+   * in the same response leaves the user signed in on this browser and signs out
+   * every other, with no pre-change token still valid anywhere.
+   *
+   * The order is load-bearing: the password is changed FIRST, and sessions are only
+   * dropped once that has succeeded. Dropping them first would sign the user out of
+   * every device on a *failed* change.
+   */
+  @Post('password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const key = req.ip ?? 'unknown';
+    this.throttle.assertNotLocked(key);
+
+    try {
+      await this.auth.changePassword(
+        dto.currentPassword,
+        dto.newPassword,
+        dto.token,
+      );
+    } catch (err) {
+      // Only a failed *credential* check feeds the throttle. A rejected weak or
+      // unchanged new password is the user fumbling their own form, and counting
+      // it would let honest mistakes lock them out of their own machine.
+      if (err instanceof UnauthorizedException)
+        this.throttle.recordFailure(key);
+      throw err;
+    }
+
+    this.throttle.reset(key);
+    this.sessions.destroyAll();
+    this.issueSessionCookie(req, res);
+    return { ok: true };
   }
 
   // ---- helpers ----------------------------------------------------------

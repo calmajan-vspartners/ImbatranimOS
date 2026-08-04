@@ -43,3 +43,15 @@ export async function enableTotp(token: string): Promise<void> {
 export async function disableTotp(password: string): Promise<void> {
   await api.post('/auth/totp/disable', { password })
 }
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  token?: string
+): Promise<void> {
+  await api.post('/auth/password', {
+    currentPassword,
+    newPassword,
+    ...(token ? { token } : {}),
+  })
+}

@@ -105,3 +105,107 @@ and the version matches `IMAGE_VERSION` rather than `v0.1`.
 TOTP recovery codes (capture as a todo), multi-user accounts, password
 recovery, Settings search / section navigation, and the Storage, Backup,
 Startup and Default-apps sections proposed by the real-OS parity briefs.
+
+---
+
+## Outcome — 2026-08-04
+
+Done. The OS can rotate its own password, and "About this machine" now knows what
+machine it is on.
+
+### `POST /auth/password`
+
+Authenticated (no `@Public()`), so the global session guard covers it. Four gates,
+each a deliberate choice rather than boilerplate:
+
+1. **The current password is re-proved**, even though the caller already holds a
+   valid session. A session cookie is a bearer token; if one leaks, the thief must
+   not be able to lock the owner out of their own machine. Same step-up
+   `disableTotp` already demanded.
+2. **A current TOTP code is required when TOTP is enabled** — rotating the password
+   is at least as sensitive as turning 2FA off, which already asks.
+3. **The same ≥10 minimum as first-run.** A weaker bar for rotation would make
+   rotating a downgrade.
+4. **Fresh argon2id hash with identical parameters**, so a rotated password is
+   exactly as costly to attack as a new install's.
+
+Three orderings inside it are load-bearing and each has a test:
+
+- **Verify the current password BEFORE validating the new one.** The reverse lets
+  someone with a stolen session probe the strength rule — and get a distinguishable
+  error — without knowing the current password at all.
+- **Change the password BEFORE dropping sessions.** Dropping first would sign the
+  user out of every device on a *failed* change, which is a denial of service
+  anyone holding a session could trigger at will.
+- **A no-op change is refused.** Silently "succeeding" while evicting every other
+  session would look like a rotation that rotated nothing.
+
+**Every session dies, including the caller's, and the caller gets a new cookie in
+the same response.** `destroyAll()` rather than "all but mine": the reason to
+rotate is usually that a credential may have leaked, and the caller's *current*
+token is as plausibly leaked as any other. The user stays signed in on this
+browser and is signed out everywhere else, with no pre-change token valid anywhere.
+
+**Throttled on login's counter.** The route re-verifies the current password, which
+makes it an oracle for it — without this, a stolen session could brute-force the
+password from inside the OS while the lock screen stayed protected. Only a failed
+*credential* check feeds the throttle; a rejected weak or unchanged new password is
+the user fumbling their own form, and counting it would let honest mistakes lock
+them out of their own machine.
+
+**TOTP is deliberately untouched** by a password change, with a test — the brief's
+regression surface names it, and silently dropping the second factor would be the
+worst possible side effect of a security action.
+
+### About reads the real machine
+
+Five rows from `/api/system/about` — hostname, kernel, platform · arch, uptime,
+image version — replacing `OS: ImbatranimOS`, `Shell: React desktop on Alpine`,
+`Status: Developer Preview`. The footer's `v0.1 · preview` now comes from
+`IMAGE_VERSION`, lifted into `Settings` so one fetch feeds both and they cannot
+drift. The panel has a real loading and error state, and the error says it could
+not *read* the machine rather than asserting something false — the old hardcoded
+rows could never fail, which is precisely what was wrong with them.
+
+`formatUptime` is its own tested module: two units at most ("3d 4h", not
+"3d 4h 17m 9s"), and `NaN`/negative/`Infinity` render "unknown" rather than
+"NaNd NaNh" in a panel whose whole job is stating facts accurately.
+
+### The form says why it is disabled
+
+`lib/passwordChange.ts` orders its complaints to follow the user down the form
+rather than jumping to the last field, and the reason is rendered next to the
+greyed-out button. A disabled control with no explanation was the failure mode to
+avoid. `canSubmit` is defined in terms of `describeInvalid` so a disabled button and
+a rejected request cannot disagree.
+
+Under the form, stated plainly rather than implied: **there is no password
+recovery**, and the only way back in is deleting the data volume, which erases the
+account and its files. The brief rejects a reset flow and it is right — with one
+local account, any recovery path is a back door.
+
+### Verified
+
+**Backend: 192 unit + 46 e2e, all passing.** 11 new service tests and 10 new e2e
+tests, including the two properties only an end-to-end test can establish — that
+other sessions really are evicted and the caller's is not.
+
+**In the shipped bundle, with TWO independent browser contexts** (separate cookie
+jars = two genuinely signed-in browsers, `uitest/set57.mjs`):
+
+- Both start signed in; after the change the changing browser is still
+  authenticated and **the other is not**.
+- A *failed* change signs nobody out.
+- The old password then gets 401 at login and the new one 200.
+- About renders this machine's real `hostname=vm`, `kernel=6.18.5-fc-v18`,
+  `platform=linux · x64`, `uptime=13m`, `IMAGE VERSION=1.0.0-dev`, matching
+  `/api/system/about` field for field; none of the three hardcoded strings remain
+  and the footer reads `v1.0.0-dev`, not `v0.1`.
+- The probe restores the original password afterwards so the rest of the harness
+  keeps working.
+
+### Out of scope, unchanged
+
+TOTP recovery codes (still worth a todo — lose your phone today and you are locked
+out), multi-user accounts, password recovery, and Settings search / section
+navigation.

@@ -1,9 +1,18 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
-import { ShieldCheck, LockKeyhole, LogOut } from 'lucide-react'
+import { ShieldCheck, LockKeyhole, LogOut, KeyRound, Loader2 } from 'lucide-react'
 import { Button, Input } from '../../shared/components/ui'
+import { notify } from '../../shared/store/notificationStore'
 import { useAuthStore } from './store/authStore'
-import { disableTotp, enableTotp, enrollTotp, logout, type TotpEnrollment } from './api/authApi'
+import {
+  changePassword,
+  disableTotp,
+  enableTotp,
+  enrollTotp,
+  logout,
+  type TotpEnrollment,
+} from './api/authApi'
+import { describeInvalid, type PasswordChangeFields } from './lib/passwordChange'
 
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof AxiosError) {
@@ -26,6 +35,41 @@ export function SecuritySettings() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const [pw, setPw] = useState<PasswordChangeFields>({
+    current: '',
+    next: '',
+    confirm: '',
+    token: '',
+  })
+  const [pwBusy, setPwBusy] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const pwInvalid = describeInvalid(pw, totpEnabled)
+
+  async function submitPasswordChange() {
+    if (pwInvalid || pwBusy) return
+    setPwBusy(true)
+    setPwError(null)
+    try {
+      await changePassword(pw.current, pw.next, totpEnabled ? pw.token : undefined)
+      setPw({ current: '', next: '', confirm: '', token: '' })
+      // Notified, not just cleared: the side effect reaches beyond this screen —
+      // every other signed-in browser has just been signed out — and a form that
+      // silently empties itself is indistinguishable from one that failed.
+      notify({
+        title: 'Password changed',
+        body: 'Other signed-in sessions have been signed out. This one stays open.',
+        level: 'info',
+        appId: 'settings',
+      })
+    } catch (err) {
+      const message = errMessage(err, 'Could not change the password')
+      setPwError(message)
+      notify({ title: 'Password not changed', body: message, level: 'error', appId: 'settings' })
+    } finally {
+      setPwBusy(false)
+    }
+  }
 
   async function startEnroll() {
     setBusy(true)
@@ -181,6 +225,83 @@ export function SecuritySettings() {
           )}
 
           {error && <p className="font-content text-error mt-2 text-[11px]">{error}</p>}
+        </div>
+
+        {/* Change password */}
+        <div className="border-outline-variant bg-surface-container-low border p-4">
+          <div className="mb-3">
+            <p className="text-on-surface flex items-center gap-2 text-sm font-medium">
+              <KeyRound size={14} /> Change password
+            </p>
+            <p className="font-content text-on-surface-variant mt-0.5 text-[11px]">
+              At least 10 characters. Changing it signs out every other session; this one stays
+              open.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <Input
+              id="change-password-current"
+              label="Current password"
+              type="password"
+              autoComplete="current-password"
+              value={pw.current}
+              onChange={(e) => setPw((p) => ({ ...p, current: e.target.value }))}
+            />
+            <Input
+              id="change-password-new"
+              label="New password"
+              type="password"
+              autoComplete="new-password"
+              value={pw.next}
+              onChange={(e) => setPw((p) => ({ ...p, next: e.target.value }))}
+            />
+            <Input
+              id="change-password-confirm"
+              label="Confirm new password"
+              type="password"
+              autoComplete="new-password"
+              value={pw.confirm}
+              onChange={(e) => setPw((p) => ({ ...p, confirm: e.target.value }))}
+            />
+            {totpEnabled && (
+              <Input
+                id="change-password-totp"
+                label="Code from your authenticator app"
+                inputMode="numeric"
+                placeholder="123456"
+                value={pw.token}
+                onChange={(e) => setPw((p) => ({ ...p, token: e.target.value }))}
+              />
+            )}
+
+            <div className="flex items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={() => void submitPasswordChange()}
+                disabled={!!pwInvalid || pwBusy}
+              >
+                {pwBusy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                Change password
+              </Button>
+              {/* The reason the button is disabled, said out loud. A greyed-out
+                  control with no explanation is the thing this avoids. */}
+              {pwInvalid && (
+                <span className="font-content text-on-surface-variant text-[11px]">
+                  {pwInvalid}
+                </span>
+              )}
+            </div>
+
+            {pwError && <p className="font-content text-error text-[11px]">{pwError}</p>}
+
+            {/* Stated plainly rather than implied. There is deliberately no recovery
+                flow: with one local account, any reset path is a back door. */}
+            <p className="border-outline-variant font-content text-on-surface-variant border-t pt-3 text-[11px]">
+              There is no password recovery. If you lose this password the only way back in is to
+              delete the data volume, which erases the account and its files — so keep a backup.
+            </p>
+          </div>
         </div>
 
         {/* Session */}

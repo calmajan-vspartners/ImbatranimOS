@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { useWallpaperStore, type Wallpaper } from '../../shared/store/wallpaperStore'
 import {
   useAppearanceStore,
@@ -23,6 +24,7 @@ import { useAddonStore } from '../../shared/store/addonStore'
 import { ShortcutList } from '../../shared/components/shortcuts/ShortcutsOverlay'
 import { StorageSettings } from './StorageSettings'
 import { SecuritySettings } from '../auth/SecuritySettings'
+import { AboutMachine } from './AboutMachine'
 
 const WALLPAPERS: { id: Wallpaper; name: string; preview: React.CSSProperties }[] = [
   {
@@ -82,6 +84,11 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function Settings() {
+  // Lifted so the footer and the About panel show the same version from one fetch,
+  // rather than either hardcoding it or fetching twice.
+  const [imageVersion, setImageVersion] = useState<string | null>(null)
+  const onVersion = useCallback((v: string) => setImageVersion(v), [])
+
   const { wallpaper, setWallpaper } = useWallpaperStore()
   const theme = useAppearanceStore((s) => s.theme)
   const accent = useAppearanceStore((s) => s.accent)
@@ -265,25 +272,7 @@ export function Settings() {
         {/* About ──────────────────────────────────────────────── */}
         <section className="border-outline-variant mb-6 border-t pt-8">
           <SectionHeader icon={Monitor} title="About this machine" />
-          <div className="grid gap-2">
-            {[
-              { label: 'OS', value: 'ImbatranimOS' },
-              { label: 'Shell', value: 'React desktop on Alpine' },
-              { label: 'Status', value: 'Developer Preview' },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="border-outline-variant bg-surface-container-low flex items-center justify-between border px-3 py-2.5"
-              >
-                <span className="text-on-surface-variant text-[10px] font-semibold tracking-widest uppercase">
-                  {item.label}
-                </span>
-                <span className="font-ui text-on-surface text-[13px] font-semibold">
-                  {item.value}
-                </span>
-              </div>
-            ))}
-          </div>
+          <AboutMachine onVersion={onVersion} />
         </section>
       </div>
 
@@ -291,8 +280,10 @@ export function Settings() {
         <span className="text-on-surface-variant text-[10px] font-semibold tracking-widest uppercase">
           ImbatranimOS
         </span>
+        {/* Driven by IMAGE_VERSION, not a literal. This said "v0.1 · preview" while
+            package.json was at 1.0.0 — the OS reporting a version it was not. */}
         <span className="font-ui text-on-surface-variant text-[10px] tabular-nums">
-          v0.1 · preview
+          {imageVersion ? `v${imageVersion}` : '—'}
         </span>
       </div>
     </div>

@@ -1618,3 +1618,63 @@ Not done, deliberately: the unicode-width addon for CJK/emoji alignment — a th
 dependency for a narrower problem, worth its own decision.
 
 Tests **478 → 503** (vitest 296 → 321, backend jest 182).
+
+## 2026-08-04 — brief 57 (Settings): the OS can rotate its own password
+
+[Brief 57](briefs/done/57-settings-password-and-real-about.md) done. The OS had **no
+way to change its password at all** — a password typed once at first-run could only
+be replaced by deleting the database and losing the account, which for a system the
+README recommends exposing behind a reverse proxy was a real gap.
+
+`POST /auth/password` is authenticated (no `@Public()`), re-proves the **current**
+password even though the caller already holds a session (a cookie is a bearer token;
+a thief must not be able to lock the owner out), demands a TOTP code when TOTP is on,
+enforces the same ≥10 minimum as first-run, and re-hashes with identical argon2id
+parameters.
+
+Three orderings inside it are load-bearing, and each has a test:
+
+- **Verify the current password BEFORE validating the new one** — the reverse lets
+  someone with a stolen session probe the strength rule, and get a distinguishable
+  error, without knowing the current password.
+- **Change the password BEFORE dropping sessions** — dropping first would sign the
+  user out of every device on a *failed* change, a denial of service anyone with a
+  session could trigger at will.
+- **A no-op change is refused** — "succeeding" while evicting every other session
+  would look like a rotation that rotated nothing.
+
+**Every session dies, including the caller's**, and the caller gets a fresh cookie in
+the same response. `destroyAll()` rather than "all but mine": the reason to rotate is
+usually that a credential may have leaked, and the caller's current token is as
+plausibly leaked as any other. **Throttled on login's own counter**, because the route
+re-verifies the current password and is therefore an oracle for it — otherwise a
+stolen session could brute-force from inside the OS while the lock screen stayed
+protected. Only a failed *credential* check feeds the throttle; a rejected weak or
+unchanged password is the user fumbling their form and must not lock them out.
+**TOTP is untouched** by a password change, with a test, because silently dropping the
+second factor would be the worst possible side effect of a security action.
+
+**About this machine** was three hardcoded strings (`OS: ImbatranimOS`, `Shell: React
+desktop on Alpine`, `Status: Developer Preview`) plus a `v0.1 · preview` footer, while
+`/api/system/about` had always returned the real hostname, kernel, platform, arch,
+uptime and `IMAGE_VERSION` and `package.json` was at 1.0.0. Now five rows from the API,
+with the version lifted into `Settings` so the panel and the footer come from one fetch
+and cannot drift. The error state says it could not *read* the machine rather than
+asserting something false — the old rows could never fail, which is exactly what was
+wrong with them.
+
+Under the change form, stated plainly rather than implied: **there is no password
+recovery**, and the only way back in is deleting the data volume. The brief rejects a
+reset flow and is right — with one local account, any recovery path is a back door.
+
+Verified with **two independent browser contexts** (separate cookie jars, so two
+genuinely signed-in browsers): after the change the changing browser is still
+authenticated and the other is not; a *failed* change signs nobody out; the old
+password then 401s at login and the new one 200s. About renders `hostname=vm`,
+`kernel=6.18.5-fc-v18`, `uptime=13m`, `IMAGE VERSION=1.0.0-dev` matching the API field
+for field, and the footer reads `v1.0.0-dev`.
+
+Backend **192 unit + 46 e2e** (was 182 + 36). Frontend vitest **321 → 336**.
+
+Still worth a todo: **TOTP recovery codes.** Lose your phone today and you are locked
+out with no fallback — the same class of gap this brief just closed for passwords.
