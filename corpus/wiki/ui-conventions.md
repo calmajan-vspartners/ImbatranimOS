@@ -36,7 +36,7 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
    hex does not. Four presets (`appearanceStore.ts:20-25`), crimson default (:27).
 7. **Dark is the shipped default** (`appearanceStore.ts:28`, `index.css:79-100`). Light is the same token names swapped under `:root[data-theme='light']` (`index.css:103-123`)
    — tokens alone buy you light mode. Never add a `dark:` variant; never test only in dark.
-8. Forbidden: hex (`repl-interpreter/src/Terminal.tsx:117` `bg-[#0d0d0e]` violates), Tailwind palette colours (`bg-red-500`, `text-slate-400`), gradients, and `rounded-*` —
+8. Forbidden: hex, Tailwind palette colours (`bg-red-500`, `text-slate-400`), gradients, and `rounded-*` —
    `index.css:126` forces `* { border-radius: 0 !important }`, so radius classes are dead code.
 9. **Shadows only on floating layers**, and only the existing recipes: dialog `shadow-[0_24px_60px_rgba(0,0,0,0.55)]` (`ui/Dialog.tsx:33`), popup
    `shadow-[0_10px_28px_rgba(0,0,0,0.4)]` (`ui/Select.tsx:53`), toast `shadow-[0_6px_24px_rgba(0,0,0,0.35)]` (`notifications/ToastHost.tsx:27`). In-window content is flat —
@@ -141,7 +141,10 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
     :104 still claims "no toast system here" though `notify()` shipped in brief 34. Copy its *layout* (toolbar / body / status bar), not its dialogs.
 45. **`sticky-notes` is off-style**: `<div onClick>` rows (`StickyNotes.tsx:204-206`), raw `overflow-y-auto` instead of `ScrollArea` (:172), `console.error` as the only
     failure signal (:142), and a raw `<button>` where a ghost `Button` belongs (:212-219). It does use `useConfirm` (:122) — that part is fine. Not a template.
-46. Literal colour: `repl-interpreter/src/Terminal.tsx:117`, `norpdf/src/editor/SignatureDialog.tsx:186`. Dead radius classes: `code-editor/src/CodeEditor.tsx:345,350`,
+46. Literal colour: `norpdf/src/editor/SignatureDialog.tsx:186` (kept deliberately — it previews ink on paper and must match the PDF).
+    **The Terminal's `bg-[#0d0d0e]` is fixed** (brief 56): its xterm theme now comes from `--k-surface`/`--k-on-surface`/`--accent` and is
+    re-applied on theme or accent change. Note that a light terminal needs its own **ANSI 16** palette too — xterm's dark-tuned defaults are
+    unreadable on a near-white surface, so `repl-interpreter/src/lib/xtermTheme.ts` carries one per mode, contrast-tested. Dead radius classes: `code-editor/src/CodeEditor.tsx:345,350`,
     `norpdf/src/editor/AnnotateToolbar.tsx:109,157`. `TASKBAR_HEIGHT = 44` is declared twice (`windowStore.ts:27`, `taskbar/Taskbar.tsx:11`) and is not exported to add-ons —
     do not add a third copy; size with `h-full`.
 

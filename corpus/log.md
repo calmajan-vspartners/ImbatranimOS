@@ -1555,3 +1555,66 @@ Harmless (`measureElement` corrects mounted rows; only the scrollbar length is
 slightly off) and it predates this brief.
 
 Tests **463 → 478** (vitest 277 → 296, backend jest 182).
+
+## 2026-08-04 — brief 56 (Terminal): reconnect proven against a real process kill
+
+[Brief 56](briefs/done/56-terminal-reconnect-and-affordances.md) done. 25 unit tests,
+two new first-party xterm addons (search, web-links).
+
+**The reconnect is a decision table, not a retry loop.** "Retry on close" would have
+been wrong: several closes are the user or the server saying *stop*. `closeReason.ts`
+classifies first, off the codes in `pty.gateway.ts`/`pty-session.ts` — `pty-exit`
+(the user typed `exit`) and `session-revoked` never retry, `shutdown` always does,
+`1000` is a normal closure per RFC 6455 and gets a manual button instead.
+
+**The 1006 ambiguity is the part worth remembering.** An unauthorized upgrade is
+refused with a raw 401 and `socket.destroy()`, which the browser never surfaces to
+script — a refused handshake and a yanked cable both arrive as 1006 with no reason. So
+the brief's "must not retry forever against a 401" *cannot* be satisfied by reading
+the close code. Covered instead by an `everOpened` flag (never-opened ⇒ refused at the
+handshake, the case worth suspecting auth for) plus a bounded budget, after which the
+hook asks `/auth/status` and reports the real cause rather than guessing.
+
+**Two premises did not survive measurement — that is four briefs in a row now** (90,
+66, 67, 55, and both halves of this one):
+
+- **"No paste… not possible at all"** is wrong on this platform, and my own first
+  implementation proved it: Ctrl+Shift+V produces one keydown **and** one native
+  `paste` event on xterm's helper textarea, and xterm already writes that to the pty
+  — so my handler made every paste arrive **twice** (`echo PASTED_OKecho PASTED_OK`).
+  Returning `false` from `attachCustomKeyEventHandler` does not help; the paste event
+  is not xterm's key processing. Keyboard paste now belongs to the browser, which
+  also works for Cmd+V on macOS and needs no `clipboard-read` permission.
+  Middle-click and right-click have no native path, so those keep `readText()` with a
+  `notify()` on rejection — the genuinely missing part.
+- **Reading the surface token is not enough to theme a terminal.** xterm's default
+  ANSI 16 are tuned for dark; on `#f3f3f1` bright yellow/cyan/white are invisible, so
+  every `ls --color` would have unreadable words. `xtermTheme.ts` carries a palette
+  per mode with tests asserting each entry clears 3:1 on its own surface; on light,
+  "bright" means more saturated, and `brightWhite` maps to near-black.
+
+Measured in the production bundle, and the headline is a **real `kill -9` and
+restart** rather than a mocked close: the terminal reconnects on its own with the
+prior scrollback intact, is usable again, and `stty size` is still `28 86` — SIGWINCH
+survives. Killed and left down, it gives up after exactly 5 attempts (1s, 2s, 4s, 8s,
+8s), names the cause, keeps the scrollback and offers Reconnect. Theme measured in
+**pixels** — `[13,13,14]` → `[230,233,236]`, switched live through the real Settings
+UI with the Terminal already open. Computed styles cannot answer that one: xterm's DOM
+renderer leaves `.xterm-viewport` at xterm.css's own `#000` whatever the theme says,
+which had an earlier probe reporting black in both themes. Four open/close cycles
+leave zero xterm nodes behind. No page errors anywhere.
+
+Also: the xterm instance moved from `useState` into a ref built by a **ref callback**,
+because xterm's API is mutation (`term.options.theme = …`) and React's immutability
+rule refuses mutation of a `useState` value. And the whole socket lifecycle collapsed
+into **one effect** with plain local closures — an earlier draft used `useCallback`s
+with mirror refs, which needed a self-referencing callback for the retry and got
+rejected by the lint rules twice.
+
+`ui-conventions.md` §8/§46 updated: the Terminal's `bg-[#0d0d0e]` violation is gone,
+and §46 now records that a light terminal needs its own ANSI palette.
+
+Not done, deliberately: the unicode-width addon for CJK/emoji alignment — a third
+dependency for a narrower problem, worth its own decision.
+
+Tests **478 → 503** (vitest 296 → 321, backend jest 182).

@@ -30,6 +30,9 @@ export { Tooltip } from './shared/components/ui/Tooltip'
 
 // Desktop shell access
 export { openApp } from './shared/intents/openApp'
+// Read by add-ons that must restyle live on a theme/accent change — the Terminal
+// drives its xterm palette from it rather than reading CSS once at mount.
+export { useAppearanceStore, type ThemeMode, type AccentId } from './shared/store/appearanceStore'
 export { useIntentStore } from './shared/store/intentStore'
 export { useWindowStore } from './shared/store/windowStore'
 
