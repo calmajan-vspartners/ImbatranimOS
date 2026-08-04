@@ -53,6 +53,16 @@ export default function App() {
       // appear and vanish as editor windows open and close.
       note: 'Only while the code editor itself has focus',
     },
+    {
+      id: 'files.toggle-hidden',
+      keys: 'mod+h',
+      description: 'Show or hide hidden files, in File Manager',
+      scope: 'Editing',
+      // Bound on the File Manager's own root so it is window-scoped; a global
+      // binding would toggle a background window's dotfiles. Documented here so
+      // the row does not appear and vanish as File Manager windows open and close.
+      note: 'Only while a File Manager window has focus',
+    },
   ])
 
   // SWARM:S4 layout restore boot ──────────────────────────────────────────────

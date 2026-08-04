@@ -4,7 +4,12 @@ import { Dialog } from './Dialog'
 
 export type ConfirmOptions = {
   title: string
-  message: string
+  /**
+   * `ReactNode`, not `string`: the File Manager's delete confirmation names the
+   * target in bold, and forcing it to a plain string to reuse this dialog would
+   * have made the shared component *worse* than the bespoke one it replaced.
+   */
+  message: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   destructive?: boolean

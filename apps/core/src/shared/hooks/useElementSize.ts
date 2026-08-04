@@ -60,22 +60,45 @@ export type ElementSizeRef = (el: HTMLElement | null) => void | (() => void)
 export function useElementSize(): [ElementSize, ElementSizeRef] {
   const [size, setSize] = useState<ElementSize>({ width: 0, height: 0 })
 
-  const ref = useCallback<ElementSizeRef>((el) => {
-    if (!el) {
-      // Detached: report zero rather than a stale box, so consumers fall back to
-      // their "not measured yet" branch instead of scaling to a dead size.
-      setSize({ width: 0, height: 0 })
-      return
-    }
-    const rect = el.getBoundingClientRect()
-    setSize({ width: rect.width, height: rect.height })
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect
-      if (box) setSize({ width: box.width, height: box.height })
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
+  /**
+   * Write only on a real change.
+   *
+   * Not an optimisation — it is what stops an unstable ref identity from freezing
+   * the app. React re-runs a ref callback (cleanup, then attach) on **every render**
+   * when the callback is a fresh closure, e.g. an inline `ref={(el) => …}` composing
+   * this with another ref. If attach unconditionally set state, that state change
+   * would trigger the next render, which would re-run the ref, which would set state
+   * again: an infinite loop, and React 19 reports it only as minified error #185
+   * from a blank screen. Measured — it happened in the File Manager.
+   *
+   * A stable identity is still the right thing for callers to pass (wrap a composed
+   * ref in `useCallback`), but the hook must not be a footgun when they don't.
+   */
+  const apply = useCallback((next: ElementSize) => {
+    setSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next))
   }, [])
+
+  const ref = useCallback<ElementSizeRef>(
+    (el) => {
+      if (!el) {
+        // Deliberately keeps the last known box rather than zeroing. Zeroing was
+        // the original behaviour and it is worse twice over: it is half of the
+        // render loop described above, and on a detach-then-reattach (a view-mode
+        // switch that remounts the pane) it makes every consumer flash through its
+        // "not measured yet" fallback scale for a frame.
+        return
+      }
+      const rect = el.getBoundingClientRect()
+      apply({ width: rect.width, height: rect.height })
+      const observer = new ResizeObserver((entries) => {
+        const box = entries[0]?.contentRect
+        if (box) apply({ width: box.width, height: box.height })
+      })
+      observer.observe(el)
+      return () => observer.disconnect()
+    },
+    [apply]
+  )
 
   return [size, ref]
 }

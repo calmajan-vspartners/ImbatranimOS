@@ -8,8 +8,12 @@ import {
   X,
   PanelRight,
   PanelRightClose,
+  Eye,
+  EyeOff,
+  LayoutGrid,
+  List,
 } from 'lucide-react'
-import { Button, notify, usePrompt } from '@imbatranim/core'
+import { Button, ConfirmDialog, notify, usePrompt } from '@imbatranim/core'
 import { TrashDialog } from './components/TrashDialog'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import { Input } from '@imbatranim/core'
@@ -19,15 +23,16 @@ import { Tooltip } from '@imbatranim/core'
 import { cn } from '@imbatranim/core'
 import { downloadUrl } from '@imbatranim/core'
 import { useVirtualList } from '@imbatranim/core'
+import { useElementSize } from '@imbatranim/core'
 import { Breadcrumb } from './components/Breadcrumb'
 import { FileList } from './components/FileList'
+import { FileGrid } from './components/FileGrid'
 import { FolderTree } from './components/FolderTree'
 import { UploadDropzone } from './components/UploadDropzone'
 import { PreviewPane } from './components/PreviewPane'
 import { ContextMenu } from './components/ContextMenu'
 import { FS_ROOTS } from './types'
 import type { FsEntry } from './types'
-import { sortEntries } from './lib/fileKind'
 import { resolveOpenApp } from './lib/openWith'
 import { buildMenuItems } from './lib/buildMenuItems'
 import {
@@ -36,7 +41,16 @@ import {
   editorAppId,
   type NewFileKind,
 } from './lib/newFileTemplates'
+import {
+  sortEntries,
+  filterHidden,
+  nextSort,
+  gridColumns,
+  gridRowCount,
+  TILE_HEIGHT,
+} from './lib/fileSort'
 import { usePreviewPaneSettings } from './store/previewPaneStore'
+import { useFileViewSettings } from './store/fileViewStore'
 import { useFileSelection } from './hooks/useFileSelection'
 import { useFileClipboard } from './hooks/useFileClipboard'
 import { useDeleteFlow } from './hooks/useDeleteFlow'
@@ -104,7 +118,7 @@ export function FileManager({ windowId }: { windowId: string }) {
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
 
-  // Surfaced error for batch delete/upload failures (no toast system here).
+  // Surfaced error for batch delete / upload / create failures.
   const [actionError, setActionError] = useState<string | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
   const [propsEntry, setPropsEntry] = useState<FsEntry | null>(null)
@@ -118,6 +132,25 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   // Preview pane: on/off + width persist across sessions; visibility also
   // collapses at small app-window widths regardless of the persisted setting.
+  /**
+   * Report a failed action once, to both places.
+   *
+   * The banner alone was not enough — a background File Manager's failed upload or
+   * delete is invisible until the user comes back to the window, and the comment
+   * here used to say "(no toast system here)" long after `notify()` shipped in
+   * brief 34. Raising the notification *and* keeping the inline banner is
+   * deliberate: the notification is what gets noticed, the banner is what stays
+   * readable while the user fixes it. One function so the two cannot drift, the
+   * same reason `reportFileFailure` exists in core.
+   */
+  const failAction = useCallback((message: string) => {
+    setActionError(message)
+    notify({ title: 'File Manager', body: message, level: 'error', appId: 'file-manager' })
+  }, [])
+
+  // Sort key/direction, hidden-file visibility and view mode — persisted.
+  const view = useFileViewSettings()
+
   const previewPane = usePreviewPaneSettings()
   const { containerRef, resizing, previewPaneVisible, handlePaneResizeStart } =
     usePaneResize(previewPane)
@@ -138,7 +171,7 @@ export function FileManager({ windowId }: { windowId: string }) {
     selected,
     setSelected,
     deleteMutation,
-    onError: setActionError,
+    onError: failAction,
     // Only the home root has a Trash; notes is a separate tree.
     trashEnabled: root === 'home',
     onTrashed: (label, count) =>
@@ -217,11 +250,11 @@ export function FileManager({ windowId }: { windowId: string }) {
     // A filename, not a path: the backend jails this anyway, but refusing here
     // gives a real message instead of a 400.
     if (!trimmed || /[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
-      setActionError('That name is not a valid filename.')
+      failAction('That name is not a valid filename.')
       return
     }
     if ((dirQuery.data ?? []).some((e) => e.name === trimmed)) {
-      setActionError(`"${trimmed}" already exists here.`)
+      failAction(`"${trimmed}" already exists here.`)
       return
     }
     const filePath = path ? `${path}/${trimmed}` : trimmed
@@ -230,7 +263,7 @@ export function FileManager({ windowId }: { windowId: string }) {
       {
         onSuccess: () =>
           handleOpen({ name: trimmed, path: filePath, type: 'file', size: 0, modifiedAt: '' }),
-        onError: () => setActionError(`Could not create "${trimmed}".`),
+        onError: () => failAction(`Could not create "${trimmed}".`),
       }
     )
   }
@@ -257,7 +290,7 @@ export function FileManager({ windowId }: { windowId: string }) {
     )
     const failed = files.filter((_, i) => results[i].status === 'rejected')
     if (failed.length > 0) {
-      setActionError(
+      failAction(
         `Failed to upload ${failed.length} file${failed.length !== 1 ? 's' : ''}: ${failed
           .map((f) => f.name)
           .join(', ')}.`
@@ -328,8 +361,16 @@ export function FileManager({ windowId }: { windowId: string }) {
   const isLoading = dirQuery.isLoading
   const isError = dirQuery.isError
 
-  const orderedEntries = sortEntries(entries)
+  // Filter, then sort, ONCE — and pass the result down. FileList used to re-sort
+  // internally with its own call, which happened to agree only because both used
+  // the same fixed comparator; the moment sorting became user-controlled, two
+  // independent sorts would have let arrow-key movement disagree with what is on
+  // screen. `orderedEntries` is now the single order for the virtualizer, keyboard
+  // nav, selection and the rendering.
+  const visibleEntries = filterHidden(entries, view.showHidden)
+  const orderedEntries = sortEntries(visibleEntries, view.sort.key, view.sort.dir)
   const selectedEntries = orderedEntries.filter((e) => selected.has(e.path))
+  const hiddenCount = entries.length - visibleEntries.length
 
   // The scroll container is the ScrollArea viewport that wraps the list; we get
   // it directly via `viewportRef` (no reliance on library-internal DOM attrs).
@@ -345,17 +386,52 @@ export function FileManager({ windowId }: { windowId: string }) {
   const [headerHeight, setHeaderHeight] = useState(0)
   const showList = !isLoading && !isError && orderedEntries.length > 0
   useLayoutEffect(() => {
-    if (!showList) return
+    if (!showList || view.viewMode !== 'details') return
     const thead = listContainerRef.current?.querySelector('thead')
     if (thead) setHeaderHeight(thead.getBoundingClientRect().height)
-  }, [showList])
+  }, [showList, view.viewMode])
 
-  const rowVirtualizer = useVirtualList<HTMLTableRowElement>({
-    count: orderedEntries.length,
+  // Icons view needs the pane's width to know how many tiles fit. Measured with
+  // core's `useElementSize` (a ref callback — see that hook for why a mount effect
+  // does not bind here either).
+  const [listPane, attachListPane] = useElementSize()
+  const columns = view.viewMode === 'icons' ? gridColumns(listPane.width) : 1
+
+  /**
+   * ONE virtualizer, whose items mean different things per view mode: a table row
+   * in Details, a row of `columns` tiles in Icons. Everything that depends on that
+   * distinction is derived here rather than inside the two renderers, so the count,
+   * the size estimate and the scroll margin cannot disagree with each other.
+   *
+   * `scrollMargin` is the non-obvious one: Details keeps a non-virtualized
+   * `<thead>` inside the same scroll container, so its rows start `headerHeight` px
+   * down. Icons has no header, so passing that offset would place every tile a
+   * header's height away from where the virtualizer believes it is.
+   */
+  const isIcons = view.viewMode === 'icons'
+  // Typed as HTMLElement rather than HTMLTableRowElement: the same virtualizer
+  // measures a <tr> in Details and a <div> row in Icons.
+  const rowVirtualizer = useVirtualList<HTMLElement>({
+    count: isIcons ? gridRowCount(orderedEntries.length, columns) : orderedEntries.length,
     getScrollElement: () => viewportRef.current,
-    estimateSize: () => 29,
-    scrollMargin: headerHeight,
+    estimateSize: () => (isIcons ? TILE_HEIGHT : 29),
+    scrollMargin: isIcons ? 0 : headerHeight,
   })
+
+  /**
+   * The list wrapper is both measured (for the Icons column count) and kept in a
+   * ref (for the `<thead>` height measurement). `useCallback` is load-bearing: an
+   * inline arrow here is a new identity every render, so React re-ran the ref's
+   * cleanup + attach each time, and the size hook's state write on attach drove an
+   * infinite render loop that blanked the whole desktop.
+   */
+  const attachListContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      listContainerRef.current = el
+      return attachListPane(el)
+    },
+    [attachListPane]
+  )
 
   const { handleListKeyDown } = useListKeyboardNav({
     orderedEntries,
@@ -363,11 +439,38 @@ export function FileManager({ windowId }: { windowId: string }) {
     renamingPath,
     onOpen: handleOpen,
     setSelected,
-    scrollToIndex: rowVirtualizer.scrollToIndex,
+    // The nav hook speaks in ENTRY indices; the virtualizer in Icons mode counts
+    // rows. This is the one place that conversion happens.
+    scrollToIndex: (index) =>
+      rowVirtualizer.scrollToIndex(isIcons ? Math.floor(index / columns) : index),
+    columns,
   })
 
+  /**
+   * Ctrl+H toggles hidden files, from anywhere inside this window.
+   *
+   * Bound on the app's own root rather than through `useRegisteredHotkeys`, which
+   * binds globally: a global Ctrl+H would toggle a background File Manager's
+   * dotfiles while the user is typing in another app. Bubbling from the focused
+   * descendant reaches this div only when focus is inside this window, which is
+   * exactly the scope wanted. Documented in App.tsx so it appears in the
+   * shortcuts overlay without flickering as windows open and close.
+   */
+  function handleAppKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'h') return
+    // Never steal the key from a text field — renaming a file is the obvious case.
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+    e.preventDefault()
+    view.toggleHidden()
+  }
+
   return (
-    <div ref={containerRef} className="bg-surface-container-lowest flex h-full flex-col">
+    <div
+      ref={containerRef}
+      onKeyDown={handleAppKeyDown}
+      className="bg-surface-container-lowest flex h-full flex-col"
+    >
       {/* Toolbar */}
       <div className="border-outline-variant bg-surface-container-low flex items-center gap-1 border-b px-2 py-1">
         {/* Root switcher */}
@@ -471,6 +574,41 @@ export function FileManager({ windowId }: { windowId: string }) {
           <RefreshCw size={12} className={cn(dirQuery.isFetching && 'animate-spin')} />
         </Button>
 
+        <Tooltip
+          content={
+            view.showHidden
+              ? `Hide hidden files (Ctrl+H)`
+              : hiddenCount > 0
+                ? `Show ${hiddenCount} hidden item${hiddenCount === 1 ? '' : 's'} (Ctrl+H)`
+                : 'Show hidden files (Ctrl+H)'
+          }
+        >
+          <Button
+            variant={view.showHidden ? 'primary' : 'ghost'}
+            size="sm"
+            className="h-5 w-5 p-0"
+            aria-pressed={view.showHidden}
+            aria-label="Show hidden files"
+            onClick={view.toggleHidden}
+          >
+            {view.showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+          </Button>
+        </Tooltip>
+
+        <Tooltip content={view.viewMode === 'icons' ? 'Details view' : 'Icons view'}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            aria-label={
+              view.viewMode === 'icons' ? 'Switch to details view' : 'Switch to icons view'
+            }
+            onClick={() => view.setViewMode(view.viewMode === 'icons' ? 'details' : 'icons')}
+          >
+            {view.viewMode === 'icons' ? <List size={12} /> : <LayoutGrid size={12} />}
+          </Button>
+        </Tooltip>
+
         <Tooltip content={previewPane.open ? 'Hide preview pane' : 'Show preview pane'}>
           <Button
             variant={previewPane.open ? 'primary' : 'ghost'}
@@ -530,31 +668,66 @@ export function FileManager({ windowId }: { windowId: string }) {
             )}
             {!isLoading && !isError && (
               <div
-                ref={listContainerRef}
+                ref={attachListContainer}
                 onClick={selection.clear}
                 onContextMenu={openBackgroundMenu}
                 onKeyDown={handleListKeyDown}
                 tabIndex={0}
                 className="min-h-full outline-none"
               >
-                <FileList
-                  entries={entries}
-                  virtualizer={rowVirtualizer}
-                  root={root}
-                  selected={selected}
-                  onSelect={selection.select}
-                  onOpen={handleOpen}
-                  onRename={handleRename}
-                  onCopy={clipboard.copy}
-                  onCut={clipboard.cut}
-                  onDelete={deleteFlow.requestSingle}
-                  onContextMenu={openEntryMenu}
-                  renamingPath={renamingPath}
-                  renameValue={renameValue}
-                  onRenameChange={setRenameValue}
-                  onRenameCommit={handleRenameCommit}
-                  onRenameCancel={() => setRenamingPath(null)}
-                />
+                {/* A folder whose every entry is a dotfile would otherwise read as
+                    "Empty folder", which is a lie the user cannot act on. */}
+                {orderedEntries.length === 0 && hiddenCount > 0 ? (
+                  <div className="text-on-surface-variant flex flex-col items-center justify-center gap-2 py-12">
+                    <EyeOff size={32} strokeWidth={1} />
+                    <span className="font-ui text-[12px]">
+                      {hiddenCount} hidden item{hiddenCount === 1 ? '' : 's'}, nothing else here
+                    </span>
+                    <Button variant="default" size="sm" onClick={view.toggleHidden}>
+                      Show hidden files
+                    </Button>
+                  </div>
+                ) : isIcons ? (
+                  <FileGrid
+                    entries={orderedEntries}
+                    virtualizer={rowVirtualizer}
+                    columns={columns}
+                    selected={selected}
+                    onSelect={selection.select}
+                    onOpen={handleOpen}
+                    onContextMenu={openEntryMenu}
+                    renamingPath={renamingPath}
+                    renameValue={renameValue}
+                    onRenameChange={setRenameValue}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={() => setRenamingPath(null)}
+                  />
+                ) : (
+                  <FileList
+                    // The ORDERED array, not the raw query data. This used to pass
+                    // `entries` while the virtualizer counted `orderedEntries` — it
+                    // only lined up because FileList re-sorted with an identical
+                    // comparator. One order, one array.
+                    entries={orderedEntries}
+                    sort={view.sort}
+                    onSortChange={(key) => view.setSort(nextSort(view.sort, key))}
+                    virtualizer={rowVirtualizer}
+                    root={root}
+                    selected={selected}
+                    onSelect={selection.select}
+                    onOpen={handleOpen}
+                    onRename={handleRename}
+                    onCopy={clipboard.copy}
+                    onCut={clipboard.cut}
+                    onDelete={deleteFlow.requestSingle}
+                    onContextMenu={openEntryMenu}
+                    renamingPath={renamingPath}
+                    renameValue={renameValue}
+                    onRenameChange={setRenameValue}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={() => setRenamingPath(null)}
+                  />
+                )}
               </div>
             )}
           </ScrollArea>
@@ -648,43 +821,35 @@ export function FileManager({ windowId }: { windowId: string }) {
             appId: 'file-manager',
           })
         }
-        onError={setActionError}
+        onError={failAction}
       />
 
       {/* Delete confirm dialog */}
-      <Dialog
+      {/* Core's ConfirmDialog rather than a hand-rolled <Dialog> — this app was the
+          last place in the OS with its own delete dialect (ui-conventions §44).
+          The controlled component, not the `useConfirm` hook: `useDeleteFlow`
+          already owns the open/confirm/cancel state machine, and rewriting it to
+          await an imperative promise would be churn for no gain. */}
+      <ConfirmDialog
         open={deleteFlow.dialogOpen}
-        onOpenChange={(open) => {
-          if (!open) deleteFlow.cancel()
-        }}
         title={deleteFlow.willTrash ? 'Move to Trash' : 'Delete permanently'}
-      >
-        <div className="flex flex-col gap-3">
-          {/* The copy must match what actually happens: claiming "cannot be
-              undone" for a move to the Trash would train the user to distrust
-              the warning that matters. */}
-          <p className="font-content text-on-surface text-[13px]">
+        // The copy must match what actually happens: claiming "cannot be undone"
+        // for a move to the Trash would train the user to distrust the warning
+        // that matters.
+        message={
+          <>
             {deleteFlow.willTrash ? 'Move ' : 'Permanently delete '}
             <span className="font-semibold">{deleteFlow.deleteLabel}</span>
             {deleteFlow.willTrash
               ? ' to the Trash? You can restore it from there.'
               : '? This cannot be undone.'}
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="default" size="sm" onClick={deleteFlow.cancel}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={deleteFlow.confirm}
-              disabled={deleteFlow.isPending}
-            >
-              {deleteFlow.willTrash ? 'Move to Trash' : 'Delete permanently'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+          </>
+        }
+        confirmLabel={deleteFlow.willTrash ? 'Move to Trash' : 'Delete permanently'}
+        destructive
+        onConfirm={deleteFlow.confirm}
+        onCancel={deleteFlow.cancel}
+      />
     </div>
   )
 }

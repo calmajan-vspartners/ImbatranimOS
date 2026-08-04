@@ -1,58 +1,26 @@
-import {
-  Folder,
-  FileText,
-  File,
-  FileImage,
-  FileArchive,
-  FileCode,
-  FileSpreadsheet,
-  Presentation,
-  Download,
-  Pencil,
-  Copy,
-  Scissors,
-  Trash2,
-} from 'lucide-react'
+import { Folder, Download, Pencil, Copy, Scissors, Trash2, ArrowDown, ArrowUp } from 'lucide-react'
 import { cn } from '@imbatranim/core'
 import { Tooltip } from '@imbatranim/core'
 import { Button } from '@imbatranim/core'
 import { downloadUrl } from '@imbatranim/core'
 import type { VirtualList } from '@imbatranim/core'
 import type { FsEntry } from '../types'
-import { sortEntries } from '../lib/fileKind'
+import { ariaSort, SORT_LABELS, type SortDir, type SortKey } from '../lib/fileSort'
+import { formatSize, getFileIcon } from '../lib/entryPresentation'
 import dayjs from 'dayjs'
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function getFileIcon(entry: FsEntry) {
-  if (entry.type === 'directory')
-    return <Folder size={16} strokeWidth={1.5} className="text-primary-container" />
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (['md', 'txt', 'log'].includes(ext))
-    return <FileText size={16} strokeWidth={1.5} className="text-on-surface-variant" />
-  if (ext === 'pdf') return <FileText size={16} strokeWidth={1.5} className="text-error" />
-  if (['xlsx', 'xls'].includes(ext))
-    return <FileSpreadsheet size={16} strokeWidth={1.5} className="text-primary" />
-  if (ext === 'docx') return <FileText size={16} strokeWidth={1.5} className="text-secondary" />
-  if (['pptx', 'ppt'].includes(ext))
-    return <Presentation size={16} strokeWidth={1.5} className="text-tertiary" />
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext))
-    return <FileImage size={16} strokeWidth={1.5} className="text-secondary" />
-  if (['zip', 'tar', 'gz', 'bz2', '7z'].includes(ext))
-    return <FileArchive size={16} strokeWidth={1.5} className="text-tertiary" />
-  if (['ts', 'tsx', 'js', 'jsx', 'json', 'py', 'sh', 'css', 'html'].includes(ext))
-    return <FileCode size={16} strokeWidth={1.5} className="text-on-surface-variant" />
-  return <File size={16} strokeWidth={1.5} className="text-on-surface-variant" />
-}
-
 type FileListProps = {
+  /**
+   * Already filtered and sorted by FileManager. This component must NOT reorder
+   * them: the virtualizer's indices and the keyboard navigation are built from the
+   * same array, so a second sort here is how the highlighted row and the row the
+   * arrow keys move to drift apart.
+   */
   entries: FsEntry[]
+  sort: { key: SortKey; dir: SortDir }
+  onSortChange: (key: SortKey) => void
   /** Row virtualizer created in FileManager (shared with keyboard nav). */
-  virtualizer: VirtualList<HTMLTableRowElement>
+  virtualizer: VirtualList<HTMLElement>
   root: string
   selected: Set<string>
   onSelect: (path: string, multi: boolean) => void
@@ -71,6 +39,8 @@ type FileListProps = {
 
 export function FileList({
   entries,
+  sort,
+  onSortChange,
   virtualizer,
   root,
   selected,
@@ -87,7 +57,7 @@ export function FileList({
   onRenameCommit,
   onRenameCancel,
 }: FileListProps) {
-  const sorted = sortEntries(entries)
+  const sorted = entries
 
   // Virtual window over `sorted`. Only these rows are mounted; the gap above
   // and below is held open by two spacer <tr>s so the scroll height and the
@@ -116,9 +86,9 @@ export function FileList({
       <thead>
         <tr className="border-outline-variant bg-surface-container-low text-on-surface-variant border-b">
           <th className="w-6 px-2 py-1 text-left font-medium" />
-          <th className="px-2 py-1 text-left font-medium">Name</th>
-          <th className="w-20 px-2 py-1 text-right font-medium">Size</th>
-          <th className="w-32 px-2 py-1 text-right font-medium">Modified</th>
+          <SortHeader column="name" sort={sort} onSortChange={onSortChange} align="left" />
+          <SortHeader column="size" sort={sort} onSortChange={onSortChange} width="w-20" />
+          <SortHeader column="modified" sort={sort} onSortChange={onSortChange} width="w-32" />
           <th className="w-20 px-2 py-1 text-right font-medium" />
         </tr>
       </thead>
@@ -257,5 +227,55 @@ export function FileList({
         )}
       </tbody>
     </table>
+  )
+}
+
+/**
+ * A clickable, sortable column header — the same affordance System Monitor's
+ * process table already uses, so the two tables behave alike.
+ *
+ * `aria-sort` goes on the `<th>` (where the spec puts it) while the click target
+ * is a real `<button>` inside it, so keyboard users get the sort without the
+ * header itself having to fake a control.
+ */
+function SortHeader({
+  column,
+  sort,
+  onSortChange,
+  align = 'right',
+  width,
+}: {
+  column: SortKey
+  sort: { key: SortKey; dir: SortDir }
+  onSortChange: (key: SortKey) => void
+  align?: 'left' | 'right'
+  width?: string
+}) {
+  const active = sort.key === column
+  const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown
+  return (
+    <th
+      aria-sort={ariaSort(column, sort)}
+      className={cn('px-0 py-0 font-medium', width, align === 'left' ? 'text-left' : 'text-right')}
+    >
+      <button
+        type="button"
+        onClick={() => onSortChange(column)}
+        className={cn(
+          'hover:bg-surface-container flex w-full items-center gap-1 px-2 py-1',
+          'focus-visible:ring-primary outline-none focus-visible:ring-2 focus-visible:ring-inset',
+          align === 'left' ? 'justify-start' : 'justify-end',
+          active && 'text-on-surface font-semibold'
+        )}
+      >
+        {SORT_LABELS[column]}
+        {/* The arrow is the only indicator of direction, so it is reserved space
+            rather than conditional — otherwise every header shifts a few pixels
+            when the sort moves, which reads as the layout breaking. */}
+        <span className="inline-flex w-3 justify-center">
+          {active && <Arrow size={11} aria-hidden />}
+        </span>
+      </button>
+    </th>
   )
 }

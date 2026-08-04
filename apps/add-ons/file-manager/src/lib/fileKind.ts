@@ -1,5 +1,3 @@
-import type { FsEntry } from '../types'
-
 // Preview classification, kept separate from FileList's icon extension list
 // (which serves a different, purely-cosmetic purpose) but drawing on the same
 // known extensions where they overlap.
@@ -39,14 +37,4 @@ export function getPreviewKind(name: string): PreviewKind {
   if (VIDEO_EXTENSIONS.has(ext)) return 'video'
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
   return 'other'
-}
-
-/** Directories first, then alphabetical — shared by FileList (display order)
- * and FileManager (keyboard nav) so arrow-key movement always matches what's
- * visually next. */
-export function sortEntries(entries: FsEntry[]): FsEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
 }

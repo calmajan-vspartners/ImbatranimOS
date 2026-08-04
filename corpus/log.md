@@ -1479,3 +1479,79 @@ cache is **not** deferred — the brief's premise was wrong, the app already lis
 once per window rather than per step.
 
 Tests **439 → 463** (vitest 277, backend jest unchanged at 182).
+
+## 2026-08-04 — brief 55 (File Manager): sorting, Icons view, Ctrl+H, one dialog dialect
+
+[Brief 55](briefs/done/55-file-manager-explorer-parity.md) done. 28 unit tests, zero
+new dependencies.
+
+**Two of its six items were already fixed by later briefs and the brief did not
+know.** Properties shipped in brief 87; the Details list already had Size and
+Modified columns, so item 2's premise ("no columns to sort by") was wrong — what was
+missing was only the sorting. Stated here because acting on a stale brief is how a
+second Properties dialog gets built. That is now four briefs this sweep whose
+premises did not survive contact with the code (90, 66, 67, 55).
+
+**The real hazard was where sorting happens, not sorting itself.** `sortEntries` was
+called twice — in `FileManager` for the virtualizer count and keyboard nav, and again
+inside `FileList` for rendering — and `FileList` was in fact being handed the **raw,
+unsorted** query array while the virtualizer counted the sorted one. It lined up only
+because it re-sorted identically. User-controlled sorting turns that into two chances
+to disagree, whose failure mode is arrow keys moving to a different row than the one
+highlighted. Now filtered and sorted **once**, in `FileManager`, and passed down;
+`FileList` no longer sorts and `fileKind.ts`'s old `sortEntries` is deleted rather
+than left as a second way to do it.
+
+Decisions worth keeping: a directory's `size` is an inode size the user cannot see,
+so two directories fall back to name; an unparseable `modifiedAt` sorts last rather
+than returning `NaN` (which makes the order depend on input order *and* the engine's
+sort); name is the tiebreak for every key so equal-size files never swap between
+renders; and clicking a *new* column starts at its natural direction (A→Z for names,
+biggest/newest first otherwise) instead of inheriting the previous column's.
+
+**A draft I had to correct against Explorer rather than against my tests.** I first
+special-cased directories to stay A→Z under a descending sort; two tests caught it.
+Explorer reverses them, and folders running A→Z while the files beneath them run Z→A
+from the same click reads as a bug — so the tests were corrected to match Explorer
+and the reason written down at the comparator.
+
+**Icons view** is virtualized with one virtual item per **row of tiles**. Count, size
+estimate and the `scrollMargin` (which must be 0 with no `<thead>`) are all derived
+in one place so they cannot disagree. `useListKeyboardNav` gained `columns`: Up/Down
+move a row, Left/Right one tile, and Left/Right stay unclaimed in Details.
+
+**One dialog dialect at last** (ui-conventions §44): the bespoke delete `<Dialog>` is
+core's `ConfirmDialog`, whose `message` was widened from `string` to `ReactNode` so
+the bolded filename survived — forcing plain text would have made the shared
+component worse than the bespoke one it replaced. Failures now go through one
+`failAction()` that raises the notification *and* sets the banner: the notification
+is what gets noticed in a background window, the banner is what stays readable while
+the user fixes it.
+
+**A bug I introduced, and the hardening it earned.** Composing the pane's measuring
+ref with the existing `listContainerRef` as an inline arrow **blanked the whole
+desktop**: React re-runs a fresh-closure ref callback (cleanup then attach) every
+render, `useElementSize` wrote state on attach, and that drove the next render —
+an infinite loop surfacing only as minified React error #185 on a white screen. Fixed
+at the call site with `useCallback` **and** in the hook, which now writes state only
+when the box actually changed. That hook is a day old and has four call sites; it
+must not be a footgun.
+
+Measured in the production bundle (`uitest/fm55.mjs`, `uitest/fmscroll.mjs`): every
+column sorts both ways with `aria-sort` tracking and clearing, Ctrl+H reveals and
+hides, the grid renders 25 tiles at 96×92 across 5 wrapped rows in the same order as
+the list, ArrowRight moves one tile and ArrowDown a whole row, and Details rows stay
+a uniform 25.50px apart with **no cumulative drift** (0.5px over 24 rows). Zero page
+errors.
+
+Two lessons about probing a virtualized list, recorded in the scripts: only *mounted*
+rows exist in the DOM, so assertions must check the rendered names are a
+**subsequence** of the expected order, not equal to it; and `useFileSelection`
+documents that a plain click on the sole selected entry *clears* it, so a probe that
+clicks an already-selected tile reads a correct app as broken. Both cost a round.
+
+Noted, not fixed: the Details row estimate is `29px` where rows measure `25.50px`.
+Harmless (`measureElement` corrects mounted rows; only the scrollbar length is
+slightly off) and it predates this brief.
+
+Tests **463 → 478** (vitest 277 → 296, backend jest 182).
