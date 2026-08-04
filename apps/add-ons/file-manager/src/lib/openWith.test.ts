@@ -25,13 +25,14 @@ describe('resolveOpenApp', () => {
     expect(resolveOpenApp('notes', 'main.ts')).toBe('code-editor')
   })
 
-  it('scopes .txt to the Notes root, because Notepad is not root-aware', () => {
+  it('opens .txt and .log in Notepad from ANY root', () => {
+    // FLIPPED by brief 59. This test previously asserted that `home/notes.txt`
+    // resolved to null — double-clicking a text file in your own home directory
+    // opened nothing at all, because Notepad could only read the `notes` root.
+    // Notepad is root-aware now, so the `onlyRoots` gate is gone.
     expect(resolveOpenApp('notes', 'notes.txt')).toBe('notepad')
-    // Deliberate today, and a dead end: double-clicking a .txt under `home` opens
-    // nothing at all. The fix is making Notepad root-aware, which is brief 59's
-    // whole headline — asserted here so the behaviour is recorded rather than
-    // discovered, and so brief 59 has a test to flip.
-    expect(resolveOpenApp('home', 'notes.txt')).toBeNull()
+    expect(resolveOpenApp('home', 'notes.txt')).toBe('notepad')
+    expect(resolveOpenApp('home', 'server.log')).toBe('notepad')
   })
 
   it('is case-insensitive about the extension', () => {

@@ -1741,3 +1741,60 @@ filter narrows to one row by name and by pid; sparklines grow 3 → 8 points. No
 errors.
 
 Tests: backend **208 unit + 46 e2e** (was 192 + 46), frontend vitest **336 → 353**.
+
+## 2026-08-04 — brief 59 (Notepad): one filesystem, and the save spine it was assumed to have
+
+[Brief 59](briefs/done/59-notepad-one-filesystem.md) done. 36 unit tests, one 183-line
+private component deleted.
+
+**The brief was wrong about its own biggest item, in a way that inverted the work.** It
+lists autosave under "rejected" and puts "the save spine: `useOpenIntent`,
+`useSaveHotkey`, `useUnsavedGuard`, the dirty `•` … and the close guard" under *must
+preserve* — but **Notepad was the autosaving app**, writing on a 1-second debounce after
+every keystroke and using none of those hooks. No dirty marker, no Ctrl+S, no close
+prompt. So the brief's non-change was its largest change: converting Notepad *to* the
+spine it was believed to already have. That is the fifth brief this sweep whose premise
+did not survive contact with the code (90, 66, 67, 55, 56, and now both halves of 59).
+
+Explicit save is the right way round here: there is no version history and no undo
+across a reload, so a debounce put a stray keystroke on disk within a second with
+nothing to recover from. The reload path is now careful about the case the old code
+could not be — when the file changes on disk **and** the user has unsaved edits, the
+new content is deliberately *not* adopted, because silently replacing what someone is
+typing is the worst available resolution.
+
+**Second half of the root problem, unmentioned by the brief: a `.txt` in your home
+directory opened nothing at all.** `openWith.ts` gated Notepad to `onlyRoots:
+['notes']`, so `home/notes.txt` resolved to null — no app claimed it and the
+double-click was silently swallowed. A test left by brief 65 already recorded this as
+"a dead end … brief 59 has a test to flip", and it is flipped.
+
+The migration decision: default to `home`, keep `notes` reachable, and decide **per
+install** rather than storing a flag — `notes` while it still holds files, `home`
+otherwise. Silently switching would show a returning user an empty home directory and
+read as "my notes are gone", which is worse than the inconsistency being fixed. The
+store now holds `{ root, path }` instead of a bare path, because a path alone became
+ambiguous the moment the app stopped being hardwired: `Documents/todo.txt` exists in
+both roots, and a window remembering only the path would read one and save to the other.
+
+Find/replace is pure and tested because each piece has a silent failure in it: an empty
+query must not report a match at every position; `aa` in `aaaa` is two matches not
+three; and **replace-all scans the original and assembles a new string**, because
+replacing in place re-searches text that already contains the replacement, so `a` → `aa`
+never terminates. The query is literal, not regex — typing `(` into a find box must not
+throw. The size guard refuses >1 MiB and **hands the file to Code Editor** rather than
+just saying no, reading the size from the directory listing (downloading a 200 MB log to
+discover it is too big to open is the problem the guard exists to avoid).
+
+Measured in the shipped bundle: double-clicking `note59.txt` in home opens Notepad and
+the toolbar badge reads `home`; Ln/Col tracks the caret (`Ln 1` → `Ln 3` after two
+ArrowDowns); find reports `1 of 8` and a miss says **"No results"** in words rather than
+colour alone; the dirty `•` appears and **the file on disk is still unchanged at that
+point**, proving autosave is gone; Ctrl+S writes it and the marker clears; a 1 MiB `.log`
+is refused with an explanation and Monaco opens it. No page errors.
+
+Probe lesson worth keeping: a **>1 MiB JSON `PUT` to `/files/content` silently 413s**, so
+the first version of that test was exercising a file that had never been created. Big
+fixtures go through multipart `/files/upload`.
+
+Tests: frontend vitest **353 → 389**, backend unchanged at 208 + 46.

@@ -7,11 +7,15 @@ import { getExtension } from './fileKind'
  * file manager. Brief 20 (Sheets/Docs editors) extends it by adding entries
  * here — nothing else in the file manager needs to change.
  *
- * `onlyRoots` gates an entry to specific FS roots. Notepad reads the Notes root
- * only (it is not root-aware), so text files route to it just from `notes`.
- * The viewers (PDF Viewer, Slides) are root-aware — they receive `{ root }` in
- * the open payload and fetch bytes via the authed download endpoint — so they
- * carry no `onlyRoots` and open from any root.
+ * `onlyRoots` gates an entry to specific FS roots, for an app that can only read
+ * one. Root-aware apps carry no `onlyRoots`: they receive `{ root }` in the open
+ * payload and fetch through the authed endpoint, so they open from anywhere.
+ *
+ * **Notepad used to be gated to `notes` because it was not root-aware.** The
+ * consequence was that double-clicking a `.txt` in your own home directory did
+ * *nothing at all* — no app claimed it, so the routing returned null and the
+ * click was silently swallowed. Brief 59 made Notepad root-aware, so the gate is
+ * gone and text files open from any root.
  */
 export type OpenWithRule = {
   appId: string
@@ -19,7 +23,7 @@ export type OpenWithRule = {
   onlyRoots?: string[]
 }
 
-const NOTEPAD_ONLY_NOTES: OpenWithRule = { appId: 'notepad', onlyRoots: ['notes'] }
+const NOTEPAD: OpenWithRule = { appId: 'notepad' }
 const IMAGE_VIEWER: OpenWithRule = { appId: 'image-viewer' }
 const MEDIA_PLAYER: OpenWithRule = { appId: 'media-player' }
 const MARKDOWN_EDITOR: OpenWithRule = { appId: 'markdown-editor' }
@@ -30,9 +34,9 @@ export const EXTENSION_APP_MAP: Record<string, OpenWithRule> = {
   // notes-only Notepad route for `md`).
   md: MARKDOWN_EDITOR,
   markdown: MARKDOWN_EDITOR,
-  // Plain text → Notepad (Notes root only)
-  txt: NOTEPAD_ONLY_NOTES,
-  log: NOTEPAD_ONLY_NOTES,
+  // Plain text → Notepad, from ANY root (brief 59 made it root-aware).
+  txt: NOTEPAD,
+  log: NOTEPAD,
   // Code → Code Editor (Monaco; root-aware, any root — upgrades the old
   // notes-only Notepad route for these).
   json: CODE_EDITOR,
