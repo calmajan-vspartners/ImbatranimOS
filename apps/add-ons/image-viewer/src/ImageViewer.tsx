@@ -11,18 +11,28 @@ import {
   RotateCw,
   Download,
   Loader2,
+  Save,
+  Copy,
 } from 'lucide-react'
 import {
   Button,
   Tooltip,
+  cn,
   downloadUrl,
   fileName,
+  reportFileFailure,
+  uploadFileBytes,
   useFileDialog,
   useOpenIntent,
+  useElementSize,
+  useSaveHotkey,
+  useUnsavedGuard,
 } from '@imbatranim/core'
 import { listDir } from './api/listDir'
 import type { FsEntry } from './api/types'
 import { isImagePath, parentDir, clamp } from './lib/imagePath'
+import { canPan, clampPan, NO_PAN, renderedSize, type Offset } from './lib/pan'
+import { canSaveInPlace, copyName, encodeMime, noSaveReason, rotatedCanvasSize } from './lib/encode'
 
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 8
@@ -40,7 +50,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
   const pickFile = () =>
     void openFile({
       extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico'],
@@ -55,15 +65,38 @@ export function ImageViewer({ windowId }: { windowId: string }) {
   const [zoomMode, setZoomMode] = useState<ZoomMode>('fit')
   const [zoom, setZoom] = useState(1)
 
-  const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 })
+  // The pane's live box, via core's `useElementSize` — a ref callback, because a
+  // mount effect never binds: this component early-returns an "Nothing open" tree
+  // until the open intent is drained, so the pane does not exist on the first
+  // commit. See that hook's doc for the three apps this silently broke.
+  const [containerSize, attachScroll] = useElementSize()
   const [naturalSize, setNaturalSize] = useState<Size | null>(null)
   // Starts true: the effect that resets per-image state also arms this, and it
   // only flips in the <img> load/error callbacks (avoids setState-in-render).
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const scrollRef = useRef<HTMLDivElement>(null)
+  // Rotation the file on disk already has. Rotating away from it makes the image
+  // dirty; saving brings the two back together. Without this, rotate was
+  // display-only — turn a sideways photo upright, close the window, and it is
+  // sideways again, with the user's action silently discarded.
+  const [savedRotation, setSavedRotation] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [offset, setOffset] = useState<Offset>(NO_PAN)
+  // Mirrors `dragRef` for the cursor only. The ref is the source of truth during
+  // a drag (a pointermove must not wait for a render), but the cursor has to be
+  // state: a ref read during render would never re-render, so the grabbing
+  // cursor would simply never appear.
+  const [dragging, setDragging] = useState(false)
+
   const focusRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    from: Offset
+  } | null>(null)
 
   const currentPath =
     siblings && siblings.length > 0 ? (siblings[index]?.path ?? null) : (source?.path ?? null)
@@ -108,21 +141,9 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     setNaturalSize(null)
     setLoading(true)
     setError(null)
+    setOffset(NO_PAN)
+    setSavedRotation(0)
   }
-
-  // Track the viewport size so "fit to window" stays honest across resizes.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) {
-        setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height })
-      }
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
 
   // Focus the pane once a file is open so keyboard shortcuts work without an
   // extra click.
@@ -130,14 +151,28 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     if (source) focusRef.current?.focus()
   }, [source])
 
+  // Moving to a sibling throws away an unsaved rotation, because every per-image
+  // piece of state is reset for the new path. `useUnsavedGuard` only covers
+  // *closing* the window, so without this an arrow key silently discards the
+  // user's turn — the same defect as rotate not persisting at all, just harder to
+  // notice. Uses the same `window.confirm` spine as the close guard.
+  const confirmDiscard = useCallback(() => {
+    if (rotation === savedRotation) return true
+    return window.confirm(
+      'This image has an unsaved rotation. Move to the next image without saving?'
+    )
+  }, [rotation, savedRotation])
+
   const goPrev = useCallback(() => {
+    if (!confirmDiscard()) return
     setIndex((i) =>
       siblings && siblings.length > 0 ? (i - 1 + siblings.length) % siblings.length : i
     )
-  }, [siblings])
+  }, [siblings, confirmDiscard])
   const goNext = useCallback(() => {
+    if (!confirmDiscard()) return
     setIndex((i) => (siblings && siblings.length > 0 ? (i + 1) % siblings.length : i))
-  }, [siblings])
+  }, [siblings, confirmDiscard])
 
   // Rotation flips which natural axis maps to width vs. height, so "fit"
   // fits the rotated bounding box, not the raw pixel one.
@@ -165,6 +200,41 @@ export function ImageViewer({ windowId }: { windowId: string }) {
       : 1
   const scale = zoomMode === 'fit' ? fitScale : zoom
 
+  // On-screen bounding box, so pan bounds are right for a rotated image too.
+  const content = renderedSize(naturalSize, scale, rotation)
+  const pannable = canPan(content, containerSize)
+  // Clamped on read as well as on write: a zoom-out or a window resize can leave
+  // a previously-legal offset out of bounds, and the image would sit stranded
+  // half off-screen with no way to bring it back.
+  const pan = clampPan(offset, content, containerSize)
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!pannable) return
+      e.currentTarget.setPointerCapture(e.pointerId)
+      dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, from: pan }
+      setDragging(true)
+    },
+    [pannable, pan]
+  )
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    setOffset({
+      x: drag.from.x + (e.clientX - drag.startX),
+      y: drag.from.y + (e.clientY - drag.startY),
+    })
+  }, [])
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    dragRef.current = null
+    setDragging(false)
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }, [])
+
   const zoomIn = useCallback(() => {
     setZoom((z) => clamp((zoomMode === 'fit' ? fitScale : z) + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))
     setZoomMode('manual')
@@ -178,8 +248,113 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     setZoomMode('manual')
     setZoom(1)
   }, [])
-  const rotateLeft = useCallback(() => setRotation((r) => (r - 90 + 360) % 360), [])
-  const rotateRight = useCallback(() => setRotation((r) => (r + 90) % 360), [])
+  // Rotating changes which axis overflows, so a pan offset from before the turn
+  // is meaningless — reset it rather than leaving the image somewhere arbitrary.
+  const rotateLeft = useCallback(() => {
+    setRotation((r) => (r - 90 + 360) % 360)
+    setOffset(NO_PAN)
+  }, [])
+  const rotateRight = useCallback(() => {
+    setRotation((r) => (r + 90) % 360)
+    setOffset(NO_PAN)
+  }, [])
+
+  // ── Saving a rotation ───────────────────────────────────────────────────────
+
+  const dirty = rotation !== savedRotation
+  const savable = currentPath ? canSaveInPlace(currentPath) : false
+  const cannotSaveWhy = currentPath ? noSaveReason(currentPath) : null
+
+  // Same spine as every other editor in the OS: the title carries a dirty marker
+  // and closing with unsaved changes warns.
+  useUnsavedGuard(windowId, dirty, currentPath ? fileName(currentPath, 'image') : '')
+
+  /**
+   * Re-encode the visible image at its current rotation.
+   *
+   * `drawImage` receives the pixels the user is looking at — the browser has
+   * already applied any EXIF orientation (measured; see `lib/encode.ts`) — so the
+   * output needs no orientation tag and cannot disagree with itself.
+   */
+  const encodeRotated = useCallback(
+    async (mime: string): Promise<ArrayBuffer> => {
+      const img = imgRef.current
+      if (!img || !naturalSize) throw new Error('The image is not loaded yet.')
+      const size = rotatedCanvasSize(naturalSize, rotation)
+      const canvas = document.createElement('canvas')
+      canvas.width = size.width
+      canvas.height = size.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('This browser would not provide a 2D canvas.')
+      // Rotate about the centre of the OUTPUT box, then draw the image centred on
+      // its own axes — the only ordering that works for both quarter turns.
+      ctx.translate(size.width / 2, size.height / 2)
+      ctx.rotate((rotation * Math.PI) / 180)
+      ctx.drawImage(img, -naturalSize.width / 2, -naturalSize.height / 2)
+      const blob = await new Promise<Blob | null>((resolve) =>
+        // JPEG quality 0.92: a re-encode is a generation loss either way, and this
+        // is high enough that one rotation is not visible.
+        canvas.toBlob((b) => resolve(b), mime, 0.92)
+      )
+      if (!blob) throw new Error('The image could not be re-encoded.')
+      return blob.arrayBuffer()
+    },
+    [naturalSize, rotation]
+  )
+
+  const saveRotation = useCallback(async () => {
+    if (!currentRoot || !currentPath || !dirty || saving || !savable) return
+    const turnedTo = rotation
+    setSaving(true)
+    setError(null)
+    try {
+      const bytes = await encodeRotated(encodeMime(currentPath))
+      await uploadFileBytes(currentRoot, currentPath, bytes, fileName(currentPath, 'image'))
+      // Only now is the file's rotation the one on screen. If the user turned it
+      // again mid-save, `rotation` has moved on and it stays dirty.
+      setSavedRotation(turnedTo)
+    } catch (err) {
+      setError(
+        reportFileFailure('save', err, {
+          appId: 'image-viewer',
+          noun: 'image',
+          name: fileName(currentPath, 'image'),
+        })
+      )
+    } finally {
+      setSaving(false)
+    }
+  }, [currentRoot, currentPath, dirty, saving, savable, rotation, encodeRotated])
+
+  useSaveHotkey(windowId, saveRotation)
+
+  const saveCopy = useCallback(async () => {
+    if (!currentPath || saving || !naturalSize) return
+    const choice = await saveFile({
+      title: 'Save a rotated copy',
+      suggestedName: copyName(currentPath, rotation),
+      extensions: ['png'],
+    })
+    if (!choice) return
+    setSaving(true)
+    setError(null)
+    try {
+      // Always PNG: a copy is a new file, so there is no extension to keep
+      // faithful to, and lossless is the right default for one.
+      const bytes = await encodeRotated('image/png')
+      await uploadFileBytes(choice.root, choice.path, bytes, fileName(choice.path, 'image.png'))
+    } catch (err) {
+      setError(
+        reportFileFailure('save', err, {
+          appId: 'image-viewer',
+          noun: 'image copy',
+          name: fileName(choice.path, 'image.png'),
+        })
+      )
+    } finally {
+      setSaving(false)
+    }
+  }, [currentPath, saving, naturalSize, rotation, saveFile, encodeRotated])
 
   function handleImgLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     const img = e.currentTarget
@@ -336,6 +511,47 @@ export function ImageViewer({ windowId }: { windowId: string }) {
           </Button>
         </Tooltip>
 
+        {dirty && (
+          <>
+            {/* When the format cannot take a rotation, there is no Save button at
+                all rather than a greyed one: a Tooltip on a disabled trigger never
+                opens, so the reason would have been unreachable — measured. The
+                reason goes inline instead, where it is always readable. */}
+            {savable ? (
+              <Tooltip content="Save the rotation to the file (Ctrl+S)">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="ml-1 flex h-5 items-center gap-1 px-1.5"
+                  aria-label="Save rotation"
+                  disabled={saving}
+                  onClick={() => void saveRotation()}
+                >
+                  {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                  Save
+                </Button>
+              </Tooltip>
+            ) : (
+              <span className="font-ui text-on-surface-variant ml-1 max-w-[280px] truncate text-[11px]">
+                {cannotSaveWhy}
+              </span>
+            )}
+            <Tooltip content="Save a rotated copy as PNG">
+              <Button
+                variant={savable ? 'default' : 'primary'}
+                size="sm"
+                className="flex h-5 items-center gap-1 px-1.5"
+                aria-label="Save a rotated copy"
+                disabled={saving}
+                onClick={() => void saveCopy()}
+              >
+                <Copy size={11} />
+                Copy
+              </Button>
+            </Tooltip>
+          </>
+        )}
+
         <div className="flex-1" />
 
         <span className="font-ui text-on-surface-variant mr-1 max-w-[160px] truncate text-[11px]">
@@ -348,10 +564,14 @@ export function ImageViewer({ windowId }: { windowId: string }) {
         </Tooltip>
       </div>
 
-      {/* Image surface */}
+      {/* Image surface.
+          `overflow-hidden`, not `overflow-auto`: now that the image is sized
+          explicitly it genuinely overflows when zoomed, and native scrollbars
+          plus dragging would be two competing ways to move the same picture.
+          Panning is the single mechanism. */}
       <div
-        ref={scrollRef}
-        className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+        ref={attachScroll}
+        className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
       >
         {loading && !error && (
           <div className="text-on-surface-variant font-ui flex items-center gap-2 text-[12px]">
@@ -368,15 +588,44 @@ export function ImageViewer({ windowId }: { windowId: string }) {
         {currentRoot && currentPath && (
           <img
             key={currentPath}
+            ref={imgRef}
             src={downloadUrl(currentRoot, currentPath)}
             alt={fileName(currentPath)}
             draggable={false}
             onLoad={handleImgLoad}
             onError={handleImgError}
-            className={loading || error ? 'hidden' : 'select-none'}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className={cn(
+              loading || error ? 'hidden' : 'select-none',
+              pannable && (dragging ? 'cursor-grabbing' : 'cursor-grab')
+            )}
             style={{
-              transform: `rotate(${rotation}deg) scale(${scale})`,
+              // Sized explicitly, NOT scaled by the transform. As a flex child the
+              // image was already shrunk to the pane's width before any transform
+              // ran, so `scale(fitScale)` shrank an already-shrunk box — fit came
+              // out at a third of the right size and "100%" showed 638px of a
+              // 2000px photo. Measured; see the ref-callback note above for the
+              // other half of the same bug.
+              ...(naturalSize
+                ? { width: naturalSize.width * scale, height: naturalSize.height * scale }
+                : null),
+              // Defeat the flex/CSS constraints that caused it: the pane centres
+              // the image and panning moves it, so it must keep its own size.
+              flexShrink: 0,
+              maxWidth: 'none',
+              maxHeight: 'none',
+              // Translate FIRST, in screen space, so a drag moves the image by the
+              // pointer distance regardless of rotation. Putting it after rotate
+              // would move it along the image's rotated axes instead.
+              transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg)`,
               transformOrigin: 'center center',
+              // The image is not decoded through a canvas for display, only for
+              // save — SVG stays an <img> src, which is the form that cannot
+              // execute script. Do not inline SVG here for any reason.
+              touchAction: pannable ? 'none' : undefined,
             }}
           />
         )}

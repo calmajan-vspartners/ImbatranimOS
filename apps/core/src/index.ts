@@ -65,6 +65,11 @@ export {
 // Shared add-on kit — opened-file store + editor hooks
 export { createOpenedFileStore } from './shared/store/createOpenedFileStore'
 export type { OpenedFile } from './shared/store/createOpenedFileStore'
+export {
+  useElementSize,
+  type ElementSize,
+  type ElementSizeRef,
+} from './shared/hooks/useElementSize'
 export { useOpenIntent } from './shared/hooks/useOpenIntent'
 export { useSaveHotkey } from './shared/hooks/useSaveHotkey'
 export { useUnsavedGuard } from './shared/hooks/useUnsavedGuard'

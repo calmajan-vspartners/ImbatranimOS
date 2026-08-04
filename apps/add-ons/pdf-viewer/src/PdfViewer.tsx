@@ -15,6 +15,7 @@ import {
   downloadUrl,
   fetchFileBytes,
   fileName,
+  useElementSize,
   useFileDialog,
   useOpenIntent,
 } from '@imbatranim/core'
@@ -44,21 +45,18 @@ export function PdfViewer({ windowId }: { windowId: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
   // Track the scroll viewport width so "fit width" stays honest across resizes.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) setContainerWidth(entry.contentRect.width)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  //
+  // Via core's `useElementSize`, which is a ref callback. The mount effect this
+  // replaces never bound at all: the component early-returns an "Nothing open"
+  // tree until the open intent is drained, so the pane did not exist on the first
+  // commit and `[]` deps meant no retry. `containerWidth` stayed null, which made
+  // `fitWidth && containerWidth` falsy — so **"Fit width" silently rendered at
+  // 100% zoom** for the app's whole life. See that hook's doc.
+  const [pane, attachScroll] = useElementSize()
+  const containerWidth = pane.width > 0 ? pane.width : null
 
   // Load + parse the PDF once a source is latched. The document is destroyed on
   // unmount / source change so pdf.js releases its worker-side buffers.
@@ -263,7 +261,7 @@ export function PdfViewer({ windowId }: { windowId: string }) {
       </div>
 
       {/* Page surface */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+      <div ref={attachScroll} className="min-h-0 flex-1 overflow-auto">
         {loading && (
           <div className="text-on-surface-variant font-ui flex h-full items-center justify-center gap-2 text-[12px]">
             <Loader2 size={16} className="animate-spin" />

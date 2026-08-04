@@ -1421,3 +1421,61 @@ directory has never been type-checked and carries two pre-existing supertest typ
 errors. `src/` is still compiled by `nest build` under `turbo build`.
 
 Tests **415 → 439** (backend 174 → 182, engine 70 → 82).
+
+## 2026-08-04 — brief 67 (Image Viewer): pan, a rotation that survives, and "Fit" fixed in three apps
+
+[Brief 67](briefs/done/67-image-viewer-navigation-and-edit.md) done. Pan, rotate
+that persists via a canvas re-encode, and a refusal path with the reason on screen
+for formats that cannot take one. 24 unit tests, zero new dependencies.
+
+**The brief's EXIF item was measured wrong and deliberately not built.** It asks
+for an orientation parse "applied as the initial transform"; the browser has been
+honouring EXIF all along (`imageOrientation: from-image` is the default), so that
+would **double-rotate every phone photo**. Two JPEGs with identical pixels, one
+tagged `Orientation=6`: the tagged one reports `naturalWidth/Height` as 200×400
+where the plain one reports 400×200, and `drawImage` receives the already-rotated
+pixels. A canvas re-encode is therefore naturally orientation-safe — it bakes in
+what the user sees and writes no EXIF, so the output cannot disagree with itself.
+That is the third brief this sweep whose premise did not survive measurement
+(after 90 and 66's "no tests").
+
+**"Fit to window" had never fit anything, in three apps.** Image Viewer, PDF
+Viewer and Slides had each hand-rolled a `ResizeObserver` in a `useEffect(…, [])`
+against a ref that is **null on the first commit** — all three early-return an
+"Nothing open" tree until `useOpenIntent` drains the intent in an effect. With `[]`
+deps there is no retry, so the measured size stayed at its initial value for the
+window's entire life. Image Viewer showed every image at 100%; PDF Viewer's
+`containerWidth` stayed `null`, making `fitWidth && containerWidth` falsy, so Fit
+width silently fell back to 100% zoom (canvas 595px in a 718px pane, vs 686px
+after); Slides' fit target was `{0,0}` so `resolveScale` returned its
+degenerate-input fallback of 1 and the slide overflowed the pane. Fixed once as
+core's **`useElementSize`** — a ref callback, which binds whenever the node
+attaches and has no dependency array to get wrong.
+
+Two more, found the same way:
+
+- **Image Viewer applied its scale twice.** The `<img>` is a flex child, so its
+  layout box was already shrunk to the pane before any transform ran and
+  `scale(fitScale)` shrank the shrunken box: fit came out a third of the right
+  size and "100%" showed 638px of a 2000px photo. Now sized explicitly, transform
+  reserved for rotation + pan, pane `overflow-hidden` so panning is the only way
+  to move the image.
+- **Slides had a second instance of the class**, independent of the pane:
+  `slideBox` took one `offsetWidth` reading in an effect keyed on `[slideCount]`,
+  which commits while pptx-preview is still laying out. It was **flaky, not
+  consistently broken** — the same build measured 0.84 on one run and 1 on the
+  next, which is precisely why one reading is not enough. Now observed.
+
+Also: **navigating to a sibling silently discarded an unsaved rotation.**
+`useUnsavedGuard` only guards closing a window, so an arrow key reset every
+per-image state without a word — the same defect as rotate not persisting, just
+harder to notice. It asks first now. And **a Tooltip on a disabled button never
+opens**, so the reason Save was greyed out for a `.gif` was unreachable; there is
+no dead button any more, the reason is inline.
+
+Deferred with reasons in the brief: thumbnail strip, file actions (want Trash +
+the `system` seam), and the large-image guard (no threshold measured). The listing
+cache is **not** deferred — the brief's premise was wrong, the app already lists
+once per window rather than per step.
+
+Tests **439 → 463** (vitest 277, backend jest unchanged at 182).

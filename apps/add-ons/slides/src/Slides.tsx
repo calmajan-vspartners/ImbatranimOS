@@ -23,6 +23,7 @@ import {
   notify,
   reportFileFailure,
   uploadFileBytes,
+  useElementSize,
   useFileDialog,
   useOpenIntent,
 } from '@imbatranim/core'
@@ -292,28 +293,52 @@ export function Slides({ windowId }: { windowId: string }) {
 
   // ── Zoom ────────────────────────────────────────────────────────────────────
 
-  const [viewport, setViewport] = useState({ width: 0, height: 0 })
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect
-      if (box) setViewport({ width: box.width, height: box.height })
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  // Via core's `useElementSize`, a ref callback. The mount effect this replaces
+  // never bound: the component early-returns an "Nothing open" tree until the open
+  // intent is drained, so the pane did not exist on the first commit and `[]` deps
+  // meant no retry. `viewport` stayed {0, 0}, which made the fit target {0, 0} —
+  // so the fit target was {0, 0} and `resolveScale` returned its degenerate-input
+  // fallback of 1 — the slide stayed at natural size and overflowed the pane. See
+  // that hook's doc, and the slide-box observer below for the other half.
+  const [viewport, attachSize] = useElementSize()
+  // The pane is measured AND kept in a ref — the deck-render effect reads the node
+  // directly. Composed rather than duplicated, and the size hook's cleanup is
+  // returned through so the observer is still disconnected on unmount.
+  const attachScroll = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollRef.current = el
+      return attachSize(el)
+    },
+    [attachSize]
+  )
 
-  // The rendered slide's own pixel box, measured once per deck. A measurement of
-  // live DOM belongs in an effect, not in a render-time memo — and the elements'
-  // size does not change afterwards, because zoom is a transform rather than a
-  // re-render.
+  // The rendered slide's own pixel box.
+  //
+  // **Observed, not measured once.** This used to take a single `offsetWidth`
+  // reading in an effect keyed on `[slideCount]`, on the assumption that a slide's
+  // size never changes afterwards. It does: `slideCount` commits as soon as
+  // pptx-preview returns, while the slides themselves are still being laid out, so
+  // the reading landed on 0 or an intermediate width — and with those deps it was
+  // never retried. `resolveScale` then hit its degenerate-input guard and returned
+  // 1, leaving the slide at natural size and overflowing the pane. It was
+  // *flaky*, not consistently broken: the same build measured 0.84 on one run and
+  // 1 on the next, which is exactly why a single reading is not good enough.
+  //
+  // These nodes are created by pptx-preview, not by React, so there is no ref to
+  // attach `useElementSize` to — hence an explicit observer on the live node.
   const [slideBox, setSlideBox] = useState({ width: 0, height: 0 })
   useEffect(() => {
     const first = slidesRef.current[0]
     if (!first) return
-    const box = { width: first.offsetWidth, height: first.offsetHeight }
-    setSlideBox((prev) => (prev.width === box.width && prev.height === box.height ? prev : box))
+    const read = () => {
+      const box = { width: first.offsetWidth, height: first.offsetHeight }
+      if (box.width <= 0 || box.height <= 0) return
+      setSlideBox((prev) => (prev.width === box.width && prev.height === box.height ? prev : box))
+    }
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(first)
+    return () => observer.disconnect()
   }, [slideCount])
 
   const scale = resolveScale(zoom, slideBox, {
@@ -540,7 +565,7 @@ export function Slides({ windowId }: { windowId: string }) {
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Slide stage */}
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+          <div ref={attachScroll} className="min-h-0 flex-1 overflow-auto">
             {loading && (
               <div className="text-on-surface-variant font-ui flex h-full items-center justify-center gap-2 text-[12px]">
                 <Loader2 size={16} className="animate-spin" />
