@@ -657,12 +657,12 @@ export function CodeEditor({ windowId }: { windowId: string }) {
                     void closeTab(tab.id)
                   }}
                   className={cn(
-                    'hover:bg-surface-container-highest flex h-4 w-4 items-center justify-center rounded-sm',
+                    'hover:bg-surface-container-highest flex h-4 w-4 items-center justify-center',
                     isDirty ? 'text-on-surface' : 'text-on-surface-variant'
                   )}
                 >
                   {isDirty ? (
-                    <span className="bg-on-surface-variant h-1.5 w-1.5 rounded-full group-hover:hidden" />
+                    <span className="bg-on-surface-variant h-1.5 w-1.5 group-hover:hidden" />
                   ) : null}
                   <X size={12} className={cn(isDirty && 'hidden group-hover:block')} />
                 </button>

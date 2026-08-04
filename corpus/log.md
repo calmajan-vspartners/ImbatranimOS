@@ -1366,3 +1366,58 @@ so the ISO-era inheritance moved to `decisions-iso-era.md`. Still binding; only 
 location changed.
 
 Tests **406 → 415** (file-manager 0 → 9).
+
+## [2026-08-03] brief 66 | Every save in the OS could truncate the user's file
+
+Brief 66 asked for an atomic save in norPDF so an interrupted write could not
+truncate a PDF. Chasing it found the problem one layer down and much wider:
+`FilesService.uploadFile` did `fs.copyFile` **straight onto the destination**, and
+`copyFile` truncates before writing. Any failure part-way — full disk, OOM kill,
+container restart — left the file truncated with the original bytes gone.
+
+**Every save in the OS goes through that method**: Docs, Sheets, Slides, Notepad,
+Code Editor, Markdown, images, norPDF. So the fix went in once, at the backend —
+stage a sibling temp in the destination's own directory, then `rename` over it. A
+rename within one directory is atomic on POSIX; staging *beside* the destination
+rather than in the OS temp dir is what makes that hold, because a
+cross-filesystem rename is not atomic and degrades to a copy. The previous file's
+mode is copied across first, or the rename would quietly widen a `0600` file.
+
+Seven tests, provoking failures with real filesystem conditions rather than
+mocking `fs` — its exports are non-configurable in Node 24. Both windows covered:
+the source vanishing before the staged copy, and a commit failing *after* it.
+
+**The write path is now proven to preserve, not just to write.** A rich fixture —
+three pages with distinct text, full Info metadata, two filled AcroForm fields —
+goes through annotate, forms, sign and page reorder/delete/rotate/extract, and each
+asserts both that the change landed and that everything else survived: page count
+and order, the other pages' text, metadata, the form field the user did not edit,
+that annotations stay on their page, that a second save does not duplicate them,
+and that saving an untouched document does not damage it. The brief called this its
+highest-value item and was right. The engine already had 70 tests proving the
+intended change lands; what was missing was the half that costs a user their file.
+
+**Second green-test-proving-nothing of the session.** The first draft called
+`doc.text.extract(p)` with a bare page number; `extract` takes `{ pages }`, and a
+number is silently accepted as an options object with no `pages` — extracting the
+whole document. Every per-page assertion was reading all three pages and passing
+for the wrong reason. **Typecheck** caught it, not the test run. The behaviour was
+correct anyway, so no expectation changed — but that is now twice.
+
+`corpus/wiki/norpdf.md` finally documents the largest app in the OS: the
+app/engine split, the three platform entries and why `UnsupportedPlatform` is
+load-bearing, the read-vs-write model separation, the save→`reloadDocument()` cache
+contract that until now lived in one comment, and the known gaps.
+
+Also: confirmed the `rounded-*` classes §46 calls dead really are — `index.css`
+has `* { border-radius: 0 !important }`, so every one in the tree is inert.
+Removed the four it names. `SignatureDialog`'s literal colour is **kept**, with the
+reason written down: it previews ink on paper and must match what lands in the PDF,
+so a semantic token would show white ink in dark mode for a signature that saves
+black. §46 read it as an oversight; it is a decision.
+
+Noted, not fixed: **the backend has no `typecheck` script**, so its `test/`
+directory has never been type-checked and carries two pre-existing supertest typing
+errors. `src/` is still compiled by `nest build` under `turbo build`.
+
+Tests **415 → 439** (backend 174 → 182, engine 70 → 82).

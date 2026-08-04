@@ -106,7 +106,7 @@ export function AnnotateToolbar(): JSX.Element {
             key={s.name}
             type="button"
             className={
-              'h-5 w-5 rounded-full border-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] transition-transform hover:scale-110 ' +
+              'h-5 w-5 border-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] transition-transform hover:scale-110 ' +
               (sameColor(color, s.color)
                 ? 'border-on-surface ring-primary ring-2'
                 : 'border-transparent')
@@ -153,10 +153,7 @@ export function AnnotateToolbar(): JSX.Element {
               aria-pressed={on}
               onClick={() => setStrokeWidth(wv)}
             >
-              <span
-                className="block w-[18px] rounded-full bg-current"
-                style={{ height: Math.max(2, wv) }}
-              />
+              <span className="block w-[18px] bg-current" style={{ height: Math.max(2, wv) }} />
             </button>
           )
         })}

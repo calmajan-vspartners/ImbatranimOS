@@ -308,4 +308,114 @@ describe('FilesService (jail + real filesystem)', () => {
       expect(items.map((i) => i.path)).toEqual(['match.txt']);
     });
   });
+
+  describe('uploadFile is atomic (brief 66)', () => {
+    /** A multer-style on-disk temp file. */
+    async function stageTmp(content: string): Promise<string> {
+      const dir = await fs.mkdtemp(join(os.tmpdir(), 'imb-up-'));
+      const p = join(dir, 'upload.bin');
+      await fs.writeFile(p, content);
+      return p;
+    }
+
+    // Failures are provoked with real filesystem conditions rather than by
+    // mocking `fs`: `fs/promises` exports are non-configurable in Node 24, and a
+    // test that cannot spy on the module is a better test anyway — these are
+    // failures that actually happen.
+
+    it('replaces an existing file with the new bytes', async () => {
+      await service.createFile('home', 'doc.txt', 'old contents');
+      await service.uploadFile(
+        'home',
+        'doc.txt',
+        await stageTmp('new contents'),
+      );
+      expect(await fs.readFile(join(jail, 'doc.txt'), 'utf-8')).toBe(
+        'new contents',
+      );
+    });
+
+    it('leaves the original intact when the source vanishes mid-upload', async () => {
+      // The bug this replaces: `copyFile` onto the destination TRUNCATES it
+      // first, so any failure after that point left the user's file empty and
+      // the original bytes gone. Every save in the OS goes through this method.
+      await service.createFile('home', 'important.txt', 'the only copy');
+      const tmp = await stageTmp('replacement');
+      await fs.rm(tmp);
+
+      await expect(
+        service.uploadFile('home', 'important.txt', tmp),
+      ).rejects.toThrow();
+
+      expect(await fs.readFile(join(jail, 'important.txt'), 'utf-8')).toBe(
+        'the only copy',
+      );
+      expect(await fs.readdir(jail)).toEqual(['important.txt']);
+    });
+
+    it('leaves the original intact when the commit itself fails', async () => {
+      // A directory in the destination's place makes the RENAME fail — i.e. after
+      // the staged copy has already succeeded, which is the half-written window
+      // the old code could not survive.
+      await service.createDirectory('home', 'blocked');
+      await service.createFile('home', 'blocked/keep.txt', 'still here');
+
+      await expect(
+        service.uploadFile('home', 'blocked', await stageTmp('replacement')),
+      ).rejects.toThrow();
+
+      // The directory and its contents survive, and no staging file is left.
+      expect(await fs.readFile(join(jail, 'blocked/keep.txt'), 'utf-8')).toBe(
+        'still here',
+      );
+      expect(await fs.readdir(jail)).toEqual(['blocked']);
+    });
+
+    it('removes the multer temp file on success', async () => {
+      // Otherwise every save slowly fills the temp directory.
+      const tmp = await stageTmp('hello');
+      await service.uploadFile('home', 'new.bin', tmp);
+      await expect(fs.access(tmp)).rejects.toThrow();
+    });
+
+    it('removes the multer temp file when the commit fails', async () => {
+      await service.createDirectory('home', 'blocked');
+      const tmp = await stageTmp('replacement');
+      await expect(
+        service.uploadFile('home', 'blocked', tmp),
+      ).rejects.toThrow();
+      await expect(fs.access(tmp)).rejects.toThrow();
+    });
+
+    it('creates a file that did not exist yet, including its parents', async () => {
+      await service.uploadFile(
+        'home',
+        'nested/new.bin',
+        await stageTmp('hello'),
+      );
+      expect(await fs.readFile(join(jail, 'nested/new.bin'), 'utf-8')).toBe(
+        'hello',
+      );
+    });
+
+    it('preserves the existing file mode across the rename', async () => {
+      // A rename carries the STAGED file's mode. Without copying the previous
+      // mode across, saving a 0600 file would quietly widen it to the temp's.
+      await service.createFile('home', 'secret.txt', 'old');
+      await fs.chmod(join(jail, 'secret.txt'), 0o600);
+      await service.uploadFile('home', 'secret.txt', await stageTmp('new'));
+
+      const mode = (await fs.stat(join(jail, 'secret.txt'))).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
+
+    it('still refuses to escape the jail', async () => {
+      await expect(
+        service.uploadFile('home', '../escape.bin', await stageTmp('nope')),
+      ).rejects.toThrow();
+      await expect(
+        fs.access(join(outside, '..', 'escape.bin')),
+      ).rejects.toThrow();
+    });
+  });
 });

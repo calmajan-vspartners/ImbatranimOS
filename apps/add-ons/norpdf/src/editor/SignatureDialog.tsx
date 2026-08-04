@@ -183,7 +183,11 @@ function SignaturePad({
             onChange={(e) => setTyped(e.target.value)}
           />
           <div
-            className="border-outline-variant grid min-h-[90px] place-items-center border border-dashed bg-white text-[2.2rem] font-semibold text-[#1c1712]"
+            // Deliberately literal, not a semantic token: this is a preview of
+            // ink on paper, and it has to look the same in dark mode as the mark
+            // that will land in the PDF. A theme-aware colour here would show
+            // the user white ink for a signature that saves as black.
+            className="border-outline-variant grid min-h-[90px] place-items-center border border-dashed bg-white text-[2.2rem] font-semibold text-black"
             style={{ fontFamily: '"Iowan Old Style", Palatino, Georgia, serif' }}
             aria-hidden="true"
           >

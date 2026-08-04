@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import type { Dirent } from 'fs';
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 import type { Readable } from 'stream';
 
 /**
@@ -496,9 +497,43 @@ export class FilesService {
       await withDiskSpaceCheck(async () => {
         await fs.mkdir(dirname(abs), { recursive: true });
       });
-      // copyFile (not rename) so it works when tmp and data are on different
-      // mounts; it streams in-kernel without buffering in the heap.
-      await withDiskSpaceCheck(() => fs.copyFile(tmpPath, abs));
+
+      // Stage beside the destination, then rename over it.
+      //
+      // `copyFile` straight onto `abs` TRUNCATES it before writing, so a failure
+      // part-way through — a full disk, an OOM kill, a container restart — left
+      // the user's file truncated and the original bytes gone. Every save in the
+      // OS goes through here (Docs, Sheets, Slides, Notepad, Code Editor,
+      // norPDF, images), so that was one interruption away from destroying a
+      // document for any of them.
+      //
+      // `rename` within the same directory is atomic on POSIX: either the new
+      // bytes are fully in place or the old file is untouched. Staging in the
+      // destination's own directory rather than the OS temp dir is what makes
+      // that guarantee hold — a rename across filesystems is not atomic and
+      // would fall back to a copy.
+      //
+      // The multer temp file is still copied rather than renamed, because it
+      // genuinely can be on another mount.
+      const staged = join(
+        dirname(abs),
+        `.${basename(abs)}.imbatranim-${randomUUID()}.part`,
+      );
+      try {
+        await withDiskSpaceCheck(() => fs.copyFile(tmpPath, staged));
+        // A rename carries the staged file's mode, not the destination's, so an
+        // existing file's permissions would silently reset to the temp's. Copy
+        // them across first; a failure here is not worth losing the save over.
+        const previous = await fs.stat(abs).catch(() => null);
+        if (previous) {
+          await fs.chmod(staged, previous.mode).catch(() => undefined);
+        }
+        await withDiskSpaceCheck(() => fs.rename(staged, abs));
+      } catch (err) {
+        // Leave the original exactly as it was.
+        await fs.rm(staged, { force: true });
+        throw err;
+      }
       return this.toEntry(rootDir, abs);
     } finally {
       await fs.rm(tmpPath, { force: true });

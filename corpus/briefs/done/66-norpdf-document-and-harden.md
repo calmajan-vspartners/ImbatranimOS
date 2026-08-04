@@ -1,6 +1,6 @@
 # Brief 66 — norPDF: document it, test the write path, protect the original
 
-Status: **todo (ungrilled)** · From the 2026-07-31 app+OS improvement sweep.
+Status: **done 2026-08-03** · From the 2026-07-31 app+OS improvement sweep.
 MEDIUM/HARD · add-on `apps/add-ons/norpdf` (3886 LOC / 22 files) +
 `packages/pdfcore-engine`. Depends on brief 65 (whether norPDF becomes the
 default PDF app).
@@ -112,3 +112,104 @@ readable.
 OCR, PDF creation from other apps, printing, digital-certificate signing
 (the signature dialog draws a signature; cryptographic signing is a different
 feature), redaction, and the default-app routing decision (brief 65).
+
+## Outcome — 2026-08-03 (done)
+
+### The atomic-save fix belonged in the backend, not in norPDF
+
+The brief asked for "write via a temp file and atomic rename so an interrupted
+save cannot truncate the user's PDF". Chasing that turned up that
+`FilesService.uploadFile` was doing `fs.copyFile` **straight onto the
+destination** — and `copyFile` truncates before it writes. Any failure part-way
+(full disk, OOM kill, container restart) left the user's file truncated with the
+original bytes gone.
+
+That is not a norPDF problem. **Every save in the OS goes through that method** —
+Docs, Sheets, Slides, Notepad, Code Editor, Markdown, images, norPDF. So the fix
+went in once, at the backend: stage a sibling temp in the destination's own
+directory, then `rename` over it. A rename within one directory is atomic on
+POSIX — either the new bytes are fully in place or the old file is untouched — and
+staging *beside* the destination rather than in the OS temp dir is what makes that
+hold, because a cross-filesystem rename is not atomic and silently degrades to a
+copy. The previous file's mode is copied onto the staged file first, or the rename
+would quietly widen a `0600` file's permissions.
+
+Seven tests, provoking failures with real filesystem conditions rather than
+mocking `fs` — its exports are non-configurable in Node 24, and a test that cannot
+spy is the better test here anyway. Both failure windows are covered: the source
+vanishing before the staged copy, and a commit that fails *after* the staged copy
+has already succeeded (the half-written window the old code could not survive).
+
+### The write path is now proven to preserve, not just to write
+
+The brief called this "the single highest-value change" and it was right.
+`preservation.node.test.ts` runs a deliberately rich fixture — three pages with
+distinct text, full Info metadata, two filled AcroForm text fields — through each
+write and asserts **both** halves: the change landed, *and* everything else
+survived. 12 tests across annotate, forms, sign, and page reorder / delete /
+rotate / extract, covering page count and order, every other page's extractable
+text, document metadata, the form field the user did *not* edit, that annotations
+stay on the page they were added to, that a second save does not duplicate them,
+and that **saving an untouched document does not damage it** — the cheapest way to
+lose a file.
+
+The brief's claim of "no tests" was about the add-on; the engine already had 70,
+including a round-trip that proves the intended change lands. What was missing was
+the other half, which is the half that costs a user their file.
+
+**A trap worth recording:** the first draft called `doc.text.extract(p)` with a
+bare page number. `extract` takes `{ pages }`, and a number is silently accepted
+as an options object with no `pages` — which extracts the *whole document*. Every
+per-page assertion was therefore reading all three pages and passing for the wrong
+reason. Typecheck caught it, not the test run. The behaviour turned out to be
+correct anyway, so the fix changed no expectations — but it is the second time this
+session a green test proved nothing.
+
+### The documentation the brief put first
+
+[`corpus/wiki/norpdf.md`](../../wiki/norpdf.md) — the app/engine split and why the
+engine does not import `@imbatranim/core`, the three platform entries and why
+`UnsupportedPlatform` is load-bearing, a module-by-module table, the read-vs-write
+model separation, the **save → `reloadDocument()` cache contract** (previously only
+a comment), what the write path is proven to preserve, what is deliberately not
+supported, and the known gaps.
+
+### Style and manifest
+
+- `SignatureDialog`'s literal colour: **kept literal**, with the reason written
+  down. It is a preview of ink on paper and must match the mark that lands in the
+  PDF; a semantic token would show white ink in dark mode for a signature that
+  saves black. §46 flagged it as an oversight; it is a decision, and now says so.
+- **Dead radius classes removed** — 2 in `AnnotateToolbar`, plus the 2 in
+  `CodeEditor` §46 names in the same breath. Confirmed dead rather than assumed:
+  `apps/core/src/index.css` has `* { border-radius: 0 !important }`, so every
+  `rounded-*` in the tree has no effect. Leaving them tells the next reader the
+  swatches are circles.
+- `defaultSize.height` 720 → 560 (fits a 720px viewport with the taskbar);
+  `minSize` 520×420 → 680×420.
+
+### Not done, and why
+
+- **The open-time capability scan** (encrypted / XFA / attachments). Brief 63's
+  stance applied here, and worth doing — but it needs the engine to report what it
+  cannot round-trip, which is engine work rather than a scan over the package the
+  way brief 63's was.
+- **`notify()` routing** was already in place (`NorPdf.tsx` notifies on open
+  failure) — the brief listed it, the app already had it.
+- **The ~1.2 s first-page regression** measured in brief 65. Cause is known —
+  seven canvases painted before the first page is up. Deferred rather than
+  attempted, because the fix is inside `useReaderController`'s render scheduling
+  and deserves its own change.
+- **`README.md` / `architecture.md`** still do not list norPDF. The wiki page now
+  exists; wiring it into the top-level docs is a docs pass, not this brief.
+- **A `status.md` row** — the page is linked from the index instead; `status.md` is
+  at its 200-line cap and adding a row means splitting it, which is a separate
+  change.
+
+Also noted while here: **the backend has no `typecheck` script**, so
+`apps/backend/test/*.e2e-spec.ts` has never been type-checked and currently has two
+pre-existing supertest typing errors. `src/` is still compiled by `nest build`
+during `turbo build`, so the gate is not as absent as it looks — but the test
+directory is unchecked.
+
+Tests 415 → 439.
