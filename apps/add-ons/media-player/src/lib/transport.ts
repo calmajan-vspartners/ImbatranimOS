@@ -5,6 +5,9 @@ export const SKIP_SECONDS = 5
 export const ARROW_SKIP_SECONDS = 10
 export const COARSE_SKIP_SECONDS = 60
 
+/** Volume step for the arrow keys — VLC's own 5%. */
+export const VOLUME_STEP = 0.05
+
 export const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4] as const
 
 /**

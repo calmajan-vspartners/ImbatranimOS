@@ -8,11 +8,18 @@ import {
   Volume2,
   Volume1,
   VolumeX,
+  Shuffle,
+  Repeat,
+  Repeat1,
+  Maximize2,
+  Captions,
+  CaptionsOff,
 } from 'lucide-react'
 import { Button, Tooltip, cn } from '@imbatranim/core'
 import { formatTime } from '../lib/formatTime'
 import { Timebar } from './Timebar'
 import { SKIP_SECONDS, PLAYBACK_RATES } from '../lib/transport'
+import type { RepeatMode } from '../lib/queueOrder'
 
 type TransportBarProps = {
   isPlaying: boolean
@@ -35,6 +42,15 @@ type TransportBarProps = {
   onRateChange: (rate: number) => void
   /** Relative skip in seconds; negative goes back. */
   onSkip: (seconds: number) => void
+  repeat: RepeatMode
+  onCycleRepeat: () => void
+  shuffle: boolean
+  onToggleShuffle: () => void
+  /** Only offered for video. */
+  onFullscreen: (() => void) | null
+  /** `null` when the file has no sidecar subtitle. */
+  subtitlesOn: boolean | null
+  onToggleSubtitles: () => void
 }
 
 // Native range inputs, stripped of the browser's default (rounded) chrome and
@@ -72,6 +88,13 @@ export function TransportBar({
   playbackRate,
   onRateChange,
   onSkip,
+  repeat,
+  onCycleRepeat,
+  shuffle,
+  onToggleShuffle,
+  onFullscreen,
+  subtitlesOn,
+  onToggleSubtitles,
 }: TransportBarProps) {
   return (
     <div className="border-outline-variant bg-surface-container-low flex shrink-0 flex-col gap-1.5 border-t px-2 py-1.5">
@@ -97,6 +120,7 @@ export function TransportBar({
             variant="ghost"
             size="sm"
             className="h-6 w-6 shrink-0 p-0"
+            aria-label="Previous track"
             onClick={onPrev}
             disabled={disabled || !canPrev}
           >
@@ -119,6 +143,9 @@ export function TransportBar({
             variant="primary"
             size="sm"
             className="h-7 w-7 shrink-0 p-0"
+            // Icon-only, so the tooltip is not enough: a tooltip is not an accessible name
+            // and never reaches a screen reader.
+            aria-label={isPlaying ? 'Pause' : 'Play'}
             onClick={onTogglePlay}
             disabled={disabled}
           >
@@ -141,6 +168,7 @@ export function TransportBar({
             variant="ghost"
             size="sm"
             className="h-6 w-6 shrink-0 p-0"
+            aria-label="Next track"
             onClick={onNext}
             disabled={disabled || !canNext}
           >
@@ -148,7 +176,56 @@ export function TransportBar({
           </Button>
         </Tooltip>
 
+        <Tooltip content={shuffle ? 'Shuffle is on' : 'Shuffle'}>
+          <Button
+            variant={shuffle ? 'primary' : 'ghost'}
+            size="sm"
+            className="ml-1 h-6 w-6 shrink-0 p-0"
+            aria-label="Shuffle"
+            aria-pressed={shuffle}
+            onClick={onToggleShuffle}
+          >
+            <Shuffle size={13} />
+          </Button>
+        </Tooltip>
+        <Tooltip
+          content={
+            repeat === 'off'
+              ? 'Repeat: off'
+              : repeat === 'all'
+                ? 'Repeat: whole queue'
+                : 'Repeat: this track'
+          }
+        >
+          <Button
+            variant={repeat === 'off' ? 'ghost' : 'primary'}
+            size="sm"
+            className="h-6 w-6 shrink-0 p-0"
+            // Three states, so `aria-pressed` cannot carry it: the mode goes in the label
+            // instead, which is what a screen reader reads out.
+            aria-label={`Repeat: ${repeat}`}
+            onClick={onCycleRepeat}
+          >
+            {repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}
+          </Button>
+        </Tooltip>
+
         <div className="flex-1" />
+
+        {subtitlesOn !== null && (
+          <Tooltip content={subtitlesOn ? 'Hide subtitles' : 'Show subtitles'}>
+            <Button
+              variant={subtitlesOn ? 'primary' : 'ghost'}
+              size="sm"
+              className="h-6 w-6 shrink-0 p-0"
+              aria-label="Subtitles"
+              aria-pressed={subtitlesOn}
+              onClick={onToggleSubtitles}
+            >
+              {subtitlesOn ? <Captions size={13} /> : <CaptionsOff size={13} />}
+            </Button>
+          </Tooltip>
+        )}
 
         <select
           aria-label="Playback speed"
@@ -170,6 +247,8 @@ export function TransportBar({
             variant="ghost"
             size="sm"
             className="h-6 w-6 shrink-0 p-0"
+            aria-label={muted ? 'Unmute' : 'Mute'}
+            aria-pressed={muted}
             onClick={onToggleMute}
             disabled={disabled}
           >
@@ -187,6 +266,20 @@ export function TransportBar({
           disabled={disabled}
           onChange={(e) => onVolumeChange(Number(e.target.value))}
         />
+
+        {onFullscreen && (
+          <Tooltip content="Fullscreen (F)">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 shrink-0 p-0"
+              aria-label="Fullscreen"
+              onClick={onFullscreen}
+            >
+              <Maximize2 size={13} />
+            </Button>
+          </Tooltip>
+        )}
       </div>
     </div>
   )

@@ -1872,3 +1872,66 @@ Tests: frontend vitest **389 → 492** (103 new in a package that had none), bac
 unchanged at 208 unit + 46 e2e, `turbo typecheck lint test format:check build` green
 across 94 tasks. New dependency: `rehype-highlight` (pulling lowlight + highlight.js),
 justified by the measurement above.
+
+## 2026-08-05 — brief 68, Media Player: remember the queue, name the codec, keep the volume
+
+Persistence (volume, mute, rate, repeat, shuffle, per-file resume), shuffle and repeat on a
+derived order, durations in the queue, sidecar subtitles, and the deferred keys from brief
+89. Brief moved to
+[done/68-media-player-playlist-and-codecs.md](briefs/done/68-media-player-playlist-and-codecs.md).
+
+Six of its seven problems were real. The seventh — "an unplayable codec is a black box" —
+was **half-fixed already** by the work around brief 89, which the brief predates: the error
+mapping, the overlay and the "Download instead" button existed. What was missing was
+naming the file (the queue auto-advances, so the message was about an unidentified one of
+twelve tracks), a container hint, a `notify()` for when the window is behind others, and a
+test. Deliberately still not done: skipping a failed track and carrying on, which VLC does
+and which here would make the diagnosis invisible again.
+
+Two bugs the brief did not know about. **The Open dialog offered formats the app rejects** —
+its extension list had drifted from `mediaKind`, offering `avi`/`weba` (pick one and you got
+"Unsupported file type", a dead end reached through the app's own dialog) and omitting
+`oga`/`ogv`; it is now derived from the same constants. And the icon-only transport buttons —
+Prev, Next, Play/Pause, Mute — carried a `<Tooltip>` and **no accessible name**, which a
+tooltip is not. Found because the probe could not address them.
+
+Subtitles have no `<track>` element, for two measured reasons: `/files/download` serves
+`application/octet-stream` and a text track is only parsed as `text/vtt`, and the usual
+`blob:` workaround is refused by the shipped CSP — there is no `media-src`, so `<track>`
+falls back to `default-src 'self'`. Cues are therefore parsed in-app (one parser for WebVTT
+and SubRip) and pushed in with `addTextTrack` + `VTTCue`: no new route, no dependency, and
+**no CSP relaxation**, which matters because widening the policy is human-gated here.
+Whether a cue is actually painted is not queryable — `activeCues` stays populated when a
+track is `hidden` — so it was measured by screenshotting the video frame with subtitles on
+and off and comparing bytes.
+
+Three design errors the browser caught, all mine:
+
+- **Shuffle pinned the playing track first** so switching it on would not "jump away". That
+  re-derives the order on every track change, so Next re-permutes the queue: a three-track
+  folder played **b, c, b**. The pin is gone; the order depends only on paths + seed, and a
+  full cycle provably returns to its start.
+- **Repeat-one did nothing.** Re-selecting the path already playing changes no state, so
+  nothing remounted and the track just stopped. The element replays itself now.
+- **Repeat-one disabled Next** on the last track. A repeat mode that disables navigation is
+  a bug; manual moves wrap, only `ended` replays.
+
+Resume remembers nothing under 60s and treats the last 15s as finished, so short clips
+accumulate no state and the credits are never offered as a resume point; writes are
+throttled to one per 5s (a `timeupdate` fires ~4×/second) and the map is capped at 200 with
+the least-recently-written dropped. Durations come from a detached element with
+`preload="metadata"` — sequential, capped at 60 tracks, cached per session, because this is
+the one feature here that can otherwise fire dozens of requests nobody asked for.
+
+Prefs are hand-rolled localStorage (still zero non-core dependencies in this add-on). The
+brief wants them on brief 49's durable dotfiles and it is right, but **`CONFIGS_DIR` is
+declared in the backend env schema and used by no module** — there is nowhere durable to put
+them yet. One function to move when 49 lands.
+
+Probe technique worth keeping: all the media was generated **in the page** — WAV bytes
+written by hand (a 150-second file for the resume test) and a canvas recorded with
+`MediaRecorder` for real vp8 video — then uploaded through the API. Real decodable files the
+backend range-streams, with no binary fixtures in the repo.
+
+Tests: frontend vitest **492 → 550** (58 new here, which had 7), backend unchanged at 208 +
+46. All 94 turbo tasks green.
