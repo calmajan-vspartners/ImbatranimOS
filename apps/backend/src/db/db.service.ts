@@ -52,6 +52,31 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_bookmark_links_group
         ON bookmark_links(group_id);
 
+      -- Clock (Brief 71): world clocks + alarms, moved out of the viewing
+      -- browser's localStorage so they belong to the container. The stopwatch
+      -- and countdown timers are session state and deliberately absent.
+      CREATE TABLE IF NOT EXISTS clock_world_clocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL,
+        time_zone TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- time_of_day rather than time: a 24h "HH:mm" string in the viewer's
+      -- local wall-clock time, compared as text (which sorts correctly because
+      -- it is zero-padded). days is a 7-char '0'/'1' weekday mask,
+      -- Monday-first; all zeros means "ring once, then disable yourself".
+      CREATE TABLE IF NOT EXISTS clock_alarms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL DEFAULT '',
+        time_of_day TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        days TEXT NOT NULL DEFAULT '0000000',
+        last_fired_at TEXT,
+        snoozed_until INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS recent_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT NOT NULL UNIQUE,

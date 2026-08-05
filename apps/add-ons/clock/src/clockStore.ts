@@ -1,27 +1,29 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import {
+  DEFAULT_TIMER_MS,
+  complete,
+  createTimer,
+  pause,
+  reset,
+  setDuration,
+  start,
+  type TimerEntry,
+} from './timerModel'
 
-export type WorldClock = {
-  id: string
-  label: string
-  timeZone: string
-}
-
-export type Alarm = {
-  id: string
-  label: string
-  /** 24h "HH:mm", local wall-clock time. */
-  time: string
-  enabled: boolean
-  /**
-   * Guard against double-firing within the same minute: the last
-   * "<toDateString()> HH:mm" key this alarm actually notified for.
-   * Persisted alongside the alarm — harmless across reloads, and it means an
-   * alarm that already fired this minute won't fire again if the app
-   * reopens inside that same minute.
-   */
-  lastFiredAt: string | null
-}
+/**
+ * Clock's **session** state: the stopwatch, the countdown timers, and which
+ * alarms are ringing right now.
+ *
+ * There is no `persist` middleware here any more, and that is the point of brief
+ * 71. World clocks and alarms are documents — they belong to the computer, so
+ * they live in the container behind `/api/clock` (see `queries/clockQueries.ts`).
+ * What is left is genuinely ephemeral: a running countdown must not resurrect
+ * after a reload, nobody expects to find yesterday's stopwatch, and a ringing
+ * alarm is a thing happening now.
+ *
+ * All timer transitions delegate to `timerModel`, which takes `now` explicitly —
+ * that is what keeps the countdown timestamp-driven rather than tick-counted.
+ */
 
 type StopwatchState = {
   /** Timestamp the current running segment started, or null when paused/reset. */
@@ -33,16 +35,13 @@ type StopwatchState = {
   laps: number[]
 }
 
-type TimerState = {
-  /** Configured countdown length — restored on reset. */
-  durationMs: number
-  /** Timestamp the countdown reaches zero, set only while running. */
-  endAt: number | null
-  /** Remaining ms snapshot while paused (or before the first start). */
-  pausedRemainingMs: number
-  running: boolean
-  /** True once notify() has fired for the current run — prevents re-firing. */
-  fired: boolean
+/** An alarm the user has to deal with: snooze it or dismiss it. */
+export type RingingAlarm = {
+  alarmId: number
+  label: string
+  time: string
+  /** epoch ms it rang, so the banner can say "3 min ago" if it ever wants to. */
+  at: number
 }
 
 const initialStopwatch: StopwatchState = {
@@ -52,28 +51,15 @@ const initialStopwatch: StopwatchState = {
   laps: [],
 }
 
-const DEFAULT_TIMER_MS = 5 * 60 * 1000
+const newId = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `c-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
 
-const initialTimer: TimerState = {
-  durationMs: DEFAULT_TIMER_MS,
-  endAt: null,
-  pausedRemainingMs: DEFAULT_TIMER_MS,
-  running: false,
-  fired: false,
-}
+/** Guard-rail: a list model invites "add" being held down. */
+export const MAX_TIMERS = 8
 
 type ClockStore = {
-  // --- persisted: world clocks + alarms -----------------------------------
-  worldClocks: WorldClock[]
-  addWorldClock: (label: string, timeZone: string) => void
-  removeWorldClock: (id: string) => void
-
-  alarms: Alarm[]
-  addAlarm: (label: string, time: string) => void
-  removeAlarm: (id: string) => void
-  toggleAlarm: (id: string) => void
-  markAlarmFired: (id: string, firedAtKey: string) => void
-
   // --- session-only: stopwatch ---------------------------------------------
   stopwatch: StopwatchState
   startStopwatch: () => void
@@ -81,134 +67,94 @@ type ClockStore = {
   lapStopwatch: () => void
   resetStopwatch: () => void
 
-  // --- session-only: timer --------------------------------------------------
-  timer: TimerState
-  setTimerDuration: (ms: number) => void
-  startTimer: () => void
-  pauseTimer: () => void
-  resetTimer: () => void
-  /** Called by the notification watcher once the countdown hits zero. */
-  completeTimer: () => void
+  // --- session-only: countdown timers ---------------------------------------
+  timers: TimerEntry[]
+  addTimer: (label: string, durationMs: number) => void
+  removeTimer: (id: string) => void
+  setTimerDuration: (id: string, ms: number) => void
+  setTimerLabel: (id: string, label: string) => void
+  startTimer: (id: string) => void
+  pauseTimer: (id: string) => void
+  resetTimer: (id: string) => void
+  /** Called by the notification watcher once a countdown hits zero. */
+  completeTimer: (id: string) => void
+
+  // --- session-only: ringing alarms -----------------------------------------
+  ringing: RingingAlarm[]
+  ringAlarm: (entry: RingingAlarm) => void
+  clearRinging: (alarmId: number) => void
 }
 
-const newId = (): string =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `c-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
+/** The window opens with one five-minute timer, so the tab is usable at once. */
+const initialTimers = (): TimerEntry[] => [createTimer(newId(), '', DEFAULT_TIMER_MS)]
 
-export const useClockStore = create<ClockStore>()(
-  persist(
-    (set) => ({
-      worldClocks: [],
-      addWorldClock: (label, timeZone) =>
-        set((s) => ({
-          worldClocks: [...s.worldClocks, { id: newId(), label, timeZone }],
-        })),
-      removeWorldClock: (id) =>
-        set((s) => ({ worldClocks: s.worldClocks.filter((w) => w.id !== id) })),
+/** Applies a `timerModel` transition to one timer by id. */
+function mapTimer(
+  timers: TimerEntry[],
+  id: string,
+  fn: (timer: TimerEntry) => TimerEntry
+): TimerEntry[] {
+  return timers.map((t) => (t.id === id ? fn(t) : t))
+}
 
-      alarms: [],
-      addAlarm: (label, time) =>
-        set((s) => ({
-          alarms: [...s.alarms, { id: newId(), label, time, enabled: true, lastFiredAt: null }],
-        })),
-      removeAlarm: (id) => set((s) => ({ alarms: s.alarms.filter((a) => a.id !== id) })),
-      toggleAlarm: (id) =>
-        set((s) => ({
-          alarms: s.alarms.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)),
-        })),
-      markAlarmFired: (id, firedAtKey) =>
-        set((s) => ({
-          alarms: s.alarms.map((a) => (a.id === id ? { ...a, lastFiredAt: firedAtKey } : a)),
-        })),
-
-      stopwatch: initialStopwatch,
-      startStopwatch: () =>
-        set((s) =>
-          s.stopwatch.running
-            ? s
-            : { stopwatch: { ...s.stopwatch, running: true, startedAt: Date.now() } }
-        ),
-      stopStopwatch: () =>
-        set((s) => {
-          if (!s.stopwatch.running || s.stopwatch.startedAt === null) return s
-          return {
-            stopwatch: {
-              ...s.stopwatch,
-              running: false,
-              startedAt: null,
-              accumulatedMs: s.stopwatch.accumulatedMs + (Date.now() - s.stopwatch.startedAt),
-            },
-          }
-        }),
-      lapStopwatch: () =>
-        set((s) => {
-          const { stopwatch } = s
-          const elapsed =
-            stopwatch.accumulatedMs +
-            (stopwatch.running && stopwatch.startedAt !== null
-              ? Date.now() - stopwatch.startedAt
-              : 0)
-          return { stopwatch: { ...stopwatch, laps: [elapsed, ...stopwatch.laps] } }
-        }),
-      resetStopwatch: () => set({ stopwatch: initialStopwatch }),
-
-      timer: initialTimer,
-      setTimerDuration: (ms) =>
-        set((s) =>
-          s.timer.running
-            ? s
-            : { timer: { ...s.timer, durationMs: ms, pausedRemainingMs: ms, fired: false } }
-        ),
-      startTimer: () =>
-        set((s) => {
-          if (s.timer.running) return s
-          const remaining =
-            s.timer.pausedRemainingMs > 0 ? s.timer.pausedRemainingMs : s.timer.durationMs
-          return {
-            timer: {
-              ...s.timer,
-              running: true,
-              fired: false,
-              endAt: Date.now() + remaining,
-              pausedRemainingMs: remaining,
-            },
-          }
-        }),
-      pauseTimer: () =>
-        set((s) => {
-          if (!s.timer.running || s.timer.endAt === null) return s
-          const remaining = Math.max(0, s.timer.endAt - Date.now())
-          return {
-            timer: { ...s.timer, running: false, endAt: null, pausedRemainingMs: remaining },
-          }
-        }),
-      resetTimer: () =>
-        set((s) => ({
-          timer: {
-            ...s.timer,
-            running: false,
-            endAt: null,
-            pausedRemainingMs: s.timer.durationMs,
-            fired: false,
-          },
-        })),
-      completeTimer: () =>
-        set((s) => ({
-          timer: { ...s.timer, running: false, endAt: null, pausedRemainingMs: 0, fired: true },
-        })),
+export const useClockStore = create<ClockStore>()((set) => ({
+  stopwatch: initialStopwatch,
+  startStopwatch: () =>
+    set((s) =>
+      s.stopwatch.running
+        ? s
+        : { stopwatch: { ...s.stopwatch, running: true, startedAt: Date.now() } }
+    ),
+  stopStopwatch: () =>
+    set((s) => {
+      if (!s.stopwatch.running || s.stopwatch.startedAt === null) return s
+      return {
+        stopwatch: {
+          ...s.stopwatch,
+          running: false,
+          startedAt: null,
+          accumulatedMs: s.stopwatch.accumulatedMs + (Date.now() - s.stopwatch.startedAt),
+        },
+      }
     }),
-    {
-      name: 'imbatranimos:clock',
-      // Stopwatch/timer are session-only — never resurrect a running
-      // countdown or stopwatch across a reload.
-      partialize: (state) => ({ worldClocks: state.worldClocks, alarms: state.alarms }),
-    }
-  )
-)
+  lapStopwatch: () =>
+    set((s) => {
+      const { stopwatch } = s
+      const elapsed =
+        stopwatch.accumulatedMs +
+        (stopwatch.running && stopwatch.startedAt !== null ? Date.now() - stopwatch.startedAt : 0)
+      return { stopwatch: { ...stopwatch, laps: [elapsed, ...stopwatch.laps] } }
+    }),
+  resetStopwatch: () => set({ stopwatch: initialStopwatch }),
 
-// Re-exported for callers that just need a fresh Date-based read without
-// subscribing to the whole store (the notification watcher, tab displays).
+  timers: initialTimers(),
+  addTimer: (label, durationMs) =>
+    set((s) =>
+      s.timers.length >= MAX_TIMERS
+        ? s
+        : { timers: [...s.timers, createTimer(newId(), label, durationMs)] }
+    ),
+  removeTimer: (id) => set((s) => ({ timers: s.timers.filter((t) => t.id !== id) })),
+  setTimerDuration: (id, ms) =>
+    set((s) => ({ timers: mapTimer(s.timers, id, (t) => setDuration(t, ms)) })),
+  setTimerLabel: (id, label) =>
+    set((s) => ({ timers: mapTimer(s.timers, id, (t) => ({ ...t, label })) })),
+  startTimer: (id) => set((s) => ({ timers: mapTimer(s.timers, id, (t) => start(t, Date.now())) })),
+  pauseTimer: (id) => set((s) => ({ timers: mapTimer(s.timers, id, (t) => pause(t, Date.now())) })),
+  resetTimer: (id) => set((s) => ({ timers: mapTimer(s.timers, id, reset) })),
+  completeTimer: (id) => set((s) => ({ timers: mapTimer(s.timers, id, complete) })),
+
+  ringing: [],
+  ringAlarm: (entry) =>
+    set((s) =>
+      s.ringing.some((r) => r.alarmId === entry.alarmId) ? s : { ringing: [...s.ringing, entry] }
+    ),
+  clearRinging: (alarmId) =>
+    set((s) => ({ ringing: s.ringing.filter((r) => r.alarmId !== alarmId) })),
+}))
+
+// Re-exported for callers that just need a fresh read without subscribing (the
+// notification watcher).
 export function getClockState() {
   return useClockStore.getState()
 }

@@ -4,16 +4,34 @@ export function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`
 }
 
-/** "HH:MM:SS" from a millisecond duration (clamped to >= 0). */
+/**
+ * "HH:MM:SS" from a *remaining* duration (clamped to >= 0) — the countdown rule.
+ *
+ * `Math.ceil`, deliberately, and this is the opposite of `formatStopwatch` below.
+ * A countdown answers "how long until it fires?", so any non-zero remainder must
+ * still read as at least `00:01`, and `00:00` must mean finished. `Math.round`
+ * broke both ends: a fresh 5:00 timer showed `05:00` for only ~500ms before
+ * flipping to `04:59` (a visibly half-length first second), and at 400ms left it
+ * already read `00:00` while the timer had not fired yet.
+ *
+ * Do not "unify" this with `formatStopwatch` — the asymmetry is the point.
+ */
 export function formatClockDuration(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000))
+  const total = Math.max(0, Math.ceil(ms / 1000))
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60
   return h > 0 ? `${pad2(h)}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`
 }
 
-/** "MM:SS.CC" (centiseconds) — used by the stopwatch for its extra precision. */
+/**
+ * "MM:SS.CC" (centiseconds) — the stopwatch's *elapsed* rule.
+ *
+ * `Math.floor`, deliberately: elapsed time answers "how much has passed?", and
+ * time that has not passed yet must not be shown. So a stopwatch reads `00:00.00`
+ * at the instant it starts, where a countdown reads its full duration. Same
+ * reason `formatClockDuration` ceils; see the note there before merging them.
+ */
 export function formatStopwatch(ms: number): string {
   const clamped = Math.max(0, ms)
   const totalCentis = Math.floor(clamped / 10)

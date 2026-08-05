@@ -2047,3 +2047,82 @@ the must-preserve list and had none.
 
 Tests: frontend vitest **568 → 647** — 79 new in a package that had **zero**, which is worth
 naming: 1123 lines of arithmetic engine had shipped untested.
+
+## 2026-08-05 — Brief 71: Clock, the countdown off-by-one and the storage decision for two apps
+
+[Brief 71](briefs/done/71-clock-timer-off-by-one-and-scheduling.md) done. The first
+brief in this run whose problem list was **accurate in every item**: the `Math.round`
+was exactly where it said, the disclosure it told me not to touch was already there
+and already right, and the storage complaint was correct for the reason it gave. The
+work was to do it, not to correct it.
+
+`Math.round` → `Math.ceil` in `formatClockDuration`, with the comment the brief asked
+for on **both** formatters explaining why they differ — a countdown answers "how long
+until it fires?" so any non-zero remainder reads at least `00:01`; a stopwatch answers
+"how much has passed?" so unelapsed time must not be shown. Sampled from inside the
+page on a 6-second timer: `00:06` for 1036ms, then 983 / 1018 / 993 / 992 / 1013ms,
+and `00:00` first at 6036ms — the instant it fires, not 400ms early.
+
+The brief's verify bar asks to watch a **5-second** timer, which the app could not
+express: presets are whole minutes and the custom box parsed minutes, so `1:00` was
+the floor. `parseDurationInput` now keeps a bare number meaning minutes (what the box
+always meant) and reads a colon form as clock parts — `0:30`, `1:30`, `1:02:03`.
+
+**Found by the probe, in no brief:** pressing Start on that 6-second timer flashed
+`00:08` for 263ms. `useNow` freezes while inactive, so the first render after `active`
+flipped true used a `now` from before the click and `endAt - staleNow` exceeded the
+duration. Fixed twice: a zero-delay catch-up tick beside the interval, and
+`remainingMs` clamped to `durationMs` — a countdown can never have more time left than
+its own length, which is worth asserting in code whoever calls it.
+
+**The storage decision, landed once for Clock and Calendar (brief 72): there is no new
+mechanism.** A typed table per domain plus a NestJS module, exactly as `todos`,
+`sticky_notes` and `bookmarks` already do. A generic key-value blob store was
+considered and rejected — it would accept a malformed alarm time silently, where DTOs
+reject `7:00`, `25:00` and `MTWTF..` at the door. Brief 72 should copy this shape
+rather than invent a second one. Two deliberate choices inside it: rows map to
+**camelCase at the service boundary** (the older modules leak `pos_x` and `created_at`
+into React props; new surface starts clean, old ones keep their shape because changing
+them is a client-visible break for no user gain), and **`lastFiredAt` is opaque to the
+server** — a "07:00" alarm is due by the *viewer's* wall clock, so a server clock
+deciding it would be a second, disagreeing source of truth.
+
+The migration is a `POST /clock/import` that refuses a non-empty table, in a
+transaction, so two tabs opening at once cannot double every alarm. Imported alarms
+get the **every-day** mask because that is what they did before repeat existed;
+importing them as one-shots would quietly change what the user had. Unreadable
+entries are counted and reported rather than dropped. Verified by seeding the exact
+zustand blob the old app wrote: both alarms and the world clock adopted, the legacy
+key removed, two notifications raised, and everything still there after a reload with
+no clock `localStorage` at all.
+
+**Snooze has to live in the window**, because `notify()` raises a toast and there is
+no notification-action API — a Snooze reachable only from the notification centre is
+one the user cannot press. A ringing alarm banners above the tab strip, visible from
+every tab. Snoozing patches `enabled: true` as well as `snoozedUntil`: a one-shot
+alarm has just disabled itself, and without the re-arm the snooze silently never
+arrives. A pending snooze also suppresses the scheduled time, or snoozing at 07:00:10
+rings again at 07:00:11 while the clock still reads 07:00. Waited for a real minute
+boundary to check all of it, including the one-shot disabling itself with
+`lastFiredAt` set and the row reading "Snoozed — rings again at 17:29".
+
+Multiple timers without reintroducing drift: the transitions moved into `timerModel`
+as pure functions taking `now`, one shared interval for the tab, nothing counting
+ticks. Against a genuinely backgrounded tab (a second page brought to the front, so
+Chromium really throttles) the display read `03:49` after 72s away where the wall
+clock said `03:49`.
+
+Two UI facts worth carrying: **core's `Input` forwards `className` to the `<input>`**
+and leaves its own wrapper div intrinsically sized, so sizing the component does
+nothing to its footprint — the width must go on a wrapper you own; and **the spacing
+scale is rem against a 13px root**, so `w-36` is 117px, not 144, which is why the
+original `w-28` (91px) clipped the time field to `:24 PM` in a 12-hour locale.
+
+The core scheduler stays unbuilt, as the brief directs — a closed app has no code
+running and the honest fix is OS-level, so no half-scheduler went into Clock. The
+existing disclosure stays, extended by one sentence now that the alarms genuinely are
+in the container.
+
+Tests: frontend vitest **647 → 701** (54 new in a package that had **zero**), backend
+e2e **46 → 59**, unit unchanged at 208. All 97 turbo tasks green. Zero new
+dependencies.
