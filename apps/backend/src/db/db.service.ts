@@ -157,6 +157,24 @@ export class DbService implements OnModuleInit {
       );
     `);
 
+    // Sticky notes (Brief 74): the desktop surface. pos_x/pos_y already existed
+    // and are reused as the note's position on the desktop — they used to be the
+    // spawn point of a per-note window, which the desktop layer replaces, so no
+    // second pair of coordinate columns was added. on_desktop defaults to 0 so
+    // every existing note stays list-only until the user places it.
+    for (const column of [
+      'width INTEGER NOT NULL DEFAULT 200',
+      'height INTEGER NOT NULL DEFAULT 180',
+      'color TEXT',
+      'on_desktop INTEGER NOT NULL DEFAULT 0',
+    ]) {
+      try {
+        this.db.exec(`ALTER TABLE sticky_notes ADD COLUMN ${column}`);
+      } catch {
+        // column already exists — safe to ignore
+      }
+    }
+
     // Columns added to a table that already shipped. Each is attempted
     // separately, because ALTER TABLE cannot add several at once and one
     // already-exists must not skip the rest.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { DesktopIcon } from './DesktopIcon'
 import { APP_REGISTRY } from '../../registry/registry'
 import { useEnabledApps } from '../../registry/enabledApps'
@@ -47,6 +47,16 @@ export function Desktop({ wallpaper }: DesktopProps) {
   // desktop, so it must not consume a grid cell (it used to, leaving a hole).
   const desktopApps = useMemo(
     () => enabledApps.filter((app) => app.id !== 'settings'),
+    [enabledApps]
+  )
+
+  // Every enabled app that contributes a desktop layer. Keyed by app id so a
+  // roster change cannot remount an unrelated layer.
+  const desktopLayers = useMemo(
+    () =>
+      enabledApps
+        .filter((app) => app.desktopLayer !== undefined)
+        .map((app) => ({ id: app.id, Layer: app.desktopLayer! })),
     [enabledApps]
   )
   // A primitive, not an array: `useEnabledApps()` returns a fresh array on every
@@ -114,6 +124,24 @@ export function Desktop({ wallpaper }: DesktopProps) {
             />
           )
         })}
+      </div>
+
+      {/*
+        Add-on desktop layers (brief 74's sticky notes, and anything later).
+
+        Above the icon grid on purpose: that grid is an `inset-0` div, so anything
+        below it would never receive a click. The wrapper is `pointer-events-none`
+        so the layer cannot swallow clicks meant for the wallpaper or an icon —
+        each layer opts back in on its own elements. Wrapped in Suspense because a
+        layer may be lazy, and mounted for every enabled app whether or not its
+        window is open, which is the whole point of a desktop surface.
+      */}
+      <div className="pointer-events-none absolute inset-0">
+        <Suspense fallback={null}>
+          {desktopLayers.map(({ id, Layer }) => (
+            <Layer key={id} />
+          ))}
+        </Suspense>
       </div>
 
       <WindowContainer />

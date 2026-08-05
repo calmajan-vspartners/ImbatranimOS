@@ -1,13 +1,13 @@
 ---
-summary: The house UI style as enforceable rules, derived from the code 2026-07-31 — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
-updated: 2026-07-31
+summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (sticky-notes citations refreshed 2026-08-05 after brief 74) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
+updated: 2026-08-05
 ---
 
 # ImbatranimOS UI conventions — the house style, as rules
 
 Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic layout, B&W tokens + ONE accent (crimson), dark-first, zero border radius. Implement inside it.
 
-**Copy `apps/add-ons/clock`** — the best-behaved app: pure core kit, correct tokens, honest `minSize`, `notify()` for async events. `file-manager` is the richest but violates §8. `sticky-notes` is inherited and is NOT a template.
+**Copy `apps/add-ons/clock`** — the best-behaved app: pure core kit, correct tokens, honest `minSize`, `notify()` for async events. `file-manager` is the richest but violates §8. `sticky-notes` **was** the inherited counter-example; brief 74 (2026-08-05) rewrote it to the rules below, so it is now safe to read — and it is the only worked example of a **desktop layer** (§47).
 
 ## 1. The import rule
 
@@ -71,20 +71,22 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
 20. **Content must survive a short window.** `apps/core/src/shared/store/windowStore.ts:211` sets `size` from `defaultSize` **verbatim, with no viewport clamp**, and the
     taskbar eats 44px (`windowStore.ts:27`, `taskbar/Taskbar.tsx:11`). Therefore: (a) `defaultSize.height` must fit a 720px-tall viewport with room to spare — ≤620 is safe,
     `code-editor` 680 and `norpdf` 720 are already too tall; (b) `minSize` must be **honest** — the measured smallest height at which every control is still reachable, not a
-    round number, and you must test at exactly `minSize`; (c) never put a control in a `flex-none` block *below* an unbounded `flex-1` block, because the primary action must
+    round number, and you must test at exactly `minSize`; (c) never put a control in a `flex-none` block _below_ an unbounded `flex-1` block, because the primary action must
     survive first — Calculator's keypad is `flex-none` under a `flex-1` display (`BasicPad.tsx:103,115`), which is why `0 . =` vanishes; (d) never rely on window-level
     scrolling to reach a button.
 
 ## 5. Interaction patterns — the one canonical answer each
 
 21. **Confirm** → `useConfirm()`: `const { confirm, confirmDialog } = useConfirm()`, `await confirm({ title, message, destructive: true })`, render `{confirmDialog}`
-    (`ui/ConfirmDialog.tsx:68-114`; use at `sticky-notes/src/StickyNotes.tsx:122-134`). Never a bespoke `<Dialog>` + two buttons; never `window.confirm`.
+    (`ui/ConfirmDialog.tsx:68-114`; use at `sticky-notes/src/StickyNotes.tsx:197,200-207`). Never a bespoke `<Dialog>` + two buttons; never `window.confirm`.
 22. **Text prompt** → `usePrompt()` — resolves the trimmed string or `null`, Enter confirms, empty disables confirm (`ui/PromptDialog.tsx:202-250`; use at
     `notepad/src/components/FileBrowser.tsx:24,147`).
 23. **Toast / error / async completion** → `notify({ title, body?, appId, level })`, level `info|success|warning|error`
     (`apps/core/src/shared/store/notificationStore.ts:122`). Errors are sticky, others auto-dismiss at 6s (`ToastHost.tsx:10,16`). Always pass `appId` so the item gets your
-    icon and click-to-open (`clock/src/useClockNotifications.ts`). A `console.error` is never a user-facing signal (`sticky-notes/src/StickyNotes.tsx:142` fails this). An
-    inline banner is acceptable only for errors bound to the visible view (`FileManager.tsx:430-442`); a toast is the default.
+    icon and click-to-open (`clock/src/useClockNotifications.ts`). A `console.error` is never a user-facing signal. The clean shape for a mutation-heavy app is one private
+    `reportFailure()` wired into every `onError` (`sticky-notes/src/queries/stickyNotesQueries.ts:20-27`, `todo/src/queries/todosQueries.ts`). An inline banner is acceptable
+    only for errors bound to the visible view (`FileManager.tsx:430-442`); a toast is the default. As of brief 74 no add-on ships a console-only failure path — the two
+    remaining `console.error` calls (`pdf-viewer/src/PdfViewer.tsx:81`, `code-editor/src/CodeEditor.tsx:322`) each sit beside a visible banner, which this rule allows.
 24. **Destructive action** → `variant="destructive"` (`ui/Button.tsx:24-27`) **and** `destructive: true` on the confirm. Both, always.
 25. **Empty state** → centred column, one big thin glyph, one 12px line — `<div className="text-on-surface-variant flex flex-col items-center justify-center gap-2 py-12"><Folder size={32} strokeWidth={1} /><span className="font-ui text-[12px]">Empty folder</span></div>` (`file-manager/src/components/FileList.tsx:105-112`; 40/1
     variant at `docs/src/Docs.tsx:146`). Say what is empty; do not apologise.
@@ -115,8 +117,10 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
 
 ## 7. Accessibility floor (minimum, not aspiration)
 
-35. Everything clickable is a real `<button type="button">`, an `<a>`, or a kit component. A `<div onClick>` row is a defect (`sticky-notes/src/StickyNotes.tsx:204-206`). If a
-    row must be a `<tr>`/`<div>`, give it `tabIndex`, a key handler, and a `role`.
+35. Everything clickable is a real `<button type="button">`, an `<a>`, or a kit component. A `<div onClick>` row is a defect — the last one in an add-on list is
+    `system-monitor/src/components/ProcessTable.tsx:141-147` (sortable column headers, keyboard-unreachable). If a row must be a `<tr>`/`<div>`, give it `tabIndex`, a key
+    handler, and a `role`. When a row carries its own controls, make them **siblings** of the row button rather than nesting them inside it
+    (`sticky-notes/src/StickyNotes.tsx:298-354`) — nesting forces a `stopPropagation` on every control and produces `<button>`-in-`<button>` (§42).
 36. Focus must be visible, as a ring not an outline: `outline-none focus-visible:ring-primary focus-visible:ring-2 focus-visible:ring-inset` (`ui/Select.tsx:39`,
     `StartMenu.tsx:117`, `Settings.tsx:106`). `Button` ships it per variant (`ui/Button.tsx:17,21,27`) — do not `className`-override it away.
 37. Icon-only controls need an accessible name: `aria-label` (`ToastHost.tsx:44`, `Settings.tsx:131`) or a `Tooltip`, plus `title` when it is also a mouse affordance
@@ -138,9 +142,11 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
 43. **`useUnsavedGuard` uses the native `window.confirm`** (`hooks/useUnsavedGuard.ts:65`), so the one dialog every editor shows is the only unthemed dialog in the OS;
     `code-editor/src/CodeEditor.tsx:250` repeats the native call directly. Do not add a third — use `useConfirm` in new code.
 44. **`file-manager` hand-rolls what core exports**: a bespoke delete confirm (`FileManager.tsx:569-596`) instead of `useConfirm`, and a custom error banner whose comment at
-    :104 still claims "no toast system here" though `notify()` shipped in brief 34. Copy its *layout* (toolbar / body / status bar), not its dialogs.
-45. **`sticky-notes` is off-style**: `<div onClick>` rows (`StickyNotes.tsx:204-206`), raw `overflow-y-auto` instead of `ScrollArea` (:172), `console.error` as the only
-    failure signal (:142), and a raw `<button>` where a ghost `Button` belongs (:212-219). It does use `useConfirm` (:122) — that part is fine. Not a template.
+    :104 still claims "no toast system here" though `notify()` shipped in brief 34. Copy its _layout_ (toolbar / body / status bar), not its dialogs.
+45. **`sticky-notes` was off-style — fixed by brief 74** (2026-08-05), kept here because the four defects are the ones an inherited app most often has and this is the shape of
+    the fix. It had: `<div onClick>` rows (keyboard-unreachable), a raw `overflow-y-auto` instead of `ScrollArea`, `console.error` as the only failure signal, and a raw
+    `<button>` where a ghost `Button` belongs. Now: rows are real `<button>`s with the controls as **siblings** (`StickyNotes.tsx:298-354`), `ScrollArea` (:261), a private
+    `reportFailure()` on every mutation's `onError` (`queries/stickyNotesQueries.ts:20-27`), and kit `Button`s throughout. `useConfirm` was always right (:197) and stayed.
 46. Literal colour: `norpdf/src/editor/SignatureDialog.tsx:186` (kept deliberately — it previews ink on paper and must match the PDF).
     **The Terminal's `bg-[#0d0d0e]` is fixed** (brief 56): its xterm theme now comes from `--k-surface`/`--k-on-surface`/`--accent` and is
     re-applied on theme or accent change. Note that a light terminal needs its own **ANSI 16** palette too — xterm's dark-tuned defaults are
@@ -148,7 +154,25 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
     `norpdf/src/editor/AnnotateToolbar.tsx:109,157`. `TASKBAR_HEIGHT = 44` is declared twice (`windowStore.ts:27`, `taskbar/Taskbar.tsx:11`) and is not exported to add-ons —
     do not add a third copy; size with `h-full`.
 
-## 9. Pre-flight checklist — all fourteen must be "yes"
+## 9. Painting on the desktop
+
+47. **An app may paint outside its window, and only through `desktopLayer`.** Set `desktopLayer` on your manifest (`contract.ts:41`, added by brief 74) and core mounts it on
+    the desktop with no import of your package — the same seam as `commandSources`. `Desktop.tsx` collects the layers from `useEnabledApps()` and renders each inside one
+    `pointer-events-none absolute inset-0` wrapper with `<Suspense fallback={null}>`, placed **after** the icon container and **before** `WindowContainer`. The three rules that
+    follow from that, all of them load-bearing:
+    - It is mounted **always**, whether or not the app's window is open. Return `null` cheaply when you have nothing to draw; do not poll, and share the app's existing
+      react-query cache rather than opening a second one.
+    - The wrapper is `pointer-events-none`, so the layer never eats a click meant for the wallpaper or an icon. Every interactive element inside opts back in with
+      `pointer-events-auto` on itself (`sticky-notes/src/DesktopNote.tsx:97`) — including any dialog the layer renders (`DesktopNotes.tsx`).
+    - It sits **above** the icon grid (which spans the whole desktop and would otherwise intercept everything) and **below** every window, so windows always win the z-order.
+      Verify that by resolving a point inside an open window with `elementFromPoint`, not by eyeballing it.
+48. **A desktop object needs a way back.** Anything the user can drag must be clamped inside the desktop on commit (`sticky-notes/src/noteGeometry.ts`, which keeps the clamp
+    pure and tested because a note dropped off the edge cannot be recovered by any gesture) — a note dropped past the edge is
+    unreachable after a reload — and must be removable from the desktop without being destroyed. Keep the two verbs distinct and label them so: "take off the desktop (the note
+    is kept)" vs. "delete". Persist a drag or resize **once on release**, never per pointer move, and use `setPointerCapture` so a fast gesture off the element does not drop
+    (`sticky-notes/src/usePointerDrag.ts`).
+
+## 10. Pre-flight checklist — all fourteen must be "yes"
 
 1. Does the add-on import **only** `@imbatranim/core` + `lucide-react` + its declared deps, with no deep path into core?
 2. Did I reuse every applicable core export (`Button`, `Input`, `Select`, `Checkbox`, `Dialog`, `ScrollArea`, `useConfirm`, `usePrompt`, `notify`, `useVirtualList`) instead of

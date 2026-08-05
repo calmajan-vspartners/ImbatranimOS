@@ -2282,3 +2282,58 @@ trusting an FK — which is the right behaviour anyway.
 Tests: frontend vitest **782 → 811** (29 new in a package that had **zero**), backend
 e2e **80 → 101** (21 new), unit unchanged at 208. All 99 turbo tasks green. Zero new
 dependencies.
+
+## 2026-08-05 — Brief 74: Sticky Notes are sticky, and on-style
+
+Two halves, and the first one mattered for the whole repo:
+`wiki/ui-conventions.md` §45 named this file as "NOT a template", and it was still
+the app a newcomer would copy. Rows were `<div onClick>` (unreachable from a
+keyboard), delete was a raw `<button>`, scrolling was a raw `overflow-y-auto`, and
+`console.error` was the only signal a write had failed — three briefs after
+`notify()` shipped. All four are fixed, and the row controls are now **siblings** of
+the row button rather than nested inside it, which also avoids the
+`<button>`-in-`<button>` trap (§42). That was the better answer to the brief's
+suspicion that clicking delete also opened the note: it did **not**
+(`stopPropagation` was already there), and with siblings there is nothing to
+propagate. This was also the last console-only failure path in any add-on.
+
+The second half gave core a new seam. `desktopLayer` went onto **`AppConfig`**, not
+`AddonManifest` — the shell reads `AppConfig[]` from `useEnabledApps()`, so the
+manifest type typechecks in the add-on and fails in core. Core still imports no
+add-on package; it knows only "some app contributed a layer", exactly as it knows
+only "some app contributed a command source". The layer sits **above** the icon grid
+(which spans the whole desktop and would otherwise intercept every click aimed at a
+note) and **below** every window, inside one `pointer-events-none` wrapper that each
+interactive element opts back out of. `ui-conventions.md` §47–48 now carry that
+contract, and §45 was rewritten from a defect list into a fix record.
+
+**The colour decision the brief asked to be grilled: it was already settled one brief
+earlier.** Brief 72 gave Calendar a six-name palette applied as a tinted border plus
+a low-alpha fill, on exactly the reasoning this brief re-raises — enough hue to tell
+two things apart, not enough to read as a saturated block. So this reuses that
+palette and treatment rather than inventing a second scheme. Rejected: saturated
+sticky yellow (off-identity), and the brief's own suggestion of surface-container
+steps alone (on-identity but five near-identical greys, which defeats the only
+organisational affordance a note colour has). The map is duplicated deliberately —
+the rule promotes a shared helper to core on the *third* copy, and this is the
+second.
+
+`pos_x`/`pos_y` were **reused** as the desktop position rather than replaced, so the
+migration moves no data, and existing notes default to list-only: putting a note on
+the desktop is a user action, never a migration's decision. Drag and resize persist
+**once on release** via `setPointerCapture` in about twenty lines rather than a new
+dependency, and the clamp is a pure tested module because it is the one thing here
+that can lose data — a note dropped past the edge is unreachable after a reload.
+
+**Found while probing, in no brief:** the layer mounts the notes query at **page
+load** instead of when the window opens, so the cache now lives for the whole
+session and a stale cache is reachable for the first time (a second tab, or brief
+80's restore). Verified it degrades correctly: a delete on a vanished id 404s, the
+user is told, and the list converges to the server's truth instead of showing a
+phantom row. It also invalidated an assumption in my own probes, which seeded via
+raw `fetch` and then drove the UI — safe when the window mounted the query
+afterwards, wrong now. The probes reload after seeding and say why.
+
+Tests: frontend vitest **811 → 828** (17 new in a package that had zero), backend
+e2e **101 → 115** (14 new), unit unchanged at 208. All **100** turbo tasks green —
+the 100th is this package's new `test` task. Zero new dependencies.

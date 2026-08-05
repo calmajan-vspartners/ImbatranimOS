@@ -1,25 +1,18 @@
 import { api } from '@imbatranim/core'
-import type { StickyNote } from '../types'
+import type { StickyNote, StickyNoteInput, StickyNotePatch } from '../types'
 
 export async function fetchStickyNotes(): Promise<StickyNote[]> {
   const res = await api.get<StickyNote[]>('/sticky-notes')
   return res.data
 }
 
-export async function createStickyNote(data: {
-  content?: string
-  pos_x?: number
-  pos_y?: number
-}): Promise<StickyNote> {
-  const res = await api.post<StickyNote>('/sticky-notes', data)
+export async function createStickyNote(input: StickyNoteInput = {}): Promise<StickyNote> {
+  const res = await api.post<StickyNote>('/sticky-notes', input)
   return res.data
 }
 
-export async function updateStickyNote(
-  id: number,
-  data: Partial<{ content: string; pos_x: number; pos_y: number }>
-): Promise<StickyNote> {
-  const res = await api.patch<StickyNote>(`/sticky-notes/${id}`, data)
+export async function updateStickyNote(id: number, patch: StickyNotePatch): Promise<StickyNote> {
+  const res = await api.patch<StickyNote>(`/sticky-notes/${id}`, patch)
   return res.data
 }
 
