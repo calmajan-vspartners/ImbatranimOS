@@ -1798,3 +1798,77 @@ the first version of that test was exercising a file that had never been created
 fixtures go through multipart `/files/upload`.
 
 Tests: frontend vitest **353 → 389**, backend unchanged at 208 + 46.
+
+## 2026-08-05 — brief 60, Markdown Editor: an authoring tool, not a preview pane
+
+Toolbar, keymap, scroll sync, draggable split, outline rail, images into the real
+filesystem, and lazily-loaded syntax highlighting. Brief moved to
+[done/60-markdown-editor-authoring.md](briefs/done/60-markdown-editor-authoring.md).
+
+**The first brief in this run whose problem list was accurate.** Five apps in a row
+had briefs that misdescribed their own code; this one's six problems were all real.
+What it got wrong was one-directional: it framed images as a missing *input* ("no
+image paste"), and the *output* path was broken too — a document that already
+contained an image at `docs/shot.png` never showed it, because the src went to the
+**web origin** rather than the filesystem. In an OS whose selling point is real files, the
+markdown app could not see them. Two neighbours fell out of the same fix: remote
+images are refused by the shipped CSP with no explanation (now a labelled chip), and
+inline `data:` images rendered as nothing because react-markdown's own sanitizer
+strips the scheme (now permitted for image `src` only, `data:text/html` in an `href`
+still stripped, both pinned by tests).
+
+Not in the brief at all: **links in the preview navigated the whole desktop away.**
+An `<a href>` in there is a live link inside the single-page app hosting the entire
+OS, so clicking one in someone's README replaced the desktop, unsaved buffer
+included. External links now open in a new tab with `noopener` — this page holds an
+authenticated session — `#anchors` scroll the preview's own container (headings
+gained `id` slugs, so a document's table of contents works), and relative links are
+intercepted.
+
+Scroll sync is anchored on **every** block, not the brief's headings-only proposal: a
+checklist or a changelog has no headings and would get no sync at all. The editor
+half is the part nobody plans for — a textarea exposes `scrollTop` and nothing else,
+and `line * lineHeight` is wrong as soon as a line wraps, which in prose is every
+line — so line tops are *measured* with a mirror element, capped at 4000 lines.
+Measured on a 2800px document with one full-width image: anchored sync lands the
+target heading 0px from the top, proportional would be **140px** out. On pure prose
+the two agree, which is precisely how this ships broken.
+
+The toolbar does not go through React state, and that is deliberate: assigning
+`textarea.value` — which a state update does — **clears the element's undo history**,
+so one Bold click would cost the user every undo step they had. Edits apply as a
+selection plus `execCommand('insertText')` over the minimal changed span. Measured:
+Ctrl+Z reverses a toolbar edit and keeps going into the typing before it.
+
+Found in the browser and not in review: **Ctrl+K inserted a link and opened the
+command palette on top of it**, because the shell binds `mod+K` globally on `window`.
+`stopPropagation` at the React root fixes it; the shadowing is now a documented row
+in the shortcut registry, with the same "only while X has focus" note File Manager's
+`mod+H` carries. Headings are on `mod+shift+1..3` because `Ctrl+1..9` is a reserved
+browser accelerator a page cannot cancel, and shifted digits match on `event.code`
+since `Ctrl+Shift+8` arrives as `key: '*'`.
+
+Highlighting adopted with the numbers the brief asked for: the lazy chunk is
+**53.68 kB gzipped** (167.79 kB raw) plus 0.32 kB of CSS, loaded only when a document
+turns out to contain a fence, and the loader costs 0.26 kB in the editor's own chunk.
+Dropping eight of sixteen grammars saved **0.19 kB** — the engine is the entire cost,
+so a shorter list buys nothing and extending it later is nearly free; lowlight's
+`common` (37 grammars) would not be. The theme is hand-written against the OS tokens
+rather than an imported highlight.js stylesheet, which hardcodes a palette that looks
+wrong in half the desktop's themes and contradicts the locked B&W + accent identity:
+comments recede, declarations are bold, literals take the accent.
+
+Two more, unasked: **task checkboxes are clickable** (remark-gfm renders them
+`disabled`, which is right for a static preview and useless in an editor), and
+`md-preview` — a class with no CSS anywhere in the repo — is now load-bearing for
+the anchor lookup and the highlight scope.
+
+An environment note worth keeping: installing a dependency with the **default node22**
+rebuilt `better-sqlite3` against the wrong ABI, and 37 backend tests started failing
+with "Module did not self-register" — nothing to do with the code. `PATH=/opt/node24/bin
+npm rebuild better-sqlite3` restores it. Use node24's npm for installs in this repo.
+
+Tests: frontend vitest **389 → 492** (103 new in a package that had none), backend
+unchanged at 208 unit + 46 e2e, `turbo typecheck lint test format:check build` green
+across 94 tasks. New dependency: `rehype-highlight` (pulling lowlight + highlight.js),
+justified by the measurement above.

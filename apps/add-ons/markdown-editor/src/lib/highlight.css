@@ -1,0 +1,72 @@
+/*
+ * Syntax colours for fenced code in the preview.
+ *
+ * Hand-written instead of importing a highlight.js theme, for two reasons. The shipped
+ * themes hardcode their own palette — a github-dark stylesheet paints the same greys and
+ * purples whichever theme the desktop is in, and looks wrong in half of them. And the
+ * desktop's locked identity is black and white plus one accent (`decisions.md`), so a
+ * six-colour rainbow would be off-style however pretty it is.
+ *
+ * So: structure carries the meaning. Comments recede, declarations are bold, and literals
+ * — the values you actually scan a snippet for — get the accent. Everything resolves
+ * through theme tokens, so both light and dark modes follow automatically.
+ *
+ * Scoped under `.md-preview` so these class names can never leak into the rest of the OS.
+ */
+
+.md-preview .hljs-comment,
+.md-preview .hljs-quote {
+  color: var(--color-on-surface-variant);
+  font-style: italic;
+}
+
+.md-preview .hljs-keyword,
+.md-preview .hljs-selector-tag,
+.md-preview .hljs-literal,
+.md-preview .hljs-doctag,
+.md-preview .hljs-name,
+.md-preview .hljs-section,
+.md-preview .hljs-type {
+  font-weight: 600;
+}
+
+.md-preview .hljs-string,
+.md-preview .hljs-number,
+.md-preview .hljs-regexp,
+.md-preview .hljs-symbol,
+.md-preview .hljs-attr,
+.md-preview .hljs-attribute,
+.md-preview .hljs-meta .hljs-string {
+  color: var(--color-primary);
+}
+
+.md-preview .hljs-title,
+.md-preview .hljs-title.class_,
+.md-preview .hljs-title.function_ {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.md-preview .hljs-meta,
+.md-preview .hljs-punctuation,
+.md-preview .hljs-operator {
+  color: var(--color-on-surface-variant);
+}
+
+.md-preview .hljs-deletion {
+  color: var(--color-error);
+}
+
+.md-preview .hljs-addition {
+  font-weight: 600;
+}
+
+/* Emphasis markers inside a highlighted markdown fence must not restyle the block. */
+.md-preview .hljs-emphasis {
+  font-style: italic;
+}
+
+.md-preview .hljs-strong {
+  font-weight: 700;
+}
