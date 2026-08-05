@@ -1935,3 +1935,63 @@ backend range-streams, with no binary fixtures in the repo.
 
 Tests: frontend vitest **492 → 550** (58 new here, which had 7), backend unchanged at 208 +
 46. All 94 turbo tasks green.
+
+## 2026-08-05 — brief 69, Snipping Tool: say what it can capture, and destroy what it redacts
+
+A launcher instead of an ambush, delay capture, an opaque redaction beside the pixelate one,
+per-region detection of what a DOM raster cannot see, and reopening a saved capture. Brief
+moved to [done/69-snipping-tool-honest-capture.md](briefs/done/69-snipping-tool-honest-capture.md).
+
+**The question the brief asked to have answered — is the Terminal actually captured? — is
+yes.** Measured against ground truth rather than asserted: the browser's own screenshot of a
+rectangle over a text-filled Terminal, versus the tool's capture of the same rectangle. The
+per-row ink profiles correlate **0.986 at a 0px offset**, with total ink 31% vs 39%; that gap
+is subpixel versus grayscale antialiasing, not missing glyphs, and the stacked pair reads
+identically by eye. It is contingent, as the brief suspected: xterm runs its DOM renderer
+here (measured: zero canvases inside `.xterm`) and `@xterm/addon-webgl` would silently
+invert the answer — which is why the new detection looks at what is in the region rather than
+at a list of apps.
+
+Two probe bugs produced a confident wrong answer before that number: opening a Terminal
+window does not focus xterm's textarea (so the first comparison was of two empty prompts),
+and taking the ground-truth screenshot *after* launching the tool put the tool's own window
+inside the rectangle (so the two images were of different desktops, and correlation fell to
+0.5). Both are the same lesson: when a measurement disagrees with the picture, suspect the
+measurement.
+
+**Item 3 was wrong.** "Five annotation tools exist, but not the one with a real purpose" —
+the fifth *was* the redaction tool, pixelate, sampling from the pristine base image. But the
+brief's reasoning survives its own error: it argues for opacity because a blur can be
+reversed, and so can a mosaic — recovering pixelated text is a solved exercise, and the old
+`8×ratio` blocks were squarely in range. So **Black out** (flat, opaque, fixed colour, first
+in the toolbar) now sits beside a much coarser pixelate, and the labels say which is which.
+
+**`getDisplayMedia` is rejected**, which the brief flagged as its one contested call. It
+captures the host browser surface — chrome, other tabs, whatever the user picks in the
+browser's own picker — and the illusion this project rests on is that the tab *is* the
+display; it also needs a permission prompt per capture, which is the same ambush the
+launcher exists to remove. The gap it would close is now *visible* instead: the region is
+scanned for canvas, video and cross-origin images, and the capture carries a dismissible
+banner naming what may be missing. Deliberately "may not" — whether an element survives
+depends on the browser and on how it draws itself.
+
+The hijack is fixed (the app opens to Region / Whole desktop / after 3s / after 5s / Open a
+saved capture, and arms only on a choice), and Escape now returns to that launcher instead of
+closing the app. Half of the brief's complaint there was already false: the overlay has
+always carried a "Drag to select a region · Enter for the whole desktop · Esc to cancel"
+hint. Delay capture's countdown badge is `pointer-events: none` — load-bearing, since the
+whole purpose is photographing things that vanish when clicked — proven three ways, including
+opening a real menu mid-countdown.
+
+The `calc(100vh - 140px)` line was real but not for §16's reason: this stage is a full-screen
+portal, so `100vh` genuinely is its height. The bug is the hardcoded 140px of chrome under a
+**wrapping** toolbar. Now flex-sized; measured at 1280×577 the canvas sits 13px inside its
+stage instead of overflowing.
+
+The redaction check is the brief's verify-bar item, done as a browser measurement rather than
+a unit test: the saved PNG is fetched back off the filesystem, decoded, and the pixel inside
+the redacted rect read out — `[11,11,13]` where it was `[236,236,233]`. A unit test could
+only have checked a canvas mock; this checks the file.
+
+Tests: frontend vitest **550 → 568** (18 new in a package that had none), backend unchanged.
+All 95 turbo tasks green, no dependency added.

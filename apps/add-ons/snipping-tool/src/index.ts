@@ -12,7 +12,8 @@ export const manifest: AddonManifest = {
   component: lazy(() => import('./SnippingTool').then((m) => ({ default: m.SnippingTool }))),
   // Single-instance: only one capture session at a time.
   multiInstance: false,
-  // The window is hidden immediately; size only matters for its store record.
-  defaultSize: { width: 320, height: 120 },
-  minSize: { width: 200, height: 80 },
+  // The window now opens to the capture launcher and stays visible until a mode is armed,
+  // so its size is real UI rather than a placeholder for a record that was never drawn.
+  defaultSize: { width: 380, height: 320 },
+  minSize: { width: 300, height: 260 },
 }
