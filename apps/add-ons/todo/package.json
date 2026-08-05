@@ -12,6 +12,7 @@
   },
   "scripts": {
     "lint": "eslint .",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "format:check": "prettier --check src"
   },

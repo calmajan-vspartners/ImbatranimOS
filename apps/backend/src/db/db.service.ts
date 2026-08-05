@@ -15,7 +15,17 @@ export class DbService implements OnModuleInit {
     this.migrate();
   }
 
-  private migrate() {
+  /**
+   * Create anything missing and repair anything stale.
+   *
+   * Public and **idempotent**: `CREATE TABLE IF NOT EXISTS`, each `ALTER TABLE`
+   * guarded by try/catch, and the position backfill only touching a table that
+   * needs it. Called on boot, and callable again — which is how the migration is
+   * tested without reopening the connection (a `:memory:` database is per
+   * connection, so re-running `onModuleInit` would silently hand back an empty
+   * one).
+   */
+  migrate() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sticky_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,12 +145,77 @@ export class DbService implements OnModuleInit {
       );
     `);
 
-    try {
-      this.db.exec(
-        'ALTER TABLE todos ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
+    // Todo lists (Brief 73): one level deep, deliberately — arbitrary nesting
+    // turns a task list into an outliner. A todo with list_id NULL is unfiled and
+    // shows under "All".
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS todo_lists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
-    } catch {
-      // column already exists — safe to ignore
+    `);
+
+    // Columns added to a table that already shipped. Each is attempted
+    // separately, because ALTER TABLE cannot add several at once and one
+    // already-exists must not skip the rest.
+    for (const column of [
+      'position INTEGER NOT NULL DEFAULT 0',
+      // Brief 73. due_at is epoch ms with local wall-clock meaning, matching
+      // Calendar; NULL means no due date, which is the common case.
+      'due_at INTEGER',
+      'priority INTEGER NOT NULL DEFAULT 0',
+      // No REFERENCES clause: `PRAGMA foreign_keys` is never enabled on this
+      // connection, so one would be decorative. The service deletes a list and
+      // unfiles its todos in one transaction instead.
+      'list_id INTEGER',
+    ]) {
+      try {
+        this.db.exec(`ALTER TABLE todos ADD COLUMN ${column}`);
+      } catch {
+        // column already exists — safe to ignore
+      }
     }
+
+    this.backfillTodoPositions();
+  }
+
+  /**
+   * Give every todo a unique position, ordered by whatever order it has now.
+   *
+   * The `position` column was added to a live table with `DEFAULT 0`, so every
+   * row that predates it shares position 0 — `ORDER BY position` then falls back
+   * to whatever SQLite feels like, and a drag-to-reorder writes 1..N over the top
+   * of ties. This normalises to 1..N by (position, id), so pre-existing todos keep
+   * their insertion order and everything reordered since keeps its order too.
+   *
+   * Runs only when it has something to fix (a zero, or two rows sharing a
+   * position), so a healthy table costs one SELECT at boot.
+   */
+  private backfillTodoPositions() {
+    const check = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                COUNT(DISTINCT position) AS distinct_positions,
+                SUM(CASE WHEN position = 0 THEN 1 ELSE 0 END) AS zeros
+           FROM todos`,
+      )
+      .get() as { total: number; distinct_positions: number; zeros: number };
+
+    if (check.total === 0) return;
+    if (check.zeros === 0 && check.distinct_positions === check.total) return;
+
+    const rows = this.db
+      .prepare('SELECT id FROM todos ORDER BY position ASC, id ASC')
+      .all() as { id: number }[];
+    const update = this.db.prepare(
+      'UPDATE todos SET position = @position WHERE id = @id',
+    );
+    this.db.transaction(() => {
+      rows.forEach((row, index) => {
+        update.run({ position: index + 1, id: row.id });
+      });
+    })();
   }
 }

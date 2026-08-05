@@ -1,250 +1,495 @@
-import { useEffect, useRef, useState } from 'react'
-import { GripVertical, X } from 'lucide-react'
-import { useDrag } from '@use-gesture/react'
-import { cn } from '@imbatranim/core'
-import { ScrollArea } from '@imbatranim/core'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarClock, CheckCheck, ListPlus, Plus, Trash2, X } from 'lucide-react'
+import { ScrollArea, cn, notify, useConfirm, usePrompt } from '@imbatranim/core'
+import { TodoRow } from './TodoRow'
+import { dueAtFromInput, isOverdue } from './due'
+import { SORT_LABELS, SORT_MODES, canReorder, sortTodos } from './sort'
+import { useTodoReminders } from './reminders'
 import {
+  useClearCompletedMutation,
+  useCreateListMutation,
   useCreateTodoMutation,
+  useDeleteListMutation,
   useDeleteTodoMutation,
+  useListsQuery,
   useReorderTodosMutation,
   useTodosQuery,
   useUpdateTodoMutation,
 } from './queries/todosQueries'
-import type { Filter, Todo } from './types'
+import type { Filter, SortMode, Todo as TodoItem } from './types'
 
-const ROW_H = 36
+const FILTERS: Filter[] = ['all', 'active', 'completed']
 
-// ---------------------------------------------------------------------------
-// TodoRow
-// ---------------------------------------------------------------------------
-function TodoRow({
-  todo,
-  index,
-  total,
-  onUpdate,
-  onDelete,
-  onDragEnd,
-}: {
-  todo: Todo
-  index: number
-  total: number
-  onUpdate: (id: number, data: { text?: string; completed?: boolean }) => void
-  onDelete: (id: number) => void
-  onDragEnd: (fromIndex: number, toIndex: number) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(todo.text)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [dragOffset, setDragOffset] = useState(0)
-  const [dragging, setDragging] = useState(false)
-
-  const completed = Boolean(todo.completed)
-
-  const bind = useDrag(
-    ({ movement: [, my], active, last }) => {
-      setDragging(active)
-      setDragOffset(active ? my : 0)
-      if (last) {
-        const toIndex = Math.max(0, Math.min(total - 1, index + Math.round(my / ROW_H)))
-        if (toIndex !== index) onDragEnd(index, toIndex)
-        setDragOffset(0)
-      }
-    },
-    { filterTaps: true }
-  )
-
-  function commitEdit() {
-    const trimmed = draft.trim()
-    if (trimmed && trimmed !== todo.text) onUpdate(todo.id, { text: trimmed })
-    else setDraft(todo.text)
-    setEditing(false)
-  }
-
-  function cancelEdit() {
-    setDraft(todo.text)
-    setEditing(false)
-  }
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus()
-  }, [editing])
-
-  return (
-    <div
-      className={cn(
-        'group border-outline-variant relative flex h-9 items-center gap-1.5 border-b px-2',
-        dragging && 'bg-surface-container-low z-10 opacity-90'
-      )}
-      style={{ transform: dragging ? `translateY(${dragOffset}px)` : undefined }}
-    >
-      {/* Drag handle */}
-      <span
-        {...bind()}
-        className="flex cursor-grab items-center opacity-0 group-hover:opacity-100 active:cursor-grabbing"
-        style={{ touchAction: 'none' }}
-      >
-        <GripVertical size={14} className="text-on-surface-variant" />
-      </span>
-
-      {/* Checkbox */}
-      <button
-        type="button"
-        onClick={() => onUpdate(todo.id, { completed: !completed })}
-        className={cn(
-          'flex h-4 w-4 shrink-0 items-center justify-center border',
-          completed
-            ? 'border-primary-container bg-primary-container'
-            : 'border-outline-variant bg-transparent'
-        )}
-        aria-label={completed ? 'Mark incomplete' : 'Mark complete'}
-      >
-        {completed && (
-          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-            <path
-              d="M1 4L3.5 6.5L9 1"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="square"
-            />
-          </svg>
-        )}
-      </button>
-
-      {/* Text — inline edit */}
-      {editing ? (
-        <input
-          ref={inputRef}
-          className="font-content text-on-surface min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitEdit()
-            if (e.key === 'Escape') cancelEdit()
-          }}
-        />
-      ) : (
-        <span
-          className={cn(
-            'font-content text-on-surface min-w-0 flex-1 cursor-text truncate text-[13px]',
-            completed && 'line-through opacity-50'
-          )}
-          onClick={() => setEditing(true)}
-        >
-          {todo.text}
-        </span>
-      )}
-
-      {/* Delete */}
-      <button
-        type="button"
-        onClick={() => onDelete(todo.id)}
-        className="text-on-surface-variant hover:text-error shrink-0 p-0.5 opacity-0 group-hover:opacity-100"
-        aria-label="Delete task"
-      >
-        <X size={13} />
-      </button>
-    </div>
-  )
+const EMPTY_MESSAGES: Record<Filter, string> = {
+  all: 'No tasks',
+  active: 'Nothing active',
+  completed: 'Nothing completed',
 }
 
-// ---------------------------------------------------------------------------
-// Todo (root export)
-// ---------------------------------------------------------------------------
-export function Todo({ windowId: _windowId }: { windowId: string }) {
-  const [filter, setFilter] = useState<Filter>('all')
-  const [addText, setAddText] = useState('')
-  const { data: serverItems } = useTodosQuery(filter)
-  const [items, setItems] = useState<Todo[]>([])
+/**
+ * How often the relative due labels are refreshed.
+ *
+ * A minute is enough: the labels are "Today", "Tomorrow", "3 days late" and the
+ * occasional `HH:mm`, none of which change faster. Without a tick at all, a window
+ * left open overnight would keep calling yesterday's tasks "Today".
+ */
+const CLOCK_TICK_MS = 60_000
 
-  // Sync local items when server data changes (but not during drag) — state
-  // adjustment during render instead of an effect
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
+    return () => clearInterval(id)
+  }, [])
+  return now
+}
+
+export function Todo({ windowId: _windowId }: { windowId: string }) {
+  useTodoReminders()
+
+  const [filter, setFilter] = useState<Filter>('all')
+  const [listId, setListId] = useState<number | null>(null)
+  const [sort, setSort] = useState<SortMode>('manual')
+  const [addText, setAddText] = useState('')
+  const [addDue, setAddDue] = useState('')
+  const [addDueOpen, setAddDueOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(() => new Set())
+  const [selectMode, setSelectMode] = useState(false)
+  const addInputRef = useRef<HTMLInputElement>(null)
+  const now = useMinuteClock()
+
+  const { confirm, confirmDialog } = useConfirm()
+  const { prompt, promptDialog } = usePrompt()
+
+  const scope = { filter, listId }
+  const { data: serverItems, isPending } = useTodosQuery(scope)
+  const { data: lists } = useListsQuery()
+
+  const createTodo = useCreateTodoMutation()
+  const updateTodo = useUpdateTodoMutation()
+  const deleteTodo = useDeleteTodoMutation()
+  const reorder = useReorderTodosMutation()
+  const clearCompleted = useClearCompletedMutation()
+  const createList = useCreateListMutation()
+  const deleteList = useDeleteListMutation()
+
+  /**
+   * Local order, so a drag moves the row under the cursor instead of waiting for a
+   * round trip. Resynced when the server data changes — state adjustment during
+   * render rather than an effect, which is the house idiom here.
+   */
+  const [items, setItems] = useState<TodoItem[]>([])
   const [prevServerItems, setPrevServerItems] = useState(serverItems)
   if (serverItems !== prevServerItems) {
     setPrevServerItems(serverItems)
     setItems(serverItems ?? [])
   }
 
-  const createMutation = useCreateTodoMutation()
-  const updateMutation = useUpdateTodoMutation()
-  const deleteMutation = useDeleteTodoMutation()
-  const reorderMutation = useReorderTodosMutation()
+  const visible = useMemo(() => sortTodos(items, sort), [items, sort])
+  const reorderable = canReorder(sort)
+  // Only meaningful when the loaded scope can contain completed todos — the Active
+  // tab has never seen them, so counting its rows would always give 0.
+  const knowsCompletedCount = filter !== 'active'
+  const completedCount = items.filter((t) => t.completed).length
+  const overdueCount = items.filter((t) => isOverdue(t, now)).length
 
   function handleDragEnd(fromIndex: number, toIndex: number) {
-    const next = [...items]
+    const next = [...visible]
     const [moved] = next.splice(fromIndex, 1)
     next.splice(toIndex, 0, moved)
     setItems(next)
-    reorderMutation.mutate(next.map((t) => t.id))
+    // The ids of the VISIBLE rows only. The server treats them as a relative
+    // reordering and leaves rows this view filters out exactly where they are — it
+    // used to stamp 1..N across the whole table, which collided with the hidden
+    // rows' positions.
+    reorder.mutate(next.map((t) => t.id))
   }
 
   function handleAdd() {
     const text = addText.trim()
     if (!text) return
+    createTodo.mutate({
+      text,
+      dueAt: addDue ? dueAtFromInput(addDue) : null,
+      // A task added while looking at one list belongs to it — anything else means
+      // typing into a list and watching the task land somewhere else.
+      listId,
+    })
     setAddText('')
-    createMutation.mutate(text)
+    // Keeps the date (several tasks often share a day) and keeps focus, so adding
+    // the next one is just typing.
+    addInputRef.current?.focus()
   }
 
-  const emptyMessages: Record<Filter, string> = {
-    all: 'No tasks',
-    active: 'Nothing active',
-    completed: 'Nothing completed',
+  /**
+   * Clear completed.
+   *
+   * The count is only *known* when the loaded list can contain completed todos —
+   * on the Active tab the client has never seen them. Rather than disabling the
+   * button there (which made it look broken: the action is perfectly well defined,
+   * the client just cannot count), it asks without a number and reports what the
+   * server actually deleted.
+   */
+  async function handleClearCompleted() {
+    if (knowsCompletedCount && completedCount === 0) return
+    const ok = await confirm({
+      title: 'Clear completed',
+      message: knowsCompletedCount
+        ? `Delete ${completedCount} completed task${completedCount === 1 ? '' : 's'}${listId === null ? '' : ' in this list'}? This cannot be undone.`
+        : `Delete every completed task${listId === null ? '' : ' in this list'}? This cannot be undone.`,
+      destructive: true,
+    })
+    if (!ok) return
+    clearCompleted.mutate(listId, {
+      onSuccess: ({ deleted }) => {
+        if (deleted === 0) {
+          notify({
+            title: 'Nothing to clear',
+            body: 'There were no completed tasks here.',
+            appId: 'todo',
+            level: 'info',
+          })
+        } else if (!knowsCompletedCount) {
+          notify({
+            title: 'Completed tasks cleared',
+            body: `${deleted} task${deleted === 1 ? '' : 's'} deleted.`,
+            appId: 'todo',
+            level: 'success',
+          })
+        }
+      },
+    })
   }
 
-  const tabs: Filter[] = ['all', 'active', 'completed']
+  async function handleBulkDelete() {
+    if (selected.size === 0) return
+    const ok = await confirm({
+      title: 'Delete tasks',
+      message: `Delete ${selected.size} selected task${selected.size === 1 ? '' : 's'}? This cannot be undone.`,
+      destructive: true,
+    })
+    if (!ok) return
+    for (const id of selected) deleteTodo.mutate(id)
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+
+  function handleBulkComplete() {
+    for (const id of selected) updateTodo.mutate({ id, patch: { completed: true } })
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+
+  async function handleNewList() {
+    const name = await prompt({
+      title: 'New list',
+      message: 'Tasks can be filed under one list.',
+      placeholder: 'Work',
+      confirmLabel: 'Create',
+    })
+    if (!name?.trim()) return
+    createList.mutate(name.trim(), { onSuccess: (created) => setListId(created.id) })
+  }
+
+  async function handleDeleteList() {
+    const current = lists?.find((l) => l.id === listId)
+    if (!current) return
+    const ok = await confirm({
+      title: 'Delete list',
+      message: `Delete “${current.name}”? Its tasks are kept and become unfiled.`,
+      destructive: true,
+    })
+    if (!ok) return
+    deleteList.mutate(current.id, {
+      onSuccess: (result) => {
+        setListId(null)
+        if (result.unfiled > 0) {
+          notify({
+            title: 'List deleted',
+            body: `${result.unfiled} task${result.unfiled === 1 ? '' : 's'} kept, now unfiled.`,
+            appId: 'todo',
+            level: 'info',
+          })
+        }
+      },
+    })
+  }
+
+  function toggleSelected(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const tab = 'font-ui flex h-full items-center px-2.5 text-[12px] capitalize whitespace-nowrap'
 
   return (
     <div className="bg-surface-container-lowest flex h-full flex-col">
-      {/* Filter tabs */}
-      <div className="border-outline-variant flex h-8 items-center border-b">
-        {tabs.map((tab) => (
+      {/* Lists */}
+      <div className="border-outline-variant flex min-h-8 shrink-0 flex-wrap items-center gap-1 border-b px-1.5 py-1">
+        <button
+          type="button"
+          onClick={() => setListId(null)}
+          className={cn(
+            'font-ui border px-1.5 py-0.5 text-[11px]',
+            listId === null
+              ? 'border-primary bg-primary text-on-primary'
+              : 'border-outline-variant text-on-surface-variant hover:text-on-surface'
+          )}
+        >
+          All
+        </button>
+        {(lists ?? []).map((l) => (
           <button
-            key={tab}
+            key={l.id}
             type="button"
-            onClick={() => setFilter(tab)}
+            onClick={() => setListId(l.id)}
             className={cn(
-              'font-ui text-on-surface-variant flex h-full items-center px-3 text-[12px] capitalize',
-              filter === tab && 'border-primary text-on-surface border-b-2 font-semibold'
+              'font-ui max-w-28 truncate border px-1.5 py-0.5 text-[11px]',
+              listId === l.id
+                ? 'border-primary bg-primary text-on-primary'
+                : 'border-outline-variant text-on-surface-variant hover:text-on-surface'
             )}
           >
-            {tab}
+            {l.name}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => void handleNewList()}
+          aria-label="New list"
+          title="New list"
+          className="text-on-surface-variant hover:text-on-surface p-0.5"
+        >
+          <ListPlus size={13} />
+        </button>
+        {listId !== null && (
+          <button
+            type="button"
+            onClick={() => void handleDeleteList()}
+            aria-label="Delete this list"
+            title="Delete this list (tasks are kept)"
+            className="text-on-surface-variant hover:text-error ml-auto p-0.5"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
       </div>
 
-      {/* Task list */}
-      <ScrollArea className="flex-1">
-        {items.length === 0 ? (
+      {/* Filter + sort */}
+      <div className="border-outline-variant flex h-8 shrink-0 items-center border-b">
+        {FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFilter(f)}
+            className={cn(
+              tab,
+              'text-on-surface-variant',
+              filter === f && 'border-primary text-on-surface border-b-2 font-semibold'
+            )}
+          >
+            {f}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-1 pr-1.5">
+          {overdueCount > 0 && (
+            <span
+              className="border-error text-error font-ui border px-1 text-[10px]"
+              title={`${overdueCount} overdue`}
+            >
+              {overdueCount} late
+            </span>
+          )}
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortMode)}
+            aria-label="Sort order"
+            className="border-outline-variant bg-surface-container-lowest font-ui text-on-surface border px-1 py-0.5 text-[11px] outline-none"
+          >
+            {SORT_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {SORT_LABELS[mode]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Bulk actions */}
+      <div className="border-outline-variant bg-surface-container-low flex min-h-7 shrink-0 flex-wrap items-center gap-1.5 border-b px-1.5 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            setSelectMode((on) => !on)
+            setSelected(new Set())
+          }}
+          aria-pressed={selectMode}
+          className={cn(
+            'font-ui border px-1.5 py-0.5 text-[11px]',
+            selectMode
+              ? 'border-primary bg-primary text-on-primary'
+              : 'border-outline-variant text-on-surface-variant hover:text-on-surface'
+          )}
+        >
+          {selectMode ? 'Done selecting' : 'Select'}
+        </button>
+        {selectMode ? (
+          <>
+            <span className="font-ui text-on-surface-variant text-[11px]">
+              {selected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={handleBulkComplete}
+              disabled={selected.size === 0}
+              className="border-outline-variant text-on-surface font-ui flex items-center gap-1 border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+            >
+              <CheckCheck size={11} />
+              Complete
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBulkDelete()}
+              disabled={selected.size === 0}
+              className="border-outline-variant text-error font-ui flex items-center gap-1 border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+            >
+              <Trash2 size={11} />
+              Delete
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void handleClearCompleted()}
+            disabled={knowsCompletedCount && completedCount === 0}
+            className="border-outline-variant text-on-surface-variant hover:text-on-surface font-ui border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+          >
+            Clear completed{knowsCompletedCount && completedCount > 0 ? ` (${completedCount})` : ''}
+          </button>
+        )}
+        {!reorderable && (
+          <span
+            className="font-ui text-on-surface-variant ml-auto text-[10px]"
+            title="Switch to My order to drag tasks around"
+          >
+            drag needs “{SORT_LABELS.manual}”
+          </span>
+        )}
+      </div>
+
+      {/* The list. min-h-0 so this is the element that shrinks, never the add row. */}
+      <ScrollArea className="min-h-0 flex-1">
+        {isPending ? (
           <div className="font-ui text-on-surface-variant flex h-20 items-center justify-center text-[12px]">
-            {emptyMessages[filter]}
+            Loading…
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="font-ui text-on-surface-variant flex h-20 items-center justify-center text-[12px]">
+            {EMPTY_MESSAGES[filter]}
           </div>
         ) : (
-          items.map((todo, i) => (
+          visible.map((todo, i) => (
             <TodoRow
               key={todo.id}
               todo={todo}
               index={i}
-              total={items.length}
-              onUpdate={(id, data) => updateMutation.mutate({ id, data })}
-              onDelete={(id) => deleteMutation.mutate(id)}
-              onDragEnd={handleDragEnd}
+              total={visible.length}
+              now={now}
+              onDragEnd={reorderable ? handleDragEnd : null}
+              onPatch={(id, patch) => updateTodo.mutate({ id, patch })}
+              onDelete={(id) => deleteTodo.mutate(id)}
+              selection={
+                selectMode ? { selected: selected.has(todo.id), onToggle: toggleSelected } : null
+              }
             />
           ))
         )}
       </ScrollArea>
 
-      {/* Add task input */}
-      <div className="border-outline-variant bg-surface-container-low flex h-9 items-center border-t px-2">
-        <input
-          className="font-content text-on-surface placeholder:text-on-surface-variant min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-          placeholder="Add a task…"
-          value={addText}
-          onChange={(e) => setAddText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleAdd()
-          }}
-        />
+      {/* Add. shrink-0 so a long list can never push it under the taskbar. */}
+      <div className="border-outline-variant bg-surface-container-low shrink-0 border-t">
+        <div className="flex h-9 items-center gap-1 px-2">
+          <input
+            ref={addInputRef}
+            // Focused on open: the brief asks for keyboard-first adding, and this is
+            // the field you always want.
+            autoFocus
+            className="font-content text-on-surface placeholder:text-on-surface-variant min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+            placeholder={
+              listId === null
+                ? 'Add a task…'
+                : `Add to ${lists?.find((l) => l.id === listId)?.name ?? 'list'}…`
+            }
+            value={addText}
+            onChange={(e) => setAddText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAdd()
+              // Escape clears the field rather than blurring, so a half-typed task
+              // can be abandoned without reaching for the mouse.
+              if (e.key === 'Escape') {
+                setAddText('')
+                setAddDue('')
+                setAddDueOpen(false)
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setAddDueOpen((open) => !open)}
+            aria-pressed={addDueOpen}
+            aria-label="Set a due date for new tasks"
+            title="Set a due date for new tasks"
+            className={cn('shrink-0 p-0.5', addDue ? 'text-primary' : 'text-on-surface-variant')}
+          >
+            <CalendarClock size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!addText.trim()}
+            aria-label="Add task"
+            className="text-on-surface-variant hover:text-on-surface shrink-0 p-0.5 disabled:opacity-40"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+        {addDueOpen && (
+          <div className="border-outline-variant flex items-center gap-1.5 border-t px-2 py-1.5">
+            <span className="font-ui text-on-surface-variant text-[10px] tracking-wider uppercase">
+              Due
+            </span>
+            <input
+              type="date"
+              value={addDue}
+              aria-label="Due date for new tasks"
+              onChange={(e) => setAddDue(e.target.value)}
+              className="border-outline-variant bg-surface-container-lowest font-content text-on-surface border px-1.5 py-0.5 text-[12px] outline-none"
+            />
+            {addDue && (
+              <button
+                type="button"
+                onClick={() => setAddDue('')}
+                aria-label="Clear the due date"
+                className="text-on-surface-variant hover:text-error p-0.5"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* The same honest caveat Clock and Calendar carry. */}
+      <div className="border-outline-variant bg-surface-container-low text-on-surface-variant flex h-5 shrink-0 items-center gap-1 border-t px-2 text-[10px]">
+        Due reminders only appear while this window is open.
+      </div>
+
+      {confirmDialog}
+      {promptDialog}
     </div>
   )
 }

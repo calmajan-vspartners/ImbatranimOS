@@ -2201,3 +2201,84 @@ be amber in one and blue in another.
 
 Tests: frontend vitest **701 → 782** (81 new in a package that had **zero**), backend
 e2e **59 → 80**, unit unchanged at 208. All 98 turbo tasks green. Zero new dependencies.
+
+## 2026-08-05 — Brief 73: Todo, and an ordering bug hiding under a wrong problem statement
+
+[Brief 73](briefs/done/73-todo-dates-and-structure.md) done. Due dates, priority, one
+level of lists, bulk actions and keyboard-first adding all landed as specified. Two of
+the six problems were **not what the brief said**, and the one it got half wrong was
+sitting on a real bug it had not noticed.
+
+**"No ordering" is half wrong.** Manual drag-to-reorder has been there all along and
+works end to end — a `useDrag` handle, `PATCH /todos/reorder`, a transaction writing
+`position`, `ORDER BY position ASC`. What was missing is the **priority flag** and
+**sort options**. But the brief's instinct that ordering was unreliable was right for a
+reason it did not give: `reorder(ids)` wrote positions **1..N onto whatever ids it was
+handed**, and the client hands over the *visible* rows. Reordering on the Active tab
+therefore stamped 1..N over the completed rows' positions, two todos ended up sharing
+position 3, and `ORDER BY position` was free to pick either. It looked correct because
+the list being renumbered was exactly the list on screen. `reorder` now treats the ids
+as a **relative** reordering of a subset — normalise to 1..N, find the slots those ids
+occupy, place them into those slots in their new order — so rows the client cannot see
+keep their exact places. Measured with `b`/`d` completed: Active `[a,c]` swapped gives
+`c@1 b@2 a@3 d@4`, positions still unique, surviving a reload.
+
+**The `position` column shipped with `DEFAULT 0`**, so every row predating it tied at
+zero and the reorder above wrote over ties. The migration normalises to 1..N by
+`(position, id)` and runs only when there is something to fix. `DbService.migrate()`
+became public to test that: a `:memory:` database is per *connection*, so re-running
+`onModuleInit` silently hands back an empty one, whereas `migrate()` is idempotent by
+construction and can just be called again.
+
+**Item 5's clipped input measures fine, and I did not prove why.** At 1280×577 with a
+26-row list the add input sits 66px *above* the taskbar. I tried to isolate whether
+this brief's `min-h-0` is what fixed it by stripping the class live, the strip hit a
+nested element inside core's `ScrollArea` (which has its own `overflow-hidden`, so its
+min-content was already zero), and **that experiment proved nothing** — so no cause is
+claimed. Most likely brief 52's clamp, same as Calendar's equivalent item. The
+`minSize` did need changing for a different reason: two new header rows mean 130px of
+measured chrome, which left the old 280×300 with 138px of list, under four rows. Now
+300×340.
+
+**Due dates store the deadline instant, not the day.** A date-only due date is
+`23:59:59.999` of that day, so `isOverdue` is a plain `dueAt < now` — correct across a
+day boundary by construction, with no special case in any caller. The alternative
+(store midnight and remember to treat it as end-of-day) pushes that reasoning into
+every call site, which is where off-by-a-day bugs live: a todo due "today" would read
+as late from 00:01. The cost lands on *display* instead — a `23:59:59.999` value is
+shown as a bare date, so someone deliberately picking 23:59 gets a label off by a
+minute. Cheaper than being off by a day in the comparison, and taken deliberately.
+Overdue uses `error` tokens only; due-today gets a plain emphasis and the two states
+are exclusive.
+
+**Manual order does not float priority.** Priority leads the `due` and `created`
+comparators and is purely a marker in `manual`, because a list that reorders itself
+after you drag it is not a list you can arrange. Dragging is disabled outside manual
+order for the same reason, and the toolbar says so instead of leaving a dead handle.
+
+The module also moved to **camelCase at the service boundary** with `completed` as a
+real boolean — it arrived as `0 | 1` and the frontend type read
+`completed: boolean | number`, which is a type admitting it had a problem. Brief 71
+deliberately left older modules alone, but this brief rewrites both sides in one
+commit and Todo is the only consumer, so the exception is bounded.
+
+**Found while probing, in no brief:** "Clear completed" was a **dead button on the
+Active tab** — its count came from the loaded list, which by definition has no
+completed todos, so it was disabled exactly where a user would reach for it. It now
+asks without a number and reports what the server deleted. Write failures also
+notified nowhere: a rejected PATCH rolled back and the row silently sprang into its
+old state. And a query-key collision caught while writing it — lists under
+`['todos','lists']` would be swept up by `peekTodos`'s `['todos']` prefix and
+flattened into its `Todo[]`.
+
+**Handed to brief 75 (Bookmarks):** `PRAGMA foreign_keys` is never enabled on this
+connection, so `bookmark_links … ON DELETE CASCADE` is decorative, and
+`removeGroup` deletes the group without its links — deleting a bookmark group
+**orphans every link in it**. Not fixed here; enabling the pragma globally would change
+behaviour for a module this brief has no business touching. Todo's own list deletion
+therefore unfiles its todos and deletes the list in one transaction rather than
+trusting an FK — which is the right behaviour anyway.
+
+Tests: frontend vitest **782 → 811** (29 new in a package that had **zero**), backend
+e2e **80 → 101** (21 new), unit unchanged at 208. All 99 turbo tasks green. Zero new
+dependencies.
