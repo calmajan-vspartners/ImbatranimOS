@@ -1995,3 +1995,55 @@ only have checked a canvas mock; this checks the file.
 
 Tests: frontend vitest **550 → 568** (18 new in a package that had none), backend unchanged.
 All 95 turbo tasks green, no dependency added.
+
+## 2026-08-05 — brief 70, Calculator: every key reachable, then worth reaching
+
+Scientific mode on the existing evaluator, memory keys and a tape, a measured `minSize`, and
+full precision through a chained calculation. Brief moved to
+[done/70-calculator-reach-and-depth.md](briefs/done/70-calculator-reach-and-depth.md).
+
+**Item 4 was already done, and was hiding a worse bug.** The brief says `0.1 + 0.2` renders as
+`0.30000000000000004`; `formatResult` had been rounding to 12 significant digits all along, so
+it read `0.3` before this brief started. But the brief's *reasoning* — "keep full precision
+internally" — pointed at a real defect nobody had spotted: only the rounded **string** was
+kept, and the next operation re-parsed it, so `1÷3` then `×3` gave `0.999999999999`. A number
+token now carries an optional `exact` value beside its display text: the expression shows
+`0.333333333333×3` and evaluates to exactly `1`. The display says when it is rounded and a
+copy button hands over `0.30000000000000004`.
+
+**The layout diagnosis in the brief is backwards.** It blames the keypad for losing the flex
+fight, but `flex-1` on the display already meant the display shrinks first and `flex-none` kept
+the keypad at its natural height. What was missing is a floor for the display and, mainly, an
+**honest `minSize`** — the manifest's 280×420 predates Programmer mode and was never measured.
+Scientific is the tallest mode: 276px keypad + 27px memory row + 36px display floor + ~29px
+tabs + ~32px chrome = 400px before the display shows anything, so `minSize` is now 300×430.
+Verified by measuring every key's rect against where the taskbar starts, at 1400×900, at
+1280×577, and at exactly 300×430.
+
+One measurement to pass on: a window **opened** at 1280×577 is fine; a window opened tall and
+then squeezed by shrinking the desktop puts its keypad ~200px below the taskbar. That is brief
+52's own recorded follow-up (reflow-on-resize, and `restoreLayout` not re-clamping), left alone
+deliberately — it belongs to the window manager, not to this app.
+
+Scientific mode extends the **same** tokenizer rather than forking one, so Basic is unchanged
+by construction (its expressions are a strict subset) and the two tabs cannot drift. Three
+details the tests forced out: `^` must be right-associative (`2^3^2` is 512, and the loop that
+was there would have said 64); factorial cannot be folded into the number as it is read,
+because at the closing paren of `(2+2)!` the value does not exist yet — it is a postfix token
+emitted straight to RPN; and function names must be matched before constants, or the `e` in
+`exp` is read as Euler's number. Domain errors explain themselves (`sqrt(-1)` → "sqrt needs a
+value that is not negative") instead of returning NaN, and `=` closes parentheses the user left
+open. **No `eval`, no `new Function`** — grepped as well as read.
+
+Memory and tape are session-scoped and live at the `Calculator` level so they survive a Basic ⇄
+Scientific switch. **Programmer mode takes neither**: BigInt at a fixed 64-bit width, where a
+double from the register would be right in one tab and wrong in another.
+
+Probe lesson: the Programmer check reported "base conversion is broken" and it was not —
+**Programmer mode opens in HEX**, so typing `255` and pressing HEX changes nothing. Diagnosed by
+writing a unit test for `setBase`. That mode now has 9 tests of its own (all four bases and
+back, AND/OR/XOR, shifts, `NOT 0` = `18446744073709551615`, division by zero), because it is on
+the must-preserve list and had none.
+
+Tests: frontend vitest **568 → 647** — 79 new in a package that had **zero**, which is worth
+naming: 1123 lines of arithmetic engine had shipped untested.

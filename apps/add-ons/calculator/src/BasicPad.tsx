@@ -1,4 +1,4 @@
-import { useCallback, useReducer } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Button, cn } from '@imbatranim/core'
 import {
   INITIAL_BASIC_STATE,
@@ -14,6 +14,10 @@ import {
   type OpGlyph,
 } from './engine/basicInput'
 import { useTopWindowKeydown } from './hooks/useTopWindowKeydown'
+import { fullPrecision, isRounded } from './engine/evaluate'
+import { CalcToolbar } from './components/CalcToolbar'
+import { Tape } from './components/Tape'
+import type { CalcSession } from './hooks/useCalcSession'
 
 type Action =
   | { type: 'digit'; digit: string }
@@ -43,9 +47,35 @@ function reducer(state: BasicInputState, action: Action): BasicInputState {
   }
 }
 
-/** Basic mode: `+ − × ÷`, `%`, `±`, decimal, clear/back, precedence-correct `=`. */
-export function BasicPad({ windowId }: { windowId: string }) {
+/**
+ * Basic mode: `+ − × ÷`, `%`, `±`, decimal, clear/back, precedence-correct `=`.
+ *
+ * The keypad is the privileged element in this layout. The display is `flex-1` and shrinks
+ * (with a floor, so it never vanishes); the keys are `flex-none`. That ordering plus an honest
+ * `minSize` is what keeps the bottom row — `0 . =`, the entire point of the app — on screen
+ * at a short window height.
+ */
+export function BasicPad({ windowId, session }: { windowId: string; session: CalcSession }) {
   const [state, dispatch] = useReducer(reducer, INITIAL_BASIC_STATE)
+  const [tapeOpen, setTapeOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  /** `=` also writes the tape entry, using the expression as it was before evaluating. */
+  const equals = useCallback(() => {
+    const expression = displayString(state)
+    const next = evaluateState(state)
+    if (next.resultValue !== null && state.tokens.length > 0) {
+      session.remember(expression, next.resultValue)
+    }
+    dispatch({ type: 'equals' })
+  }, [session, state])
+
+  // The keyboard handler is deliberately deps-free (it is bound once); `equals` changes every
+  // time the expression does, so it is reached through a ref rather than re-binding.
+  const equalsRef = useRef(equals)
+  useEffect(() => {
+    equalsRef.current = equals
+  }, [equals])
 
   const onKey = useCallback((e: KeyboardEvent) => {
     if (e.key >= '0' && e.key <= '9') {
@@ -81,7 +111,7 @@ export function BasicPad({ windowId }: { windowId: string }) {
       case 'Enter':
       case '=':
         e.preventDefault()
-        dispatch({ type: 'equals' })
+        equalsRef.current()
         break
       case 'Backspace':
         e.preventDefault()
@@ -97,20 +127,85 @@ export function BasicPad({ windowId }: { windowId: string }) {
 
   const display = displayString(state)
   const isError = Boolean(state.error)
+  const shown = state.resultValue
+  const copyValue = shown === null ? '' : fullPrecision(shown)
+
+  const copy = useCallback(() => {
+    if (copyValue === '') return
+    void navigator.clipboard?.writeText(copyValue).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1200)
+      },
+      () => undefined
+    )
+  }, [copyValue])
+
+  /** What the memory keys act on: the last result, else the number being typed. */
+  const currentValue = useCallback((): number | null => {
+    if (state.resultValue !== null) return state.resultValue
+    const last = state.tokens[state.tokens.length - 1]
+    if (!last || last.kind !== 'num') return null
+    const value = Number(last.exact ?? last.text)
+    return Number.isFinite(value) ? value : null
+  }, [state.resultValue, state.tokens])
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-outline-variant bg-surface-container-lowest flex flex-1 items-end justify-end overflow-hidden border-b px-3 py-4">
+      <div className="border-outline-variant bg-surface-container-lowest flex min-h-[44px] flex-1 flex-col items-end justify-end overflow-hidden border-b px-3 py-2">
         <span
           className={cn(
-            'font-ui truncate text-3xl font-medium tabular-nums',
+            'font-ui w-full truncate text-right text-3xl font-medium tabular-nums',
             isError ? 'text-error' : 'text-on-surface'
           )}
-          title={display}
+          title={shown !== null && isRounded(shown) ? `Exactly ${copyValue}` : display}
         >
           {display}
         </span>
+        {shown !== null && isRounded(shown) && (
+          <span className="text-on-surface-variant font-ui text-[9px]">rounded · {copyValue}</span>
+        )}
       </div>
+
+      <CalcToolbar
+        memory={session.memory}
+        onMemoryClear={session.clearMemory}
+        onMemoryRecall={() => {
+          if (session.memory === null) return
+          for (const ch of String(session.memory)) {
+            if (ch === '-') dispatch({ type: 'sign' })
+            else dispatch({ type: 'digit', digit: ch })
+          }
+        }}
+        onMemoryAdd={() => {
+          const value = currentValue()
+          if (value !== null) session.addToMemory(value)
+        }}
+        onMemorySubtract={() => {
+          const value = currentValue()
+          if (value !== null) session.subtractFromMemory(value)
+        }}
+        tapeOpen={tapeOpen}
+        onToggleTape={() => setTapeOpen((open) => !open)}
+        onCopy={copy}
+        copied={copied}
+        copyTitle={copyValue}
+        copyEnabled={copyValue !== ''}
+      />
+
+      {tapeOpen && (
+        <Tape
+          entries={session.tape}
+          onClear={session.clearTape}
+          onReuse={(_value, display2) => {
+            dispatch({ type: 'clear' })
+            for (const ch of display2) {
+              if (ch === '-') dispatch({ type: 'sign' })
+              else dispatch({ type: 'digit', digit: ch })
+            }
+          }}
+        />
+      )}
 
       <div className="bg-surface-container-low grid flex-none grid-cols-4 gap-1 p-2">
         <Button className="w-full" onClick={() => dispatch({ type: 'clear' })}>
@@ -178,7 +273,7 @@ export function BasicPad({ windowId }: { windowId: string }) {
         <Button className="w-full" onClick={() => dispatch({ type: 'digit', digit: '.' })}>
           .
         </Button>
-        <Button variant="primary" className="w-full" onClick={() => dispatch({ type: 'equals' })}>
+        <Button variant="primary" className="w-full" onClick={equals}>
           =
         </Button>
       </div>

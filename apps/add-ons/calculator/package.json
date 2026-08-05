@@ -11,9 +11,10 @@
     }
   },
   "scripts": {
+    "format:check": "prettier --check src",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "format:check": "prettier --check src"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@imbatranim/core": "*",
