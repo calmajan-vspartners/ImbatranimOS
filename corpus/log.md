@@ -2126,3 +2126,78 @@ in the container.
 Tests: frontend vitest **647 → 701** (54 new in a package that had **zero**), backend
 e2e **46 → 59**, unit unchanged at 208. All 97 turbo tasks green. Zero new
 dependencies.
+
+## 2026-08-05 — Brief 72: Calendar, the storage mechanism reused and recurrence that stays a rule
+
+[Brief 72](briefs/done/72-calendar-storage-and-recurrence.md) done. The storage
+complaint and the recurrence gap were exactly right; two smaller items were not — one
+was **already implemented**, and another had been **fixed by a different brief** since
+this one was written.
+
+**Storage reuses brief 71's shape on purpose.** A `calendar_events` table, camelCase at
+the service boundary, class-validator DTOs, global `SessionAuthGuard` (the e2e asserts
+401 on all five routes). Fifth app to persist here, nothing invented: the DTOs reject
+`FREQ=HOURLY`, `interval: 0`, a `2026-7-6` exception date and an off-palette colour at
+the door, which is the whole argument against the generic blob store that brief 71
+already rejected. `POST /calendar/import` serves both the one-time `localStorage`
+hand-over and ICS import, differing only by an `onlyIfEmpty` flag.
+
+**`reminderFired` is deliberately not migrated.** It was a persisted boolean per event
+and that model cannot survive recurrence — the first ring would silence every later
+occurrence of the series forever. The guard is now `eventId:YYYY-MM-DD` in a
+session-scoped Set; `FIRE_WINDOW_MS` already prevents replaying old triggers, so
+persistence would only add silence for a reminder that is still due.
+
+**Recurrence stays a rule.** No library, `dayjs` remains the only date dependency, and
+instances are never materialised — a weekly standup is one row and the views ask for the
+occurrences in the window they paint. Two behaviours that look identical and are not,
+both now pinned: a month too short to hold the date (Feb for a "31st" rule) generates
+nothing and therefore **consumes no `count`**, while an instance removed by an
+**exception does** consume its index and its count. My first test asserted the opposite
+of the former; the implementation was right and the test was wrong. Jan 31 also does not
+slide to Feb 28 — sliding invents an occurrence on a date the user never picked.
+
+**The three edit scopes are pure plans** (`seriesEdit.ts` returns patch/create/delete
+rather than mutating), which is what made the subtle case obvious: "all events" must
+apply the change as a **delta**, so editing the third Monday to 10:00 moves the series to
+10:00 *on its own original date*. Setting the series start to the edited occurrence is
+the obvious implementation and it silently deletes every earlier occurrence. "This
+event" detaches (exception + standalone event, no override table). "This and following"
+splits, dividing a `count` — 10 split at the third leaves head-ends-on-a-date and
+tail=8, still ten in total — and collapses to "all" at the first occurrence, because
+truncating a series to end before its own start leaves an empty series behind. A test
+expands both halves and asserts they cover the original dates exactly once each.
+
+**ICS refuses to pretend.** All-day `DTEND` is written exclusive as the spec requires
+(the classic off-by-one), times are floating local with no `TZID`, and an RRULE outside
+the subset — `FREQ=MONTHLY;BYDAY=-1FR` — imports as a single event and increments a
+counter rather than becoming "monthly on the 26th", which would be wrong every month
+with no way to notice. Round-tripped through the real filesystem via the OS save/open
+dialogs.
+
+**Two brief items that were not what the brief said.** "No all-day events" is wrong —
+`allDay` was in the type, the dialog and both views since Wave C. The real gap was
+multi-day **rendering**: both views filtered on `isSame(event.start, day)`, so a
+three-day trip was visible on its first day and invisible on the other two (measured: 1
+cell, now 4). And "the bottom row clips at 1280×577" was **already fixed by brief 52's
+window clamp** — measured at that viewport, the window is clamped to 533px and the last
+row's bottom is 513 against a taskbar top of 533. The `minSize` was still dishonest
+though, for a different reason: the grid compresses rather than overflows, so the
+question is not "does it fit" but "does it still say anything", and at 480×380 a week row
+is **25px** — the date number and nothing else, six times over. Below 520px wide the
+toolbar also wraps and eats 31px of grid. Now 520×400, where a row is 46px.
+
+**Found while probing, in no brief.** A midnight-crossing timed event was drawn as an
+all-day banner, turning a 22:00→02:00 night shift into a two-day bar with no times; the
+banner is now all-day only and timed events clip per day (measured as two blocks,
+`top:1056 h:96` and `top:0 h:96`). And unticking "All day" on a month-cell creation left
+a midnight-to-midnight 24-hour block — it now snaps to 09:00–10:00, unless the event
+spans more than one day.
+
+Also delivered: an **Agenda view** (the more useful reading of "day or agenda" — a day
+view is a week view with one column) which is the only place **search** is meaningful,
+and a six-colour palette shared by all three views through one module so an event cannot
+be amber in one and blue in another.
+
+Tests: frontend vitest **701 → 782** (81 new in a package that had **zero**), backend
+e2e **59 → 80**, unit unchanged at 208. All 98 turbo tasks green. Zero new dependencies.

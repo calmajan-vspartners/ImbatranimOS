@@ -1,18 +1,30 @@
 import dayjs, { type Dayjs } from 'dayjs'
 import { cn } from '@imbatranim/core'
 import { WEEKDAY_LABELS, buildMonthGrid } from '../dateUtils'
-import type { CalendarEvent } from '../types'
+import { occurrencesOnDay } from '../recurrence'
+import { compareForDay, eventColorClass, occurrenceLabel } from '../eventStyle'
+import type { Occurrence } from '../recurrence'
 
 const MAX_VISIBLE_EVENTS = 3
 
 type MonthViewProps = {
   anchor: Dayjs
-  events: CalendarEvent[]
+  /** Already expanded for the visible range by the parent. */
+  occurrences: Occurrence[]
   onCreate: (start: number, end: number, allDay: boolean) => void
-  onEdit: (event: CalendarEvent) => void
+  onOpen: (occurrence: Occurrence) => void
 }
 
-export function MonthView({ anchor, events, onCreate, onEdit }: MonthViewProps) {
+/**
+ * The month grid.
+ *
+ * Two things changed with brief 72. It renders **occurrences**, not events, so a
+ * recurring event appears on every day it falls on; and a day cell shows every
+ * occurrence that *overlaps* it rather than only those that start on it — a
+ * three-day trip used to be visible on its first day and invisible on the other
+ * two, which made multi-day events look like data loss.
+ */
+export function MonthView({ anchor, occurrences, onCreate, onOpen }: MonthViewProps) {
   const weeks = buildMonthGrid(anchor)
   const today = dayjs()
 
@@ -38,16 +50,15 @@ export function MonthView({ anchor, events, onCreate, onEdit }: MonthViewProps) 
             {week.map((day) => {
               const inMonth = day.month() === anchor.month()
               const isToday = day.isSame(today, 'day')
-              const dayEvents = events
-                .filter((event) => dayjs(event.start).isSame(day, 'day'))
-                .sort((a, b) => a.start - b.start)
-              const overflow = dayEvents.length - MAX_VISIBLE_EVENTS
+              const dayOccurrences = occurrencesOnDay(occurrences, day).sort(compareForDay)
+              const overflow = dayOccurrences.length - MAX_VISIBLE_EVENTS
 
               return (
                 <div
                   key={day.valueOf()}
                   role="button"
                   tabIndex={0}
+                  aria-label={`Add an event on ${day.format('MMMM D, YYYY')}`}
                   onClick={() =>
                     onCreate(day.startOf('day').valueOf(), day.endOf('day').valueOf(), true)
                   }
@@ -71,25 +82,30 @@ export function MonthView({ anchor, events, onCreate, onEdit }: MonthViewProps) 
                   </span>
 
                   <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden">
-                    {dayEvents.slice(0, MAX_VISIBLE_EVENTS).map((event) => (
+                    {dayOccurrences.slice(0, MAX_VISIBLE_EVENTS).map((occurrence) => (
                       <span
-                        key={event.id}
+                        // Key on the occurrence, not the event: a recurring event
+                        // has many instances and they are not interchangeable.
+                        key={`${occurrence.event.id}-${occurrence.occurrenceDate}`}
                         role="button"
                         tabIndex={0}
+                        title={occurrence.event.title}
                         onClick={(e) => {
                           e.stopPropagation()
-                          onEdit(event)
+                          onOpen(occurrence)
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.stopPropagation()
-                            onEdit(event)
+                            onOpen(occurrence)
                           }
                         }}
-                        className="border-primary bg-surface-container-high text-on-surface w-full truncate border-l-2 px-1 py-px text-[10px]"
+                        className={cn(
+                          'text-on-surface w-full truncate border-l-2 px-1 py-px text-[10px]',
+                          eventColorClass(occurrence.event.color)
+                        )}
                       >
-                        {!event.allDay && dayjs(event.start).format('HH:mm ')}
-                        {event.title}
+                        {occurrenceLabel(occurrence, day)}
                       </span>
                     ))}
                     {overflow > 0 && (

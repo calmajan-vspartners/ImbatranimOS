@@ -7,28 +7,62 @@ import {
   formatHourLabel,
   minutesSinceMidnight,
 } from '../dateUtils'
-import type { CalendarEvent } from '../types'
+import { occurrencesOnDay } from '../recurrence'
+import { eventColorClass } from '../eventStyle'
+import type { Occurrence } from '../recurrence'
 
 const GUTTER_WIDTH = 48
 const MIN_EVENT_HEIGHT = 18
 
 type WeekViewProps = {
   anchor: Dayjs
-  events: CalendarEvent[]
+  occurrences: Occurrence[]
   onCreate: (start: number, end: number, allDay: boolean) => void
-  onEdit: (event: CalendarEvent) => void
+  onOpen: (occurrence: Occurrence) => void
 }
 
-export function WeekView({ anchor, events, onCreate, onEdit }: WeekViewProps) {
+/**
+ * The week grid.
+ *
+ * Brief 72 split it in two, which is what a week view has to be:
+ *
+ * - An **all-day row** above the time grid, where all-day events sit and span the
+ *   columns they cover. Before this they were pinned to midnight of their start day
+ *   inside the timed grid, so a three-day trip was an 18px block on one day and
+ *   nothing on the other two.
+ * - The **time grid** holds only timed events, clipped per day. An event from 22:00
+ *   to 02:00 draws 22:00–24:00 in one column and 00:00–02:00 in the next, instead
+ *   of a block running off the bottom of a single day.
+ */
+export function WeekView({ anchor, occurrences, onCreate, onOpen }: WeekViewProps) {
   const days = buildWeekDays(anchor)
   const today = dayjs()
   const columnHeight = HOURS.length * HOUR_HEIGHT
+  const weekStart = days[0].startOf('day')
+  const weekEnd = days[6].endOf('day')
+
+  /**
+   * The banner row is for **all-day** events only, single- or multi-day.
+   *
+   * A timed event that happens to cross midnight (22:00 → 02:00) stays in the grid
+   * and is clipped per day, because a banner would throw away the only interesting
+   * thing about it — when it starts and ends. Measured: routing it to the banner
+   * turned a four-hour night shift into a two-day bar with no times on it.
+   */
+  const banners = occurrences
+    .filter((o) => o.event.allDay)
+    .filter((o) => o.start <= weekEnd.valueOf() && o.end >= weekStart.valueOf())
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+
+  const timed = occurrences.filter((o) => !o.event.allDay)
+
+  const gridColumns = `${GUTTER_WIDTH}px repeat(7, 1fr)`
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div
         className="border-outline-variant grid border-b"
-        style={{ gridTemplateColumns: `${GUTTER_WIDTH}px repeat(7, 1fr)` }}
+        style={{ gridTemplateColumns: gridColumns }}
       >
         <div />
         {days.map((day) => {
@@ -54,8 +88,65 @@ export function WeekView({ anchor, events, onCreate, onEdit }: WeekViewProps) {
         })}
       </div>
 
+      {banners.length > 0 && (
+        <div
+          className="border-outline-variant bg-surface-container-lowest grid shrink-0 border-b"
+          style={{ gridTemplateColumns: gridColumns }}
+        >
+          <div className="text-on-surface-variant flex items-start justify-end pt-1 pr-1 text-[9px] uppercase">
+            All day
+          </div>
+          {/* One cell spanning all seven columns, with each banner absolutely
+              positioned across the days it covers — a grid row per banner would
+              force every event onto its own line and eat the time grid. */}
+          <div className="relative col-span-7" style={{ height: banners.length * 20 + 4 }}>
+            {banners.map((occurrence, i) => {
+              // Clamp to the visible week so an event that started last month
+              // begins at the left edge instead of off-screen.
+              const firstDay = Math.max(
+                0,
+                dayjs(occurrence.start).startOf('day').diff(weekStart, 'day')
+              )
+              const lastDay = Math.min(
+                6,
+                dayjs(occurrence.end).startOf('day').diff(weekStart, 'day')
+              )
+              const span = Math.max(1, lastDay - firstDay + 1)
+              const continuesBefore = occurrence.start < weekStart.valueOf()
+              const continuesAfter = occurrence.end > weekEnd.valueOf()
+
+              return (
+                <div
+                  key={`${occurrence.event.id}-${occurrence.occurrenceDate}`}
+                  role="button"
+                  tabIndex={0}
+                  title={occurrence.event.title}
+                  onClick={() => onOpen(occurrence)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') onOpen(occurrence)
+                  }}
+                  className={cn(
+                    'text-on-surface absolute truncate border-l-2 px-1 text-[10px] leading-[18px]',
+                    eventColorClass(occurrence.event.color)
+                  )}
+                  style={{
+                    top: i * 20 + 2,
+                    left: `calc(${(firstDay / 7) * 100}% + 2px)`,
+                    width: `calc(${(span / 7) * 100}% - 4px)`,
+                  }}
+                >
+                  {continuesBefore && '← '}
+                  {occurrence.event.title}
+                  {continuesAfter && ' →'}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <ScrollArea className="flex-1">
-        <div className="grid" style={{ gridTemplateColumns: `${GUTTER_WIDTH}px repeat(7, 1fr)` }}>
+        <div className="grid" style={{ gridTemplateColumns: gridColumns }}>
           <div className="flex flex-col">
             {HOURS.map((hour) => (
               <div
@@ -69,7 +160,8 @@ export function WeekView({ anchor, events, onCreate, onEdit }: WeekViewProps) {
           </div>
 
           {days.map((day) => {
-            const dayEvents = events.filter((event) => dayjs(event.start).isSame(day, 'day'))
+            const dayStart = day.startOf('day')
+            const dayOccurrences = occurrencesOnDay(timed, day)
 
             return (
               <div
@@ -82,6 +174,7 @@ export function WeekView({ anchor, events, onCreate, onEdit }: WeekViewProps) {
                     key={hour}
                     role="button"
                     tabIndex={0}
+                    aria-label={`Add an event at ${formatHourLabel(hour)} on ${day.format('MMMM D')}`}
                     onClick={() => {
                       const start = day.hour(hour).minute(0).second(0).millisecond(0)
                       onCreate(start.valueOf(), start.add(1, 'hour').valueOf(), false)
@@ -96,39 +189,40 @@ export function WeekView({ anchor, events, onCreate, onEdit }: WeekViewProps) {
                   />
                 ))}
 
-                {dayEvents.map((event) => {
-                  const top = event.allDay
-                    ? 0
-                    : (minutesSinceMidnight(event.start) / 60) * HOUR_HEIGHT
-                  const durationMin = Math.max((event.end - event.start) / 60_000, 15)
-                  const height = event.allDay
-                    ? MIN_EVENT_HEIGHT
-                    : Math.max((durationMin / 60) * HOUR_HEIGHT, MIN_EVENT_HEIGHT)
+                {dayOccurrences.map((occurrence) => {
+                  // Clip to this day, so a block never runs past midnight.
+                  const visibleStart = Math.max(occurrence.start, dayStart.valueOf())
+                  const visibleEnd = Math.min(occurrence.end, day.endOf('day').valueOf())
+                  const top = (minutesSinceMidnight(visibleStart) / 60) * HOUR_HEIGHT
+                  const durationMin = Math.max((visibleEnd - visibleStart) / 60_000, 15)
+                  const height = Math.max((durationMin / 60) * HOUR_HEIGHT, MIN_EVENT_HEIGHT)
 
                   return (
                     <div
-                      key={event.id}
+                      key={`${occurrence.event.id}-${occurrence.occurrenceDate}`}
                       role="button"
                       tabIndex={0}
+                      title={occurrence.event.title}
                       onClick={(e) => {
                         e.stopPropagation()
-                        onEdit(event)
+                        onOpen(occurrence)
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.stopPropagation()
-                          onEdit(event)
+                          onOpen(occurrence)
                         }
                       }}
-                      className="border-primary bg-surface-container-high text-on-surface absolute inset-x-0.5 z-10 cursor-pointer overflow-hidden border-l-2 px-1 py-px text-[10px]"
+                      className={cn(
+                        'text-on-surface absolute inset-x-0.5 z-10 cursor-pointer overflow-hidden border-l-2 px-1 py-px text-[10px]',
+                        eventColorClass(occurrence.event.color)
+                      )}
                       style={{ top, height }}
                     >
-                      <span className="font-semibold">{event.title}</span>
-                      {!event.allDay && (
-                        <span className="text-on-surface-variant ml-1">
-                          {dayjs(event.start).format('HH:mm')}
-                        </span>
-                      )}
+                      <span className="font-semibold">{occurrence.event.title}</span>
+                      <span className="text-on-surface-variant ml-1">
+                        {dayjs(occurrence.start).format('HH:mm')}
+                      </span>
                     </div>
                   )
                 })}

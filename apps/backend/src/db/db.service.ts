@@ -77,6 +77,36 @@ export class DbService implements OnModuleInit {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- Calendar (Brief 72): events moved out of the viewing browser's
+      -- localStorage, sharing Clock's shape. Recurrence is stored as a RULE, not
+      -- as materialised instances -- a weekly standup is one row, and the client
+      -- expands only the range it is painting. rrule_* are all NULL for a
+      -- one-off. rrule_by_weekday is a comma-joined Sunday-first index list
+      -- ("1,3,5"); exceptions is comma-joined YYYY-MM-DD start days that were
+      -- deleted or detached from the series. Times are epoch ms with local
+      -- wall-clock meaning; there is deliberately no timezone column.
+      CREATE TABLE IF NOT EXISTS calendar_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        start_ms INTEGER NOT NULL,
+        end_ms INTEGER NOT NULL,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
+        color TEXT,
+        reminder_minutes INTEGER,
+        rrule_freq TEXT,
+        rrule_interval INTEGER,
+        rrule_by_weekday TEXT,
+        rrule_until TEXT,
+        rrule_count INTEGER,
+        exceptions TEXT NOT NULL DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_start
+        ON calendar_events(start_ms);
+
       CREATE TABLE IF NOT EXISTS recent_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT NOT NULL UNIQUE,
