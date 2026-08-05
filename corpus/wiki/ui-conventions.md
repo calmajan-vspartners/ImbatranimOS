@@ -1,5 +1,5 @@
 ---
-summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (sticky-notes citations refreshed 2026-08-05 after brief 74) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
+summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (refreshed 2026-08-05 for briefs 74-75: sticky-notes citations, the desktop-layer contract, the Select-label fix, the secondary token aliases) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
 updated: 2026-08-05
 ---
 
@@ -30,7 +30,9 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
 5. Only semantic token classes. Real names, `apps/core/src/index.css:15-58` — surfaces `surface`, `surface-dim`, `surface-bright`,
    `surface-container-lowest`/`-low`/`surface-container`/`-high`/`-highest`; text `on-surface` (primary), `on-surface-variant` (muted), `inverse-surface`/`inverse-on-surface`
    (tooltips); borders `outline-variant` (default hairline) and `outline` (stronger); accent `primary` + `on-primary`, `primary-container` + `on-primary-container`; `error`,
-   `on-error`, `error-container`, `on-error-container`. As utilities: `bg-surface-container-low`, `text-on-surface-variant`, `border-outline-variant`, `bg-primary text-on-primary`.
+   `on-error`, `error-container`, `on-error-container`; and `secondary` / `on-secondary` / `secondary-container` / `on-secondary-container`, which are **aliases** of
+   on-surface-variant / surface / surface-container-high / on-surface (`index.css:45-48`) — real classes, but prefer the surface names, because `text-secondary` reads like a
+   second accent and there isn't one. As utilities: `bg-surface-container-low`, `text-on-surface-variant`, `border-outline-variant`, `bg-primary text-on-primary`.
 6. **The accent is a runtime CSS var, never a literal.** `--accent`/`--accent-on` are stamped on `<html>` by `applyAppearance()`
    (`apps/core/src/shared/store/appearanceStore.ts:53-55`), and `--color-primary` maps to `var(--accent)` (`index.css:37`). So `bg-primary` tracks the user's accent choice; a
    hex does not. Four presets (`appearanceStore.ts:20-25`), crimson default (:27).
@@ -103,7 +105,10 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
 30. **File/save spine**, in this order (`markdown-editor/src/MarkdownEditor.tsx:25-99`): `const source = useOpenIntent(windowId)` → `const name = source ? fileName(source.path, 'untitled.md') : ''` → `await fetchFileBytes(source.root, source.path)` → `await uploadFileBytes(source.root, source.path, out, name)` (catch
     `UploadTooLargeError`) → `useSaveHotkey(windowId, handleSave)` + `useUnsavedGuard(windowId, dirty, name)`. `downloadUrl()` is unauthed by design, only for a real `<a download>` (`lib/fileBytes.ts:75`); every in-app byte read goes through `fetchFileBytes` (:21). Per-window state → `createOpenedFileStore()`. Cross-app handoff →
     `openApp(appId, { openPath, root })` (`FileManager.tsx:159`).
-31. **Form** → `Input` with the `label` prop (renders the house label and wires `htmlFor` to your `id`; `ui/Input.tsx:9-19`); `Select` with `options={[{value,label}]} value onValueChange placeholder` (`clock/src/tabs/ClockTab.tsx:23-29`); `Checkbox` with `label`. Actions right-aligned in `<div className="flex justify-end gap-2">`, Cancel
+31. **Form** → `Input` with the `label` prop (renders the house label and wires `htmlFor` to your `id`; `ui/Input.tsx:9-19`); `Select` with `options={[{value,label}]} value onValueChange placeholder` (`clock/src/tabs/ClockTab.tsx:23-29`); `Checkbox` with `label`. **`Select` now shows the option's `label` on its trigger** — until brief 75 it
+    rendered the raw `value`, because base-ui can only look a label up when `Select.Root` is given an `items` map, so every Select whose value differed from its label (an id,
+    a minute offset, a timezone) displayed the value. Fixed once in `ui/Select.tsx` for all callers; the lookup is by `String(value)`, so a numeric `value` still resolves.
+    Actions right-aligned in `<div className="flex justify-end gap-2">`, Cancel
     `variant="default"` first, then primary/destructive, disabled while invalid or pending (`FileManager.tsx:553-565`).
 
 ## 6. Icons

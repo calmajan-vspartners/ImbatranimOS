@@ -13,6 +13,8 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { CreateLinkDto } from './dto/create-link.dto';
 import { UpdateLinkDto } from './dto/update-link.dto';
+import { ImportBookmarksDto } from './dto/import-bookmarks.dto';
+import { ReorderDto } from './dto/reorder.dto';
 
 @Controller('bookmarks')
 export class BookmarksController {
@@ -57,5 +59,24 @@ export class BookmarksController {
   @Delete('links/:id')
   deleteLink(@Param('id', ParseIntPipe) id: number) {
     return this.bookmarksService.deleteLink(id);
+  }
+
+  // POST rather than PATCH for the reorders: they carry a whole sibling list, and a
+  // literal path segment cannot be shadowed by `:id` the way `PATCH groups/reorder`
+  // would be.
+  @Post('groups/reorder')
+  reorderGroups(@Body() dto: ReorderDto) {
+    return this.bookmarksService.reorderGroups(dto);
+  }
+
+  @Post('links/reorder')
+  reorderLinks(@Body() dto: ReorderDto) {
+    return this.bookmarksService.reorderLinks(dto);
+  }
+
+  /** Netscape-HTML import. Parsed on the client, validated and inserted here. */
+  @Post('import')
+  importTree(@Body() dto: ImportBookmarksDto) {
+    return this.bookmarksService.importTree(dto);
   }
 }

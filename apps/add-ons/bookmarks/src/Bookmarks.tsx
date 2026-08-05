@@ -1,361 +1,701 @@
-import { useState } from 'react'
-import { Folder, Link2, Plus, Trash2, Edit2, ExternalLink, X, Check } from 'lucide-react'
-import { ScrollArea, useConfirm } from '@imbatranim/core'
+import { useCallback, useMemo, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Edit2,
+  ExternalLink,
+  Folder,
+  FolderPlus,
+  Link2,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
+import {
+  Button,
+  Dialog,
+  ScrollArea,
+  Select,
+  UploadTooLargeError,
+  fetchFileBytes,
+  notify,
+  uploadFileBytes,
+  useConfirm,
+  useFileDialog,
+  usePrompt,
+} from '@imbatranim/core'
 import {
   useBookmarkGroupsQuery,
   useCreateGroupMutation,
   useCreateLinkMutation,
   useDeleteGroupMutation,
   useDeleteLinkMutation,
+  useImportMutation,
   useUpdateGroupMutation,
   useUpdateLinkMutation,
 } from './queries/bookmarksQueries'
+import {
+  allFolderIds,
+  buildTree,
+  countTree,
+  dedupeImport,
+  findDuplicate,
+  folderPath,
+  searchTree,
+  subtreeOf,
+  toParsedTree,
+  toRows,
+  type Row,
+} from './tree'
+import { describeImport, parseNetscape, toNetscape } from './netscape'
+import { completeUrl, normaliseUrl } from './urlNormalise'
 import type { BookmarkGroup, BookmarkLink } from './types'
 
+/**
+ * Bookmarks: a folder tree, not a flat list.
+ *
+ * Brief 75 exists because brief 50 (the web browser) will consume this app rather
+ * than build its own bookmark store, which turns the old flat one-level model into a
+ * load-bearing limitation. So: nested folders, `url` instead of `href`, Netscape-HTML
+ * import/export, search, and duplicate detection.
+ *
+ * It also pays this app's share of the style debt that brief 74 paid for
+ * sticky-notes — kit `Button`s instead of raw `<button>`s, a real `<button>` for
+ * every clickable row, and `notify()` on failure where the app previously had no
+ * failure signal at all.
+ */
+
+/** Each nesting level indents by this much. Small: depth 6 must still fit 320px. */
+const INDENT = 12
+
+function rowKey(row: Row): string {
+  return row.kind === 'folder' ? `f${row.group.id}` : `l${row.link.id}`
+}
+
 // ---------------------------------------------------------------------------
-// LinkRow
+// Rows
 // ---------------------------------------------------------------------------
+function FolderRow({
+  group,
+  depth,
+  childCount,
+  open,
+  onToggle,
+  onRename,
+  onAddLink,
+  onAddFolder,
+  onDelete,
+}: {
+  group: BookmarkGroup
+  depth: number
+  childCount: number
+  open: boolean
+  onToggle: () => void
+  onRename: () => void
+  onAddLink: () => void
+  onAddFolder: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="group/row border-outline-variant hover:bg-surface-container-low flex h-7 items-center gap-1 border-b pr-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={open ? `Collapse ${group.name}` : `Expand ${group.name}`}
+        className="focus-visible:ring-primary flex min-w-0 flex-1 items-center gap-1.5 px-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+        style={{ paddingLeft: 6 + depth * INDENT }}
+      >
+        {open ? (
+          <ChevronDown size={12} className="text-on-surface-variant shrink-0" />
+        ) : (
+          <ChevronRight size={12} className="text-on-surface-variant shrink-0" />
+        )}
+        <Folder size={13} strokeWidth={1.75} className="text-on-surface-variant shrink-0" />
+        <span className="font-ui text-on-surface truncate text-[12px] font-semibold">
+          {group.name}
+        </span>
+        <span className="font-ui text-on-surface-variant shrink-0 text-[11px]">{childCount}</span>
+      </button>
+      <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onAddLink}
+          aria-label={`Add a bookmark to ${group.name}`}
+          title="Add a bookmark here"
+        >
+          <Plus size={12} strokeWidth={2} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onAddFolder}
+          aria-label={`Add a subfolder to ${group.name}`}
+          title="Add a subfolder"
+        >
+          <FolderPlus size={12} strokeWidth={2} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRename}
+          aria-label={`Rename ${group.name}`}
+          title="Rename"
+        >
+          <Edit2 size={12} strokeWidth={2} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          aria-label={`Delete ${group.name}`}
+          title="Delete folder"
+          className="hover:text-error"
+        >
+          <Trash2 size={12} strokeWidth={2} />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function LinkRow({
   link,
-  onUpdate,
+  depth,
+  onOpen,
+  onEdit,
+  onMove,
   onDelete,
 }: {
   link: BookmarkLink
-  onUpdate: (id: number, data: { title?: string; href?: string }) => void
-  onDelete: (id: number) => void
+  depth: number
+  onOpen: () => void
+  onEdit: () => void
+  onMove: () => void
+  onDelete: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(link.title)
-  const [href, setHref] = useState(link.href)
-
-  // Resync the edit buffers when the row is bound to a different link — state
-  // adjustment during render, not an effect (mirrors StickyNotes' prevId sync).
-  // Guarding on id means an in-progress edit isn't clobbered on every refetch.
-  const [prevLinkId, setPrevLinkId] = useState(link.id)
-  if (link.id !== prevLinkId) {
-    setPrevLinkId(link.id)
-    setTitle(link.title)
-    setHref(link.href)
-  }
-
-  function handleSave() {
-    onUpdate(link.id, { title, href })
-    setEditing(false)
-  }
-
-  if (editing) {
-    return (
-      <div className="border-outline-variant bg-surface-container-low mb-1 flex flex-col gap-2 border p-2">
-        <input
-          className="font-content border-outline border-b bg-transparent p-1 text-[13px] outline-none"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-        />
-        <input
-          className="font-content border-outline text-on-surface-variant border-b bg-transparent p-1 text-[11px] outline-none"
-          value={href}
-          onChange={(e) => setHref(e.target.value)}
-          placeholder="URL"
-        />
-        <div className="mt-1 flex justify-end gap-2">
-          <button onClick={() => setEditing(false)} className="hover:bg-surface-container-high p-1">
-            <X size={14} />
-          </button>
-          <button
-            onClick={handleSave}
-            className="bg-primary text-on-primary hover:bg-primary-container hover:text-on-primary-container p-1"
-          >
-            <Check size={14} />
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="group hover:bg-surface-container border-outline-variant flex h-9 items-center gap-2 overflow-hidden border-b px-2 last:border-0">
-      <Link2 size={14} className="text-on-surface-variant shrink-0" />
+    <div className="group/row border-outline-variant hover:bg-surface-container-low flex h-7 items-center gap-1 border-b pr-1">
+      {/*
+        A real button rather than a bare `<a>` wrapped in a div: activating a bookmark
+        is an app action (and becomes `openApp('browser', …)` once brief 50 lands), so
+        the row must not depend on anchor semantics that will change. The separate
+        `<a>` below stays for "open in a new tab", where an anchor is the right thing.
+      */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="focus-visible:ring-primary flex min-w-0 flex-1 items-center gap-1.5 px-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+        style={{ paddingLeft: 6 + depth * INDENT }}
+        title={link.url}
+      >
+        <Link2 size={12} strokeWidth={1.75} className="text-on-surface-variant shrink-0" />
+        <span className="font-content text-on-surface truncate text-[12px]">{link.title}</span>
+        <span className="font-ui text-on-surface-variant min-w-0 flex-1 truncate text-[11px]">
+          {link.url.replace(/^https?:\/\//, '')}
+        </span>
+      </button>
+      <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onEdit}
+          aria-label={`Edit ${link.title}`}
+          title="Edit"
+        >
+          <Edit2 size={12} strokeWidth={2} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onMove}
+          aria-label={`Move ${link.title}`}
+          title="Move to another folder"
+        >
+          <Folder size={12} strokeWidth={2} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          aria-label={`Delete ${link.title}`}
+          title="Delete bookmark"
+          className="hover:text-error"
+        >
+          <Trash2 size={12} strokeWidth={2} />
+        </Button>
+      </div>
       <a
-        href={link.href}
+        href={link.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="font-content hover:text-primary flex-1 cursor-pointer truncate text-[13px] transition-colors"
+        className="text-on-surface-variant hover:text-primary focus-visible:ring-primary shrink-0 p-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none"
+        aria-label={`Open ${link.title} in a new tab`}
+        title="Open in a new tab"
       >
-        {link.title}
+        <ExternalLink size={12} strokeWidth={2} />
       </a>
-      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        <button onClick={() => setEditing(true)} className="hover:text-primary p-1" title="Edit">
-          <Edit2 size={13} />
-        </button>
-        <button onClick={() => onDelete(link.id)} className="hover:text-error p-1" title="Delete">
-          <Trash2 size={13} />
-        </button>
-        <a
-          href={link.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-primary p-1"
-          title="Open in new tab"
-        >
-          <ExternalLink size={13} />
-        </a>
-      </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// GroupSection
+// Root
 // ---------------------------------------------------------------------------
-function GroupSection({
-  group,
-  onUpdateGroup,
-  onDeleteGroup,
-  onCreateLink,
-  onUpdateLink,
-  onDeleteLink,
-}: {
-  group: BookmarkGroup
-  onUpdateGroup: (id: number, data: { name?: string }) => void
-  onDeleteGroup: (id: number) => void
-  onCreateLink: (groupId: number, data: { title: string; href: string }) => void
-  onUpdateLink: (id: number, data: { title?: string; href?: string }) => void
-  onDeleteLink: (id: number) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(group.name)
-  const [addingLink, setAddingLink] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newHref, setNewHref] = useState('')
+export function Bookmarks({ windowId }: { windowId: string }) {
+  const { data: groups, isPending } = useBookmarkGroupsQuery()
+  const createGroup = useCreateGroupMutation()
+  const updateGroup = useUpdateGroupMutation()
+  const removeGroup = useDeleteGroupMutation()
+  const createLink = useCreateLinkMutation()
+  const updateLink = useUpdateLinkMutation()
+  const removeLink = useDeleteLinkMutation()
+  const runImport = useImportMutation()
+  const { confirm, confirmDialog } = useConfirm()
+  const { prompt, promptDialog } = usePrompt()
+  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
 
-  // Resync the name buffer when bound to a different group — state adjustment
-  // during render, not an effect (mirrors StickyNotes' prevId sync). Guarding
-  // on id means an in-progress rename isn't clobbered on every refetch.
-  const [prevGroupId, setPrevGroupId] = useState(group.id)
-  if (group.id !== prevGroupId) {
-    setPrevGroupId(group.id)
-    setName(group.name)
+  const [query, setQuery] = useState('')
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [moving, setMoving] = useState<BookmarkLink | null>(null)
+
+  // `groups ?? []` inline would be a fresh array on every render, so every memo below
+  // it would recompute the whole tree on every keystroke.
+  const all = useMemo(() => groups ?? [], [groups])
+  const tree = useMemo(() => buildTree(all), [all])
+  const search = useMemo(() => searchTree(tree, query), [tree, query])
+
+  // Folders are open by default and the state tracks what the user CLOSED. That way
+  // a newly created or imported folder appears open, instead of a fresh id being
+  // absent from an "expanded" set and silently hiding its contents.
+  const expanded = useMemo(() => {
+    const ids = new Set(allFolderIds(search.nodes))
+    for (const id of collapsed) if (!search.expand.has(id)) ids.delete(id)
+    return ids
+  }, [search.nodes, search.expand, collapsed])
+
+  const rows = useMemo(() => toRows(search.nodes, expanded), [search.nodes, expanded])
+  const linkCount = all.reduce((n, group) => n + group.links.length, 0)
+
+  const toggle = useCallback((id: number) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  // -------------------------------------------------------------------------
+  // folders
+  // -------------------------------------------------------------------------
+  async function addFolder(parentId: number | null) {
+    const name = await prompt({
+      title: parentId === null ? 'New folder' : 'New subfolder',
+      message: 'Folder name',
+      confirmLabel: 'Create',
+    })
+    if (name === null) return
+    createGroup.mutate({ name, parentId })
   }
 
-  function handleSaveGroup() {
-    onUpdateGroup(group.id, { name })
-    setEditing(false)
+  async function renameFolder(group: BookmarkGroup) {
+    const name = await prompt({
+      title: 'Rename folder',
+      message: 'Folder name',
+      initialValue: group.name,
+      confirmLabel: 'Rename',
+    })
+    if (name === null || name === group.name) return
+    updateGroup.mutate({ id: group.id, data: { name } })
   }
 
-  function handleAddLink() {
-    if (!newTitle || !newHref) return
-    onCreateLink(group.id, { title: newTitle, href: newHref })
-    setNewTitle('')
-    setNewHref('')
-    setAddingLink(false)
+  async function deleteFolder(group: BookmarkGroup) {
+    // Say what is actually about to be lost. This app used to ask "Delete group and
+    // all its links?" while the server orphaned the links instead of deleting them —
+    // the confirm was telling the truth and the code was not.
+    const subtree = subtreeOf(buildTree(all), group.id)
+    const links = subtree.reduce((n, g) => n + g.links.length, 0)
+    const folders = subtree.length - 1
+    const parts = [`${links} bookmark${links === 1 ? '' : 's'}`]
+    if (folders > 0) parts.push(`${folders} subfolder${folders === 1 ? '' : 's'}`)
+    const ok = await confirm({
+      title: 'Delete folder',
+      message:
+        links === 0 && folders === 0
+          ? `Delete the empty folder “${group.name}”?`
+          : `Delete “${group.name}” and everything in it — ${parts.join(' and ')}? This cannot be undone.`,
+      destructive: true,
+    })
+    if (ok) removeGroup.mutate(group.id)
   }
 
+  // -------------------------------------------------------------------------
+  // bookmarks
+  // -------------------------------------------------------------------------
+  async function addLink(groupId: number) {
+    const raw = await prompt({
+      title: 'Add a bookmark',
+      message: 'Web address',
+      confirmLabel: 'Next',
+    })
+    if (raw === null) return
+    // `example.com` is what a person types; the backend requires a scheme, so
+    // complete it here rather than rejecting the input as malformed.
+    const url = completeUrl(raw)
+
+    const duplicate = findDuplicate(all, url)
+    if (duplicate) {
+      const ok = await confirm({
+        title: 'Already bookmarked',
+        message: `“${duplicate.link.title}” already points at this address${
+          duplicate.path ? ` in ${duplicate.path}` : ''
+        }. Add it again anyway?`,
+        confirmLabel: 'Add anyway',
+      })
+      if (!ok) return
+    }
+
+    const title = await prompt({
+      title: 'Add a bookmark',
+      message: 'Title',
+      initialValue: titleFromUrl(url),
+      confirmLabel: 'Add',
+    })
+    if (title === null) return
+    createLink.mutate({ groupId, title, url })
+  }
+
+  async function editLink(link: BookmarkLink) {
+    const title = await prompt({
+      title: 'Edit bookmark',
+      message: 'Title',
+      initialValue: link.title,
+      confirmLabel: 'Next',
+    })
+    if (title === null) return
+    const raw = await prompt({
+      title: 'Edit bookmark',
+      message: 'Web address',
+      initialValue: link.url,
+      confirmLabel: 'Save',
+    })
+    if (raw === null) return
+    const url = completeUrl(raw)
+    if (title === link.title && normaliseUrl(url) === normaliseUrl(link.url)) return
+    updateLink.mutate({ id: link.id, data: { title, url } })
+  }
+
+  function moveLink(link: BookmarkLink) {
+    // A picker, not a typed folder name: the tree can be deep and two folders may
+    // share a name, so asking the user to retype `Work / Specs` exactly would be a
+    // spelling test. The dialog is rendered at the bottom of this component.
+    if (all.length < 2) {
+      notify({
+        title: 'Nowhere to move it',
+        body: 'Create another folder first.',
+        appId: 'bookmarks',
+        level: 'info',
+      })
+      return
+    }
+    setMoving(link)
+  }
+
+  async function deleteBookmark(link: BookmarkLink) {
+    const ok = await confirm({
+      title: 'Delete bookmark',
+      message: `Delete “${link.title}”?`,
+      destructive: true,
+    })
+    if (ok) removeLink.mutate(link.id)
+  }
+
+  // -------------------------------------------------------------------------
+  // import / export
+  // -------------------------------------------------------------------------
+  async function handleImport() {
+    const choice = await openFile({ title: 'Import bookmarks', extensions: ['html', 'htm'] })
+    if (!choice) return
+    setBusy(true)
+    try {
+      const bytes = await fetchFileBytes(choice.root, choice.path)
+      const parsed = parseNetscape(new TextDecoder().decode(bytes))
+      // Loose top-level bookmarks need somewhere to live; a browser export always
+      // has folders, but a hand-written file may not.
+      const folders = [...parsed.folders]
+      if (parsed.looseLinks.length > 0) {
+        folders.push({ name: 'Imported', links: parsed.looseLinks, folders: [] })
+      }
+
+      const { folders: fresh, duplicates } = dedupeImport(folders, all)
+      const counts = countTree(fresh)
+      if (counts.links === 0 && counts.folders === 0) {
+        notify({
+          title: 'Nothing to import',
+          body:
+            duplicates > 0
+              ? `All ${duplicates} bookmarks in that file are already here.`
+              : 'That file contained no web bookmarks.',
+          appId: 'bookmarks',
+          level: 'info',
+        })
+        return
+      }
+
+      const result = await runImport.mutateAsync({ folders: fresh })
+      notify({
+        title: 'Bookmarks imported',
+        body:
+          describeImport({ ...result, skipped: parsed.skipped, flattened: parsed.flattened }) +
+          (duplicates > 0 ? ` ${duplicates} already here.` : ''),
+        appId: 'bookmarks',
+        level: 'success',
+      })
+    } catch (error) {
+      if (error instanceof UploadTooLargeError) {
+        notify({ title: 'That file is too large', appId: 'bookmarks', level: 'error' })
+      } else {
+        notify({
+          title: 'Could not read that file',
+          body: 'It does not look like a bookmarks export.',
+          appId: 'bookmarks',
+          level: 'error',
+        })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleExport() {
+    if (all.length === 0) {
+      notify({ title: 'Nothing to export', appId: 'bookmarks', level: 'info' })
+      return
+    }
+    const choice = await saveFile({
+      title: 'Export bookmarks',
+      suggestedName: 'bookmarks.html',
+      extensions: ['html'],
+    })
+    if (!choice) return
+    setBusy(true)
+    try {
+      const html = toNetscape(toParsedTree(buildTree(all)))
+      await uploadFileBytes(
+        choice.root,
+        choice.path,
+        new TextEncoder().encode(html),
+        choice.path.split('/').pop() ?? 'bookmarks.html'
+      )
+      notify({
+        title: 'Bookmarks exported',
+        body: `${linkCount} bookmark${linkCount === 1 ? '' : 's'} written. Any browser can import this file.`,
+        appId: 'bookmarks',
+        level: 'success',
+      })
+    } catch (error) {
+      notify({
+        title: 'Export failed',
+        body: error instanceof UploadTooLargeError ? error.message : 'The file was not written.',
+        appId: 'bookmarks',
+        level: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // render
+  // -------------------------------------------------------------------------
   return (
-    <div className="mb-4">
-      <div className="border-outline bg-surface-container-low group/hdr flex h-8 items-center gap-2 border-b px-2">
-        <Folder size={14} className="text-secondary" />
-        {editing ? (
+    <div className="bg-surface-container-lowest flex h-full flex-col">
+      <div className="border-outline-variant bg-surface-container-low flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1">
+        <Button variant="primary" size="sm" className="gap-1" onClick={() => void addFolder(null)}>
+          <FolderPlus size={12} strokeWidth={2} />
+          New folder
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1"
+          onClick={() => void handleImport()}
+          disabled={busy}
+          title="Import a bookmarks file exported from any browser"
+        >
+          <Upload size={12} strokeWidth={2} />
+          Import
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1"
+          onClick={() => void handleExport()}
+          disabled={busy}
+          title="Write a file any browser can import"
+        >
+          <Download size={12} strokeWidth={2} />
+          Export
+        </Button>
+        <div className="border-outline-variant bg-surface-container-lowest flex min-w-0 flex-1 items-center gap-1 border px-1.5">
+          <Search size={11} className="text-on-surface-variant shrink-0" />
           <input
-            className="font-ui flex-1 bg-transparent text-[13px] font-semibold outline-none"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleSaveGroup}
-            onKeyDown={(e) => e.key === 'Enter' && handleSaveGroup()}
-            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('')
+            }}
+            placeholder="Search bookmarks…"
+            aria-label="Search bookmarks"
+            className="font-content text-on-surface placeholder:text-on-surface-variant min-w-0 flex-1 bg-transparent py-1 text-[12px] outline-none"
           />
-        ) : (
-          <span
-            className="font-ui flex-1 cursor-pointer text-[13px] font-semibold"
-            onClick={() => setEditing(true)}
-          >
-            {group.name}
-          </span>
-        )}
-        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/hdr:opacity-100">
-          <button
-            onClick={() => setAddingLink(true)}
-            className="hover:text-primary p-1"
-            title="Add Link"
-          >
-            <Plus size={14} />
-          </button>
-          <button
-            onClick={() => onDeleteGroup(group.id)}
-            className="hover:text-error p-1"
-            title="Delete Group"
-          >
-            <Trash2 size={13} />
-          </button>
+          {query !== '' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Clear search"
+              onClick={() => setQuery('')}
+            >
+              <X size={11} />
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="flex flex-col">
-        {group.links.map((link) => (
-          <LinkRow key={link.id} link={link} onUpdate={onUpdateLink} onDelete={onDeleteLink} />
-        ))}
+      {isPending ? (
+        <div className="font-ui text-on-surface-variant flex flex-1 items-center justify-center text-[12px]">
+          Loading…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-on-surface-variant flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <Folder size={32} strokeWidth={1} />
+          <span className="font-ui text-[12px]">
+            {query !== '' ? `Nothing matches “${query.trim()}”` : 'No bookmarks yet'}
+          </span>
+          {query === '' && (
+            <Button variant="ghost" size="sm" onClick={() => void handleImport()}>
+              Import from a browser
+            </Button>
+          )}
+        </div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          {rows.map((row) =>
+            row.kind === 'folder' ? (
+              <FolderRow
+                key={rowKey(row)}
+                group={row.group}
+                depth={row.depth}
+                childCount={row.childCount}
+                open={expanded.has(row.group.id)}
+                onToggle={() => toggle(row.group.id)}
+                onRename={() => void renameFolder(row.group)}
+                onAddLink={() => void addLink(row.group.id)}
+                onAddFolder={() => void addFolder(row.group.id)}
+                onDelete={() => void deleteFolder(row.group)}
+              />
+            ) : (
+              <LinkRow
+                key={rowKey(row)}
+                link={row.link}
+                depth={row.depth}
+                // Until brief 50 lands, activating a bookmark keeps doing exactly
+                // what it did — the brief is explicit that this must not change yet.
+                onOpen={() => window.open(row.link.url, '_blank', 'noopener,noreferrer')}
+                onEdit={() => void editLink(row.link)}
+                onMove={() => void moveLink(row.link)}
+                onDelete={() => void deleteBookmark(row.link)}
+              />
+            )
+          )}
+        </ScrollArea>
+      )}
 
-        {addingLink && (
-          <div className="border-primary bg-primary/5 mx-2 my-1 flex flex-col gap-2 border p-2">
-            <input
-              className="font-content border-outline border-b bg-transparent p-1 text-[13px] outline-none"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Link Title"
-              autoFocus
-            />
-            <input
-              className="font-content border-outline border-b bg-transparent p-1 text-[11px] outline-none"
-              value={newHref}
-              onChange={(e) => setNewHref(e.target.value)}
-              placeholder="https://..."
-            />
-            <div className="mt-1 flex justify-end gap-2">
-              <button
-                onClick={() => setAddingLink(false)}
-                className="hover:bg-surface-container-high p-1"
-              >
-                <X size={14} />
-              </button>
-              <button
-                onClick={handleAddLink}
-                className="bg-primary text-on-primary hover:bg-primary-container hover:text-on-primary-container px-2 py-0.5 text-[11px]"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-
-        {!addingLink && group.links.length === 0 && (
-          <div className="font-ui text-on-surface-variant flex h-9 items-center justify-center text-[11px] italic">
-            No links in this group
-          </div>
-        )}
+      <div className="border-outline-variant bg-surface-container-low text-on-surface-variant flex h-5 shrink-0 items-center gap-1 border-t px-2 text-[10px]">
+        {query === ''
+          ? `${linkCount} bookmark${linkCount === 1 ? '' : 's'} · ${all.length} folder${all.length === 1 ? '' : 's'}`
+          : `${search.matches} match${search.matches === 1 ? '' : 'es'}`}
       </div>
+
+      {moving && (
+        <MoveDialog
+          link={moving}
+          groups={all}
+          onClose={() => setMoving(null)}
+          onMove={(groupId) => {
+            updateLink.mutate({ id: moving.id, data: { groupId } })
+            setMoving(null)
+          }}
+        />
+      )}
+      {confirmDialog}
+      {promptDialog}
+      {fileDialog}
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Bookmarks (root export)
-// ---------------------------------------------------------------------------
-export function Bookmarks({ windowId: _windowId }: { windowId: string }) {
-  const { data: groups = [], isLoading } = useBookmarkGroupsQuery()
-  const createGroup = useCreateGroupMutation()
-  const updateGroup = useUpdateGroupMutation()
-  const deleteGroup = useDeleteGroupMutation()
-  const createLink = useCreateLinkMutation()
-  const updateLink = useUpdateLinkMutation()
-  const deleteLink = useDeleteLinkMutation()
-  const { confirm, confirmDialog } = useConfirm()
-
-  const [addingGroup, setAddingGroup] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
-
-  function handleAddGroup() {
-    if (!newGroupName.trim()) return
-    createGroup.mutate({ name: newGroupName.trim() })
-    setNewGroupName('')
-    setAddingGroup(false)
-  }
-
-  if (isLoading) {
-    return (
-      <div className="font-ui flex h-full items-center justify-center text-[13px]">Loading...</div>
-    )
-  }
+/** Pick a destination folder for a bookmark, by full path so depth is unambiguous. */
+function MoveDialog({
+  link,
+  groups,
+  onClose,
+  onMove,
+}: {
+  link: BookmarkLink
+  groups: BookmarkGroup[]
+  onClose: () => void
+  onMove: (groupId: number) => void
+}) {
+  const options = groups
+    .filter((group) => group.id !== link.groupId)
+    .map((group) => ({ value: String(group.id), label: folderPath(groups, group.id) }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  const [value, setValue] = useState(options[0]?.value ?? '')
 
   return (
-    <div className="bg-surface-container-lowest flex h-full flex-col">
-      {/* Header / Actions */}
-      <div className="border-outline-variant bg-surface-container-low flex h-9 items-center justify-between border-b px-3">
-        <span className="font-ui text-on-surface-variant text-[11px] font-bold tracking-wider uppercase">
-          Groups
-        </span>
-        <button
-          onClick={() => setAddingGroup(true)}
-          className="border-outline hover:bg-surface-container-high flex items-center gap-1 border px-2 py-0.5 text-[11px] transition-colors"
+    <Dialog open onOpenChange={(next) => !next && onClose()} title="Move bookmark">
+      <p className="text-on-surface-variant mb-3 text-[12px]">
+        Move “{link.title}” out of {folderPath(groups, link.groupId)}.
+      </p>
+      <Select
+        label="Destination folder"
+        options={options}
+        value={value}
+        onValueChange={(next) => setValue(String(next))}
+      />
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="default" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={value === ''}
+          onClick={() => onMove(Number(value))}
         >
-          <Plus size={12} />
-          New Group
-        </button>
+          Move
+        </Button>
       </div>
-
-      <ScrollArea className="flex-1 p-2">
-        {groups.map((group) => (
-          <GroupSection
-            key={group.id}
-            group={group}
-            onUpdateGroup={(id, data) => updateGroup.mutate({ id, data })}
-            onDeleteGroup={async (id) => {
-              if (
-                await confirm({
-                  title: 'Delete group',
-                  message: 'Delete group and all its links?',
-                  destructive: true,
-                })
-              ) {
-                deleteGroup.mutate(id)
-              }
-            }}
-            onCreateLink={(groupId, data) => createLink.mutate({ group_id: groupId, ...data })}
-            onUpdateLink={(id, data) => updateLink.mutate({ id, data })}
-            onDeleteLink={async (id) => {
-              if (
-                await confirm({
-                  title: 'Delete link',
-                  message: 'Delete this link?',
-                  destructive: true,
-                })
-              ) {
-                deleteLink.mutate(id)
-              }
-            }}
-          />
-        ))}
-
-        {addingGroup && (
-          <div className="border-primary bg-primary/5 mb-4 border p-2">
-            <input
-              className="font-ui border-primary w-full border-b bg-transparent p-1 text-[13px] font-semibold outline-none"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder="New Group Name"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddGroup()}
-              autoFocus
-            />
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                onClick={() => setAddingGroup(false)}
-                className="hover:bg-surface-container-high p-1 text-[11px]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddGroup}
-                className="bg-primary text-on-primary hover:bg-primary-container hover:text-on-primary-container px-2 py-0.5 text-[11px]"
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        )}
-
-        {groups.length === 0 && !addingGroup && (
-          <div className="flex h-40 flex-col items-center justify-center gap-2">
-            <span className="font-ui text-on-surface-variant text-[12px]">No bookmarks yet</span>
-            <button
-              onClick={() => setAddingGroup(true)}
-              className="text-primary text-[12px] hover:underline"
-            >
-              Create your first group
-            </button>
-          </div>
-        )}
-      </ScrollArea>
-
-      {confirmDialog}
-    </div>
+    </Dialog>
   )
+}
+
+/** A sensible default title so the user does not have to invent one. */
+function titleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const last = parsed.pathname.split('/').filter(Boolean).pop()
+    return last
+      ? `${parsed.hostname.replace(/^www\./, '')} — ${last}`
+      : parsed.hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
 }

@@ -196,7 +196,48 @@ export class DbService implements OnModuleInit {
       }
     }
 
+    // Bookmarks (Brief 75): nested folders, and `href` becomes `url`.
+    //
+    // The rename is the contract brief 50 (web browser) will consume — it speaks
+    // of `openApp('browser', { url })`, and translating at that seam forever is
+    // worse than renaming once here. RENAME COLUMN needs SQLite 3.25+, which
+    // better-sqlite3 has; the catch makes the second run a no-op.
+    try {
+      this.db.exec('ALTER TABLE bookmark_links RENAME COLUMN href TO url');
+    } catch {
+      // already renamed — safe to ignore
+    }
+
+    for (const column of [
+      // No REFERENCES clause, for the same reason as todos.list_id: the pragma is
+      // off, so it would be decorative. The service deletes a folder subtree
+      // explicitly, in one transaction — see the note on deleteGroup, which is the
+      // bug brief 73 handed over.
+      'parent_id INTEGER',
+      'position INTEGER NOT NULL DEFAULT 0',
+    ]) {
+      try {
+        this.db.exec(`ALTER TABLE bookmark_groups ADD COLUMN ${column}`);
+      } catch {
+        // column already exists — safe to ignore
+      }
+    }
+    try {
+      this.db.exec(
+        'ALTER TABLE bookmark_links ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
+      );
+    } catch {
+      // column already exists — safe to ignore
+    }
+
+    // Speeds up the subtree walk that deleteGroup and the cycle guard both do.
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_bookmark_groups_parent ON bookmark_groups(parent_id)',
+    );
+
     this.backfillTodoPositions();
+    this.backfillBookmarkPositions();
+    this.adoptOrphanedBookmarkLinks();
   }
 
   /**
@@ -235,5 +276,86 @@ export class DbService implements OnModuleInit {
         update.run({ position: index + 1, id: row.id });
       });
     })();
+  }
+
+  /**
+   * Give bookmark folders and links unique positions within their parent.
+   *
+   * Same shape as {@link backfillTodoPositions} and the same reason — `position`
+   * arrived with `DEFAULT 0` on live tables, so every pre-existing row ties and a
+   * reorder would write over the ties. Numbering is **per parent** here rather
+   * than global, because order only means anything among siblings.
+   */
+  private backfillBookmarkPositions() {
+    const groups = this.db
+      .prepare(
+        'SELECT id, parent_id FROM bookmark_groups ORDER BY position ASC, id ASC',
+      )
+      .all() as { id: number; parent_id: number | null }[];
+    const links = this.db
+      .prepare(
+        'SELECT id, group_id FROM bookmark_links ORDER BY position ASC, id ASC',
+      )
+      .all() as { id: number; group_id: number }[];
+    if (groups.length === 0 && links.length === 0) return;
+
+    const groupUpdate = this.db.prepare(
+      'UPDATE bookmark_groups SET position = @position WHERE id = @id',
+    );
+    const linkUpdate = this.db.prepare(
+      'UPDATE bookmark_links SET position = @position WHERE id = @id',
+    );
+    const nextIn = (seen: Map<number | null, number>, key: number | null) => {
+      const next = (seen.get(key) ?? 0) + 1;
+      seen.set(key, next);
+      return next;
+    };
+
+    this.db.transaction(() => {
+      const groupSeen = new Map<number | null, number>();
+      for (const group of groups) {
+        groupUpdate.run({
+          position: nextIn(groupSeen, group.parent_id),
+          id: group.id,
+        });
+      }
+      const linkSeen = new Map<number | null, number>();
+      for (const link of links) {
+        linkUpdate.run({
+          position: nextIn(linkSeen, link.group_id),
+          id: link.id,
+        });
+      }
+    })();
+  }
+
+  /**
+   * Delete bookmark links whose folder is gone.
+   *
+   * This repairs the bug brief 73 handed to brief 75. `bookmark_links.group_id`
+   * declares `ON DELETE CASCADE`, and `deleteGroup` even carried a comment saying
+   * SQLite handled it — but `PRAGMA foreign_keys` is **never enabled on this
+   * connection**, so the constraint was decorative and every folder deletion left
+   * its links behind. They were invisible (the read path buckets links by an
+   * existing folder id) and accumulated forever.
+   *
+   * They are deleted rather than rescued into a "Recovered" folder: the user
+   * confirmed "Delete group and all its links?", so the links were meant to go.
+   * Resurrecting them would be undoing a decision the user already made.
+   */
+  private adoptOrphanedBookmarkLinks() {
+    this.db.exec(
+      `DELETE FROM bookmark_links
+         WHERE group_id NOT IN (SELECT id FROM bookmark_groups)`,
+    );
+    // A folder whose parent is gone would be unreachable in the tree for the same
+    // reason. Promote it to the root instead of deleting it — unlike the links
+    // above, nobody ever confirmed losing it; it is collateral from the same bug.
+    this.db.exec(
+      `UPDATE bookmark_groups
+          SET parent_id = NULL
+        WHERE parent_id IS NOT NULL
+          AND parent_id NOT IN (SELECT id FROM bookmark_groups)`,
+    );
   }
 }

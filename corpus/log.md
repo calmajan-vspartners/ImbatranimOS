@@ -2337,3 +2337,59 @@ afterwards, wrong now. The probes reload after seeding and say why.
 Tests: frontend vitest **811 → 828** (17 new in a package that had zero), backend
 e2e **101 → 115** (14 new), unit unchanged at 208. All **100** turbo tasks green —
 the 100th is this package's new `test` task. Zero new dependencies.
+
+## 2026-08-05 — Brief 75: Bookmarks becomes a model, and three bugs surface
+
+The brief existed because brief 50 (web browser) plans to **reuse this app** as the
+OS's bookmark store rather than build its own, which turns a flat one-level model into
+a load-bearing limitation. So: nested folders via `parentId` with a cycle guard,
+`href` → `url` renamed all the way to the SQLite column, Netscape-HTML import/export,
+search that keeps the path to a match, and duplicate detection on a normalised URL.
+The contract brief 50 will consume is written into this app's `index.ts` — the field is
+`url`, only `http(s)` can be stored, the tree is flat + `parentId` with reusable
+helpers — so it is settled once instead of translated at that seam forever.
+
+**The bug brief 73 handed over is fixed.** `deleteGroup` relied on
+`ON DELETE CASCADE`, and even carried a comment saying SQLite handled it — but
+`PRAGMA foreign_keys` is never enabled on this connection, so the constraint was
+decorative and every folder deletion silently orphaned its links, invisibly and
+forever. Now an explicit subtree delete in one transaction, plus a migrate-time sweep
+for what the shipped bug already produced: orphaned links are **deleted** (the user
+confirmed "delete the group and all its links", so undoing that would be the wrong
+repair) while a folder whose parent is gone is **promoted to the root**, because
+nobody ever confirmed losing that. The pragma stays off — flipping it globally would
+change behaviour for every module at once — so each column that would want a foreign
+key now carries a comment saying why it has none.
+
+**Found while probing, in no brief: `@IsUrl()` was wrong in both directions at once.**
+Measured, it rejected `http://localhost:3000` and `http://imbatranim` — the OS is
+itself a localhost web app, so a user could not bookmark their own dev server — while
+accepting `ftp://x.com`, a scheme nothing here can open. Replaced with an explicit
+`http:`/`https:` allow-list parsed by the platform's `URL`. That became
+security-relevant the moment this brief added import: a Netscape file is untrusted
+input, bookmarks render as `<a href>`, and a `javascript:` URL in the table would be
+stored XSS. The whole import is refused rather than partially applied if one URL fails.
+
+**Found while probing, in no brief: core's `Select` showed values instead of labels.**
+The new folder picker read `6` rather than `Work / Specs`. `<Select.Value>` with no
+children renders the raw value, because base-ui can only resolve a label when
+`Select.Root` gets an `items` map — so **every** Select whose value differed from its
+label was affected, including git-gui's repository picker and Calendar's reminder
+offsets. Fixed once in `ui/Select.tsx`; verified in the browser that git-gui's picker
+now reads "Home". No jsdom added: core's vitest config explicitly defers component
+tests until a brief needs them, and a browser check is the stronger evidence anyway.
+
+**And one of mine:** the new delete confirm said "the empty folder Work" about a folder
+holding a subfolder and two bookmarks — the subtree walk recursed with the same "is
+this the target?" predicate and so kept looking for the target instead of collecting
+its children. A confirm that understates what will be lost is the one direction that
+must never happen; it is now a tested pure function.
+
+The app also owed the same style debt brief 74 just paid for sticky-notes: raw
+`<button>`s, a `<span onClick>` rename no keyboard could reach, and **no failure signal
+at all** — every mutation had `onSuccess` only, so a rejected write did nothing
+visible. Kit `Button`s, real rows, one `reportFailure()` per mutation.
+
+Tests: frontend vitest **828 → 886** (58 new in a package that had zero), backend e2e
+**115 → 138** (23 new), unit unchanged at 208. All 101 turbo tasks green. Zero new
+dependencies.
