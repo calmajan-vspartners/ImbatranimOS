@@ -87,7 +87,17 @@ notes, your files — lives under `/home/imbatranim` inside the
 layer. Delete and recreate the container as often as you like; the volume
 is what persists.
 
-Back it up with a single tarball, written to the current directory:
+**Back it up from inside the OS: Settings → Backup.** "Download backup" streams
+the whole volume out as `imbatranim-home-YYYY-MM-DD.tar.gz` — the database
+included as a consistent `VACUUM INTO` snapshot rather than a hot copy, the
+Trash left behind. "Choose a backup file…" reads an archive, shows its date and
+exactly which folders it would replace, and applies it only after you type
+`RESTORE`; you are signed out afterwards, because the backup brings its own
+password with it. This is the path to use — it is the only one available on the
+kiosk ISO or on a hosted instance, where there is no host shell to run docker
+from.
+
+If you do have host access, the equivalent tarball is:
 
 ```bash
 docker run --rm -v imbatranim-home:/home/imbatranim -v "$(pwd)":/backup \
@@ -95,7 +105,9 @@ docker run --rm -v imbatranim-home:/home/imbatranim -v "$(pwd)":/backup \
 ```
 
 Restore it into a fresh volume the same way, in reverse (`tar xzf` instead of
-`czf`, extracting into the mounted volume).
+`czf`, extracting into the mounted volume). Note that this copies `db.sqlite`
+while the container is running, which the in-OS backup deliberately does not —
+stop the container first if you take a backup this way.
 
 ## FAQ
 

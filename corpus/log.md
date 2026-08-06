@@ -2588,3 +2588,84 @@ a created archive re-opened, and all three new routes 401 without a session.
 
 Tests: backend unit **287 → 319**. Frontend vitest unchanged at 1022, e2e unchanged at
 138. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 80: the OS learns to back itself up
+
+The README's answer to "how do I back this up" was a host `docker run`, and its answer
+to a forgotten password was "delete the volume". A product that tells you to delete
+your data as a recovery step should be able to back it up first — and the shell command
+is **impossible for two of its own audiences**: the kiosk ISO has no host shell, and
+nobody handed a VPS instance has docker access. Settings → Backup replaces it.
+
+**The archive never touches disk.** `tar -czf -` streams straight to the response.
+Writing the tarball into the tree being archived is both a recursion trap and a
+disk-space trap on a volume that may already be near full — and if tar fails after the
+headers are out, the socket is destroyed, so the client gets a truncated gzip that
+fails its own CRC. A partial backup can never look like a complete one.
+
+**Brief 78's habit paid twice more, and both answers changed the design.** Reading
+busybox's source rather than assuming GNU behaviour turned up that `-C` is
+*single-valued* — it parses into one `base_dir` and calls `xchdir` once, after option
+parsing — so the GNU idiom of several `-C` interleaved with paths would have produced a
+differently-rooted archive on Alpine, discovered at the worst possible moment. The
+manifest and the database snapshot therefore ride *inside* the tree being archived.
+Then `--exclude` turned out to be unanchored in both tars, matching at every `/`
+boundary: a bare `.imbatranim/db.sqlite` would also have silently eaten a user's own
+`Documents/.imbatranim/db.sqlite`. Every pattern is `./`-prefixed, which anchors it
+because member names keep their `./` — `strip_unsafe_prefix` strips a leading `/` and
+`../` but deliberately not `./`. Measured on GNU tar 1.35, read out of busybox for
+Alpine, and there is a test that plants exactly that file and asserts it survives.
+
+**The database is snapshotted, not copied.** It lives inside the volume, in WAL mode;
+tarring it hot gives a torn file *and* omits the `-wal`, so the archive would look fine
+and restore to a database missing its most recent writes. `VACUUM INTO` — bound as a
+parameter, never interpolated — builds a checkpointed single-file copy from a read
+transaction. A test extracts it, opens it read-only, and reads back a row.
+
+**Restore reuses the hardened extractor by splitting it, not by copying it.**
+`extractTar` became `stageTarExtraction()` + `mergeTree()`; restore calls the staging
+half and does its own swap. A second copy of a traversal check is a second place for it
+to rot. One resource bound moves and is stated: the 512 MB zip-bomb cap is right for an
+archive a user found somewhere and wrong for a home volume, so restore's cap comes from
+actual free disk. Traversal, symlink, hardlink, entry-count and `--no-same-owner` are
+unchanged, and the review confirmed it by throwing a crafted `../ESCAPED.txt` archive
+and a symlink-to-`/etc` archive at the live server: both refused, nothing planted.
+
+**The swap detail that matters:** the undo list records **one entry per completed
+rename, not one per name**. A failure between parking the live entry and moving the new
+one leaves that name missing from the home directory entirely, and a per-name record
+would not know to put it back. Restore also replaces only what the backup declares and
+deletes nothing else — making home exactly match the archive would mean deleting files
+created since, which is a bigger blast radius than the word "restore" implies.
+
+**Refusal happens before staging.** No manifest, a manifest naming another product, an
+unparseable date, or a snapshot missing from the staged tree — all refused before
+anything moves. That last one is not paranoia: discovering it after the swap would
+leave a restored tree whose database is not at the path the process reopens, i.e. an OS
+booting into its setup screen with the user's data present but unreachable. Free space
+is checked against an exact figure from `tar -tzv` (parsed with brief 78's
+`parseTarListLine`, reused), so the preview can say "this will not fit" before the user
+commits rather than filling the volume and dying halfway.
+
+Two access decisions, both written down. **No password re-prompt on the download**,
+despite it being the most sensitive route in the OS: it grants nothing the session
+lacks, because `db.sqlite` — password hash and TOTP secret included — is inside the
+home volume and already readable through `/api/files`. A prompt would be theatre.
+**A typed `RESTORE`, enforced with `@Equals` on the server** and not only in the UI,
+because a stray POST to that route replaces a home directory. Afterwards every session
+is revoked and the cookie cleared: the restored database carries the backup's password,
+so whoever holds this session is no longer necessarily the owner of the machine.
+
+Progress is the browser's own download UI, not a byte counter of ours — reading the
+archive through `fetch` to draw one would mean holding the entire volume in the tab's
+heap before a byte reached disk, which is exactly the failure the streaming backend
+exists to avoid. What the panel adds is the number the browser cannot know: how big the
+backup will be, and what is deliberately left out of it.
+
+Verified end to end in a browser against the real backend: take a backup, delete a
+file, restore, the file comes back byte for byte, the session is gone, `auth/status`
+agrees, and signing in again works. Zero page errors, no scratch directories left
+behind.
+
+Tests: backend unit **319 → 356** (37 new). Frontend vitest unchanged at 1022, e2e
+unchanged at 138. All 103 turbo tasks green. Zero new dependencies.

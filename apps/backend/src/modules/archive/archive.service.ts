@@ -646,6 +646,56 @@ export class ArchiveService {
     flavour: TarFlavour,
     only?: Set<string>,
   ): Promise<ExtractResult> {
+    const tmpVirtual = join(
+      dirname(destVirtual) || '.',
+      `.archive-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
+    const staged = await this.stageTarExtraction({
+      root,
+      destVirtual,
+      tmpVirtual,
+      archiveAbs,
+      flavour,
+      only,
+    });
+    try {
+      // (d) move validated tree into the real destination.
+      const entries = await this.mergeTree(staged.stagingAbs, destAbs);
+      return { dest: destVirtual, entries, totalBytes: staged.totalBytes };
+    } finally {
+      await fs.rm(staged.stagingAbs, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Steps (a)–(c) of the hardened tar path, stopping **before** anything is moved
+   * into place. Returns the staging directory for the caller to inspect and to
+   * clean up.
+   *
+   * This exists so brief 80's restore can reuse the guards rather than
+   * re-implement them: restore needs the verified tree in hand so it can swap it
+   * in atomically with a rollback, which `extractTar`'s merge step cannot give it.
+   * Splitting the method is real reuse — a second copy of a traversal check is a
+   * second place for it to rot.
+   *
+   * `maxTotalBytes` overrides the zip-bomb cap. The default 512 MB is right for an
+   * archive a user found somewhere; it is the wrong bound for restoring a whole
+   * home volume, where the honest limit is how much disk is actually free. Only
+   * the *resource* bound moves — traversal, symlink, hardlink, entry-count and
+   * `--no-same-owner` are unchanged.
+   */
+  async stageTarExtraction(opts: {
+    root: string;
+    /** Jail context the member names are resolved against. */
+    destVirtual: string;
+    /** Where to stage, relative to the root. Created fresh; caller removes it. */
+    tmpVirtual: string;
+    archiveAbs: string;
+    flavour: TarFlavour;
+    only?: Set<string>;
+    maxTotalBytes?: number;
+  }): Promise<{ stagingAbs: string; members: string[]; totalBytes: number }> {
+    const { root, destVirtual, tmpVirtual, archiveAbs, flavour, only } = opts;
     const flag = this.tarFlag(flavour);
     const listArgs = [`-t${flag}f`, archiveAbs];
     const { stdout } = await execFileAsync('tar', listArgs, {
@@ -664,7 +714,7 @@ export class ArchiveService {
     // checked, not only the selected ones: tar is being handed the archive whole,
     // so a dangerous member elsewhere in it is still a reason to refuse the file.
     for (const member of members) {
-      await this.resolveEntry(root, destVirtual, destAbs, member);
+      await this.resolveEntry(root, destVirtual, '', member);
     }
     if (only) {
       // A selected name that the archive does not declare is a client inventing a
@@ -680,12 +730,8 @@ export class ArchiveService {
     }
 
     // (b) fresh jailed temp dir under the same root.
-    const tmpVirtual = join(
-      dirname(destVirtual) || '.',
-      `.archive-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    const { abs: tmpAbs } = await this.files.resolveSafe(root, tmpVirtual);
-    await fs.mkdir(tmpAbs, { recursive: true });
+    const { abs: stagingAbs } = await this.files.resolveSafe(root, tmpVirtual);
+    await fs.mkdir(stagingAbs, { recursive: true });
 
     try {
       // Selective extraction: the chosen members are appended as literal argv
@@ -697,20 +743,21 @@ export class ArchiveService {
         `-x${flag}f`,
         archiveAbs,
         '-C',
-        tmpAbs,
+        stagingAbs,
         '--no-same-owner',
         ...(only ? ['--', ...members.filter((m) => only.has(m))] : []),
       ];
       await execFileAsync('tar', extractArgs, { timeout: TAR_TIMEOUT_MS });
 
       // (c) walk the extracted tree; reject symlink-escapes + enforce byte cap.
-      const totalBytes = await this.verifyExtractedTree(tmpAbs);
-
-      // (d) move validated tree into the real destination.
-      const entries = await this.mergeTree(tmpAbs, destAbs);
-      return { dest: destVirtual, entries, totalBytes };
-    } finally {
-      await fs.rm(tmpAbs, { recursive: true, force: true });
+      const totalBytes = await this.verifyExtractedTree(
+        stagingAbs,
+        opts.maxTotalBytes,
+      );
+      return { stagingAbs, members, totalBytes };
+    } catch (err) {
+      await fs.rm(stagingAbs, { recursive: true, force: true });
+      throw err;
     }
   }
 
@@ -719,7 +766,10 @@ export class ArchiveService {
    * symlink whose realpath escapes `rootAbs`, and enforces the total-bytes cap
    * against the real on-disk sizes. Returns the total bytes.
    */
-  private async verifyExtractedTree(rootAbs: string): Promise<number> {
+  private async verifyExtractedTree(
+    rootAbs: string,
+    maxTotalBytes = MAX_TOTAL_BYTES(),
+  ): Promise<number> {
     const realRoot = await fs.realpath(rootAbs);
     let total = 0;
     let count = 0;
@@ -769,9 +819,9 @@ export class ArchiveService {
             );
           }
           total += st.size;
-          if (total >= MAX_TOTAL_BYTES()) {
+          if (total >= maxTotalBytes) {
             throw new PayloadTooLargeException(
-              `Archive uncompresses past the size cap (max ${MAX_TOTAL_BYTES()} bytes)`,
+              `Archive uncompresses past the size cap (max ${maxTotalBytes} bytes)`,
             );
           }
         }
