@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { prefsStorage } from '../../lib/prefs'
 
 export type Wallpaper = 'dots' | 'grid' | 'linen'
 
@@ -16,6 +17,12 @@ export const useWallpaperStore = create<WallpaperStore>()(
     }),
     {
       name: 'wallpaper-storage',
+      /**
+       * Server-backed dotfile (brief 49): durable user config that belongs to the
+       * account, not to one browser. `prefsStorage` mirrors to localStorage for
+       * the pre-auth first paint and writes through to `/api/prefs`.
+       */
+      storage: createJSONStorage(() => prefsStorage),
     }
   )
 )

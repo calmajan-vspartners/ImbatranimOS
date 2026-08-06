@@ -115,13 +115,13 @@ export type PersistedWindow = {
   /**
    * Persisted, despite the brief listing it as out of scope.
    *
-   * The brief calls workspace assignment "session state" and says a new tab
-   * starts fresh on workspace 1 — but window layout **is already persisted
-   * here**, geometry and all, and restored on boot. Leaving `workspaceId` out
-   * would mean a reload silently collapses every workspace onto 1, destroying
-   * the arrangement the feature exists to create, with no warning. That is
-   * worse than either option the brief weighed. This is not brief 49's dotfile
-   * question: it is the window layout, and the window layout already persists.
+   * Brief 85 called this out and brief 49 settled where it belongs: the window
+   * layout is **per-tab session state**, persisted in `sessionStorage`, so the
+   * workspace a window sits on rides along with it. Omitting it would mean a
+   * reload silently collapses every workspace onto 1, destroying the arrangement
+   * the feature exists to create, with no warning — while persisting it in
+   * `localStorage` would have made two tabs fight over it. Session storage is
+   * both answers at once.
    */
   workspaceId?: WorkspaceId
   position: { x: number; y: number }
@@ -132,11 +132,45 @@ export type PersistedWindow = {
   snapState?: SnapRegion
 }
 
+/**
+ * Where a tab's window layout lives (brief 49).
+ *
+ * **`sessionStorage`, not `localStorage`** — and that one word is the whole
+ * brief-49 session fix. `localStorage` is shared by every tab of an origin, so
+ * two desktops fought over one key and whichever wrote last decided what both
+ * saw on reload. `sessionStorage` is per tab: each gets its own layout, a new
+ * tab opens to a fresh desktop, and closing a tab takes its arrangement with it.
+ *
+ * The brief said to delete the persistence outright and hold the session purely
+ * in memory. That ends the stomp, but it also throws away reload survival for
+ * the overwhelmingly common single-tab case — you would lose your whole
+ * arrangement every refresh to fix a two-tab problem. Under the brief's own SSH
+ * analogy that is the wrong cut: **closing the tab is logging out; reloading is
+ * the terminal redrawing.** `sessionStorage` models exactly that, meets every
+ * acceptance criterion the brief lists, and needs no server state, no reattach
+ * and no GC — the browser drops it with the tab.
+ */
 const LAYOUT_STORAGE_KEY = 'imbatranimos:window-layout'
 const ACTIVE_WORKSPACE_KEY = 'imbatranimos:active-workspace'
 
 /**
- * Remember which workspace was on screen.
+ * Per-tab storage, degrading to a no-op rather than throwing.
+ *
+ * Safari in private mode has historically thrown from `sessionStorage`; a
+ * desktop that will not open because it could not remember its own window
+ * positions would be a much worse failure than forgetting them.
+ */
+function sessionStore(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Remember which workspace was on screen — per tab, like the layout it belongs
+ * to (brief 49).
  *
  * Without this, a reload of a session whose windows live on workspace 3 lands on
  * an empty workspace 1 — which reads as "everything is gone" even though nothing
@@ -144,7 +178,7 @@ const ACTIVE_WORKSPACE_KEY = 'imbatranimos:active-workspace'
  */
 export function saveActiveWorkspace(id: WorkspaceId): void {
   try {
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, String(id))
+    sessionStore()?.setItem(ACTIVE_WORKSPACE_KEY, String(id))
   } catch {
     // quota exceeded or private mode — silently skip
   }
@@ -152,7 +186,7 @@ export function saveActiveWorkspace(id: WorkspaceId): void {
 
 export function loadActiveWorkspace(): WorkspaceId {
   try {
-    return clampWorkspace(localStorage.getItem(ACTIVE_WORKSPACE_KEY) ?? 1)
+    return clampWorkspace(sessionStore()?.getItem(ACTIVE_WORKSPACE_KEY) ?? 1)
   } catch {
     return 1
   }
@@ -171,7 +205,7 @@ export function saveLayout(windows: WindowInstance[]): void {
     snapState: w.snapState,
   }))
   try {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(data))
+    sessionStore()?.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(data))
   } catch {
     // quota exceeded or private mode — silently skip
   }
@@ -179,7 +213,7 @@ export function saveLayout(windows: WindowInstance[]): void {
 
 export function loadLayout(): PersistedWindow[] {
   try {
-    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY)
+    const raw = sessionStore()?.getItem(LAYOUT_STORAGE_KEY)
     if (!raw) return []
     return JSON.parse(raw) as PersistedWindow[]
   } catch {
@@ -188,7 +222,7 @@ export function loadLayout(): PersistedWindow[] {
 }
 
 export function clearLayout(): void {
-  localStorage.removeItem(LAYOUT_STORAGE_KEY)
+  sessionStore()?.removeItem(LAYOUT_STORAGE_KEY)
 }
 
 // ── Snap geometry helpers ─────────────────────────────────────────────────────
