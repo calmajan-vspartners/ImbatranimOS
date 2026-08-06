@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, X } from 'lucide-react'
-import { Button, Select, cn } from '@imbatranim/core'
+import { Button, Select, cn } from '@imbatranim/ui'
 import { useNow } from '../useNow'
 import { formatDateInZone, formatTimeInZone, formatUtcOffset } from '../format'
 import { CURATED_TIMEZONES, timeZoneLabel } from '../timezones'

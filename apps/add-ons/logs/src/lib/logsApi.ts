@@ -1,4 +1,4 @@
-import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 import type { LogEntry, LogLevel } from './logFormat'
 
 export interface LogPage {
@@ -6,12 +6,17 @@ export interface LogPage {
   truncated: boolean
 }
 
-export async function fetchLogs(params: {
-  level?: LogLevel
-  q?: string
-  limit?: number
-}): Promise<LogPage> {
-  const res = await api.get<LogPage>('/logs', {
+// Plain function, not a hook, so the capability arrives as the first argument
+// (brief 48): the calling component owns the handle.
+export async function fetchLogs(
+  http: SystemHttp,
+  params: {
+    level?: LogLevel
+    q?: string
+    limit?: number
+  }
+): Promise<LogPage> {
+  const res = await http.get<LogPage>('/logs', {
     params: {
       ...(params.level ? { level: params.level } : {}),
       ...(params.q ? { q: params.q } : {}),

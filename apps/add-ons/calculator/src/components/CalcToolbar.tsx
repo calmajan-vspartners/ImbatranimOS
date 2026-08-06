@@ -1,5 +1,5 @@
 import { Check, Copy, ListOrdered } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 
 /**
  * The compact row between the display and the keypad: memory keys, the tape toggle, and the

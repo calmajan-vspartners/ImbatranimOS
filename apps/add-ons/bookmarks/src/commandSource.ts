@@ -1,7 +1,14 @@
-import type { CommandSource, CommandItem } from '@imbatranim/core'
+import { api, type CommandSource, type CommandItem } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 import { fetchGroups } from './api/bookmarksApi'
 import { folderPath } from './tree'
 import type { BookmarkLink } from './types'
+
+// Command sources are registered from the manifest and run with no mount and no
+// injected handle — the protocol (brief 48) has no capability for them yet. Until
+// it grows one, this is the app's single remaining direct capability import,
+// shaped as the protocol's http so `fetchGroups` stays handle-first.
+const http = api as unknown as SystemHttp
 
 const GROUP = 'Bookmarks'
 
@@ -23,7 +30,7 @@ export const bookmarksSource: CommandSource = {
 
   async search(query: string): Promise<CommandItem[]> {
     try {
-      const groups = await fetchGroups()
+      const groups = await fetchGroups(http)
       const needle = query.trim().toLowerCase()
 
       // Searching the folder path too is the point of the palette after brief 75:

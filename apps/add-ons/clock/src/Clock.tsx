@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Clock4, Timer as TimerIcon, AlarmClock, Hourglass } from 'lucide-react'
-import { cn, queryClient } from '@imbatranim/core'
+import { cn, queryClient, useSystem } from '@imbatranim/ui'
 import { ClockTab } from './tabs/ClockTab'
 import { Stopwatch } from './tabs/Stopwatch'
 import { Timer } from './tabs/Timer'
@@ -37,6 +37,7 @@ function TabIcon({ tab, active }: { tab: Tab; active: boolean }) {
 // Window contract: ComponentType<{ windowId: string }>. Single-instance app —
 // windowId is unused (no per-window state to key on).
 export function Clock({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const [tab, setTab] = useState<Tab>('clock')
   const ringingCount = useClockStore((s) => s.ringing.length)
   const runningTimers = useClockStore((s) => s.timers.filter((t) => t.running).length)
@@ -45,12 +46,12 @@ export function Clock({ windowId: _windowId }: { windowId: string }) {
   // module-level flag here, and the server refusing to import into a non-empty
   // table.
   useEffect(() => {
-    void migrateLegacyClockState().then((imported) => {
+    void migrateLegacyClockState(system).then((imported) => {
       if (!imported) return
       void queryClient.invalidateQueries({ queryKey: ALARMS_KEY })
       void queryClient.invalidateQueries({ queryKey: WORLD_CLOCKS_KEY })
     })
-  }, [])
+  }, [system])
 
   const tabs: Tab[] = ['clock', 'stopwatch', 'timer', 'alarms']
 

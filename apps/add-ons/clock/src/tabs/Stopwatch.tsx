@@ -1,5 +1,5 @@
 import { Flag, Play, Pause, RotateCcw } from 'lucide-react'
-import { Button } from '@imbatranim/core'
+import { Button } from '@imbatranim/ui'
 import { useClockStore } from '../clockStore'
 import { useNow } from '../useNow'
 import { formatStopwatch } from '../format'

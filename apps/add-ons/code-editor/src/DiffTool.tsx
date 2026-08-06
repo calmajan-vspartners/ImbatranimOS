@@ -5,18 +5,14 @@ import type * as monaco from 'monaco-editor'
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
   fileName,
-  notify,
-  recordRecentFile,
   reportFileFailure,
   reportFileRefusal,
-  uploadFileBytes,
   useFileDialog,
-  useIntentStore,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import './monacoSetup'
 import { languageForPath } from './language'
 
@@ -63,7 +59,8 @@ function looksBinary(bytes: Uint8Array): boolean {
  * looking at the diff" is what makes this a tool rather than a viewer. The
  * left side is read-only context.
  */
-export function DiffTool({ windowId }: { windowId: string }) {
+export function DiffTool({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const [left, setLeft] = useState<Side | null>(null)
   const [right, setRight] = useState<Side | null>(null)
   const [loading, setLoading] = useState(false)
@@ -73,40 +70,45 @@ export function DiffTool({ windowId }: { windowId: string }) {
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const savedTextRef = useRef('')
 
-  const { openFile, fileDialog } = useFileDialog()
+  const { openFile } = useFileDialog()
 
-  const loadSide = useCallback(async (which: 'left' | 'right', root: string, path: string) => {
-    setLoading(true)
-    try {
-      const bytes = new Uint8Array(await fetchFileBytes(root, path))
-      if (bytes.byteLength > MAX_DIFF_BYTES) {
-        reportFileRefusal(
-          `over 5 MB — the diff holds both files in memory whole; use the terminal's diff for something this size`,
-          { appId: 'diff', name: fileName(path) }
-        )
-        return
+  const loadSide = useCallback(
+    async (which: 'left' | 'right', root: string, path: string) => {
+      setLoading(true)
+      try {
+        const bytes = new Uint8Array(await system.fs.read(root, path))
+        if (bytes.byteLength > MAX_DIFF_BYTES) {
+          reportFileRefusal(
+            system,
+            `over 5 MB — the diff holds both files in memory whole; use the terminal's diff for something this size`,
+            { name: fileName(path) }
+          )
+          return
+        }
+        if (looksBinary(bytes)) {
+          reportFileRefusal(
+            system,
+            `looks binary — a text diff of it would be garbage rather than a comparison`,
+            { name: fileName(path) }
+          )
+          return
+        }
+        const side: Side = { root, path, text: decoder.decode(bytes) }
+        if (which === 'left') setLeft(side)
+        else {
+          setRight(side)
+          savedTextRef.current = side.text
+          setDirty(false)
+        }
+        system.fs.recordRecent(root, path)
+      } catch (err) {
+        reportFileFailure(system, 'open', err, { noun: 'file', name: fileName(path) })
+      } finally {
+        setLoading(false)
       }
-      if (looksBinary(bytes)) {
-        reportFileRefusal(
-          `looks binary — a text diff of it would be garbage rather than a comparison`,
-          { appId: 'diff', name: fileName(path) }
-        )
-        return
-      }
-      const side: Side = { root, path, text: decoder.decode(bytes) }
-      if (which === 'left') setLeft(side)
-      else {
-        setRight(side)
-        savedTextRef.current = side.text
-        setDirty(false)
-      }
-      recordRecentFile(root, path, 'diff')
-    } catch (err) {
-      reportFileFailure('open', err, { appId: 'diff', noun: 'file', name: fileName(path) })
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    },
+    [system]
+  )
 
   // Drain the one-shot open intent exactly once in a ref-guarded effect (the
   // brief-30 StrictMode rule): the file manager's Compare hands both sides.
@@ -114,7 +116,7 @@ export function DiffTool({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (consumedRef.current) return
     consumedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as DiffIntent | undefined
+    const intent = system.intents.consume<DiffIntent>()
     // Draining a one-shot intent IS the "sync from an external system" an
     // effect is for, and it runs at most once (ref-guarded). Same scoped
     // disable Notepad and the file manager use for the identical drain.
@@ -124,7 +126,7 @@ export function DiffTool({ windowId }: { windowId: string }) {
       void loadSide('right', intent.rightRoot, intent.rightPath)
     // Mount-once drain.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowId])
+  }, [system])
 
   const pick = useCallback(
     async (which: 'left' | 'right') => {
@@ -141,23 +143,22 @@ export function DiffTool({ windowId }: { windowId: string }) {
     if (!editor || !right) return
     const text = editor.getModifiedEditor().getValue()
     try {
-      await uploadFileBytes(right.root, right.path, encoder.encode(text), fileName(right.path))
+      await system.fs.upload(right.root, right.path, encoder.encode(text), fileName(right.path))
       savedTextRef.current = text
       setRight((r) => (r ? { ...r, text } : r))
       setDirty(false)
-      notify({
+      system.notify({
         title: 'Saved',
         body: fileName(right.path),
-        appId: 'diff',
         level: 'info',
       })
     } catch (err) {
-      reportFileFailure('save', err, { appId: 'diff', noun: 'file', name: fileName(right.path) })
+      reportFileFailure(system, 'save', err, { noun: 'file', name: fileName(right.path) })
     }
-  }, [right])
+  }, [right, system])
 
-  useSaveHotkey(windowId, () => void save())
-  useUnsavedGuard(windowId, dirty, right ? fileName(right.path) : 'Diff')
+  useSaveHotkey(() => void save())
+  useUnsavedGuard(dirty, right ? fileName(right.path) : 'Diff')
 
   const theme = useMemo(
     () =>
@@ -279,7 +280,6 @@ export function DiffTool({ windowId }: { windowId: string }) {
           </div>
         )}
       </div>
-      {fileDialog}
     </div>
   )
 }

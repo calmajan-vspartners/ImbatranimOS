@@ -14,11 +14,11 @@ import {
   ScrollArea,
   Select,
   cn,
-  notify,
   useConfirm,
   useFileDialog,
   usePrompt,
-} from '@imbatranim/core'
+  useSystem,
+} from '@imbatranim/ui'
 import {
   amendCommit,
   applyPatch,
@@ -50,7 +50,8 @@ import { RecentRepos, RepoBar } from './components/RepoBar'
 type Selection = { path: string; staged: boolean } | null
 type RightTab = 'diff' | 'history'
 
-export function GitGui({ windowId }: { windowId: string }) {
+export function GitGui({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const [root, setRoot] = useState<string>('home')
   const [pathInput, setPathInput] = useState<string>('')
   const [repo, setRepo] = useState<{ root: string; path: string } | null>(null)
@@ -80,43 +81,46 @@ export function GitGui({ windowId }: { windowId: string }) {
 
   const { confirm, confirmDialog } = useConfirm()
   const { prompt, promptDialog } = usePrompt()
-  const { pickDirectory: chooseDirectory, fileDialog } = useFileDialog(windowId)
+  const { pickDirectory: chooseDirectory } = useFileDialog()
 
   const loadRecents = useCallback(() => {
-    fetchRecents()
+    fetchRecents(system.http)
       .then((res) => setRecents(res.repos))
       .catch(() => setRecents([]))
-  }, [])
+  }, [system])
 
   useEffect(loadRecents, [loadRecents])
 
-  const reload = useCallback(async (r: string, p: string): Promise<boolean> => {
-    setBusy(true)
-    setError(null)
-    try {
-      const [status, log, branchState, stashState] = await Promise.all([
-        fetchStatus(r, p),
-        fetchLog(r, p),
-        fetchBranches(r, p),
-        fetchStashes(r, p),
-      ])
-      setEntries(status.entries)
-      setCommits(log.commits)
-      setBranches(branchState)
-      setStashes(stashState.stashes)
-      setChecked(new Set())
-      return true
-    } catch (err) {
-      setError(errorMessage(err, 'Could not open repository'))
-      setEntries([])
-      setCommits([])
-      setBranches(null)
-      setStashes([])
-      return false
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+  const reload = useCallback(
+    async (r: string, p: string): Promise<boolean> => {
+      setBusy(true)
+      setError(null)
+      try {
+        const [status, log, branchState, stashState] = await Promise.all([
+          fetchStatus(system.http, r, p),
+          fetchLog(system.http, r, p),
+          fetchBranches(system.http, r, p),
+          fetchStashes(system.http, r, p),
+        ])
+        setEntries(status.entries)
+        setCommits(log.commits)
+        setBranches(branchState)
+        setStashes(stashState.stashes)
+        setChecked(new Set())
+        return true
+      } catch (err) {
+        setError(errorMessage(err, 'Could not open repository'))
+        setEntries([])
+        setCommits([])
+        setBranches(null)
+        setStashes([])
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [system]
+  )
 
   const openRepo = useCallback(
     (r: string, p: string) => {
@@ -129,19 +133,19 @@ export function GitGui({ windowId }: { windowId: string }) {
         // Only remember a repo that actually opened; a failed open leaves the
         // recents list clean instead of accumulating dead entries.
         if (!ok) return
-        return rememberRepo(r, p)
+        return rememberRepo(system.http, r, p)
           .then(loadRecents)
           .catch(() => undefined)
       })
     },
-    [reload, loadRecents]
+    [reload, loadRecents, system]
   )
 
   // Load the diff whenever the selected file changes.
   useEffect(() => {
     if (!repo || !selection) return
     let cancelled = false
-    fetchDiff(repo.root, repo.path, selection.staged, selection.path)
+    fetchDiff(system.http, repo.root, repo.path, selection.staged, selection.path)
       .then((res) => {
         if (cancelled) return
         setDiff(res.diff)
@@ -157,13 +161,19 @@ export function GitGui({ windowId }: { windowId: string }) {
     return () => {
       cancelled = true
     }
-  }, [repo, selection])
+  }, [repo, selection, system])
 
   const refresh = useCallback(async () => {
     if (!repo) return
     await reload(repo.root, repo.path)
     if (selection) {
-      const res = await fetchDiff(repo.root, repo.path, selection.staged, selection.path)
+      const res = await fetchDiff(
+        system.http,
+        repo.root,
+        repo.path,
+        selection.staged,
+        selection.path
+      )
         .then((r) => {
           setDiffError(null)
           return r
@@ -174,7 +184,7 @@ export function GitGui({ windowId }: { windowId: string }) {
         })
       setDiff(res.diff)
     }
-  }, [repo, reload, selection])
+  }, [repo, reload, selection, system])
 
   /** One wrapper for every mutating action: busy, error, refresh, notify. */
   const run = useCallback(
@@ -188,12 +198,12 @@ export function GitGui({ windowId }: { windowId: string }) {
       } catch (err) {
         const msg = errorMessage(err, `${label} failed`)
         setError(msg)
-        notify({ level: 'error', title: `${label} failed`, body: msg, appId: 'git-gui' })
+        system.notify({ level: 'error', title: `${label} failed`, body: msg })
       } finally {
         setBusy(false)
       }
     },
-    [repo, reload]
+    [repo, reload, system]
   )
 
   const toggleCheck = useCallback((key: string) => {
@@ -217,8 +227,8 @@ export function GitGui({ windowId }: { windowId: string }) {
   const doStage = (paths: string[], stage: boolean) =>
     void run(stage ? 'Stage' : 'Unstage', async () => {
       if (!repo || paths.length === 0) return
-      if (stage) await stagePaths(repo.root, repo.path, paths)
-      else await unstagePaths(repo.root, repo.path, paths)
+      if (stage) await stagePaths(system.http, repo.root, repo.path, paths)
+      else await unstagePaths(system.http, repo.root, repo.path, paths)
     })
 
   const doDiscard = (paths: string[]) => {
@@ -236,12 +246,11 @@ export function GitGui({ windowId }: { windowId: string }) {
       })
       if (!ok) return
       await run('Discard', async () => {
-        await discardPaths(repo.root, repo.path, paths)
-        notify({
+        await discardPaths(system.http, repo.root, repo.path, paths)
+        system.notify({
           level: 'success',
           title: 'Changes discarded',
           body: `${paths.length} file${paths.length === 1 ? '' : 's'} restored from HEAD.`,
-          appId: 'git-gui',
         })
       })
     })()
@@ -263,10 +272,10 @@ export function GitGui({ windowId }: { windowId: string }) {
         if (!ok) return
       }
       await run('Switch', async () => {
-        await switchBranch(repo.root, repo.path, name)
+        await switchBranch(system.http, repo.root, repo.path, name)
         setSelection(null)
         setDiff('')
-        notify({ level: 'success', title: `On ${name}`, appId: 'git-gui' })
+        system.notify({ level: 'success', title: `On ${name}` })
       })
     })()
   }
@@ -281,8 +290,8 @@ export function GitGui({ windowId }: { windowId: string }) {
       })
       if (name === null) return
       await run('Create branch', async () => {
-        await createBranch(repo.root, repo.path, name)
-        notify({ level: 'success', title: `Created ${name}`, appId: 'git-gui' })
+        await createBranch(system.http, repo.root, repo.path, name)
+        system.notify({ level: 'success', title: `Created ${name}` })
       })
     })()
   }
@@ -297,10 +306,10 @@ export function GitGui({ windowId }: { windowId: string }) {
       })
       if (label === null) return
       await run('Stash', async () => {
-        await stashPush(repo.root, repo.path, label || undefined)
+        await stashPush(system.http, repo.root, repo.path, label || undefined)
         setSelection(null)
         setDiff('')
-        notify({ level: 'success', title: 'Changes stashed', appId: 'git-gui' })
+        system.notify({ level: 'success', title: 'Changes stashed' })
       })
     })()
   }
@@ -308,29 +317,28 @@ export function GitGui({ windowId }: { windowId: string }) {
   const doStashPop = () =>
     void run('Pop stash', async () => {
       if (!repo) return
-      await stashPop(repo.root, repo.path)
-      notify({ level: 'success', title: 'Stash restored', appId: 'git-gui' })
+      await stashPop(system.http, repo.root, repo.path)
+      system.notify({ level: 'success', title: 'Stash restored' })
     })
 
   const doCommit = () =>
     void run('Commit', async () => {
       if (!repo || message.trim().length === 0) return
-      await apiCommit(repo.root, repo.path, message.trim())
+      await apiCommit(system.http, repo.root, repo.path, message.trim())
       setMessage('')
       setTab('history')
-      notify({ level: 'success', title: 'Committed', appId: 'git-gui' })
+      system.notify({ level: 'success', title: 'Committed' })
     })
 
   const doAmend = () => {
     void (async () => {
       if (!repo) return
-      const previous = await fetchLastMessage(repo.root, repo.path).catch(() => '')
+      const previous = await fetchLastMessage(system.http, repo.root, repo.path).catch(() => '')
       if (!previous) {
-        notify({
+        system.notify({
           level: 'info',
           title: 'Nothing to amend',
           body: 'There is no commit yet.',
-          appId: 'git-gui',
         })
         return
       }
@@ -342,10 +350,10 @@ export function GitGui({ windowId }: { windowId: string }) {
       })
       if (next === null) return
       await run('Amend', async () => {
-        await amendCommit(repo.root, repo.path, next)
+        await amendCommit(system.http, repo.root, repo.path, next)
         setMessage('')
         setTab('history')
-        notify({ level: 'success', title: 'Commit amended', appId: 'git-gui' })
+        system.notify({ level: 'success', title: 'Commit amended' })
       })
     })()
   }
@@ -353,8 +361,9 @@ export function GitGui({ windowId }: { windowId: string }) {
   const doApplyHunk = (patch: string, reverse: boolean) =>
     void run(reverse ? 'Unstage hunk' : 'Stage hunk', async () => {
       if (!repo) return
-      await applyPatch(repo.root, repo.path, patch, reverse)
+      await applyPatch(system.http, repo.root, repo.path, patch, reverse)
       const res = await fetchDiff(
+        system.http,
         repo.root,
         repo.path,
         selection?.staged ?? false,
@@ -420,7 +429,6 @@ export function GitGui({ windowId }: { windowId: string }) {
             onForget={(r) => void forgetRepo(r.root, r.path).then(loadRecents)}
           />
         </div>
-        {fileDialog}
       </div>
     )
   }
@@ -580,7 +588,6 @@ export function GitGui({ windowId }: { windowId: string }) {
 
       {confirmDialog}
       {promptDialog}
-      {fileDialog}
     </div>
   )
 }

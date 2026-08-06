@@ -8,7 +8,7 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { Button, cn, notify, useVirtualList } from '@imbatranim/core'
+import { Button, cn, useSystem, useVirtualList } from '@imbatranim/ui'
 import { eventLabel, formatWhen, summarise, type LogEntry, type LogLevel } from './lib/logFormat'
 import { errorMessage, fetchLogs } from './lib/logsApi'
 import { APP_NAME } from './appName'
@@ -37,6 +37,7 @@ const LEVELS: { id: LogLevel; label: string }[] = [
  * size-capped tail, and would be slower on exactly the log that needs it most.
  */
 export function Logs() {
+  const system = useSystem()
   const [level, setLevel] = useState<LogLevel | null>(null)
   const [query, setQuery] = useState('')
   const [follow, setFollow] = useState(false)
@@ -51,7 +52,7 @@ export function Logs() {
     async (quiet: boolean) => {
       if (!quiet) setLoading(true)
       try {
-        const page = await fetchLogs({
+        const page = await fetchLogs(system.http, {
           level: level ?? undefined,
           q: query.trim() || undefined,
         })
@@ -64,13 +65,13 @@ export function Logs() {
         // outage into a toast every three seconds.
         if (!notifiedRef.current) {
           notifiedRef.current = true
-          notify({ title: 'Cannot read the log', body: message, level: 'error', appId: 'logs' })
+          system.notify({ title: 'Cannot read the log', body: message, level: 'error' })
         }
       } finally {
         setLoading(false)
       }
     },
-    [level, query]
+    [level, query, system]
   )
 
   // Debounced so typing in the filter is one request, not one per keystroke.

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { notify, claimScheduleOccurrence } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { getClockState, useClockStore } from './clockStore'
 import { dueOccurrence, firedPatch } from './alarmSchedule'
 import { formatClockDuration } from './format'
@@ -28,14 +28,18 @@ const ALARMS_REFETCH_MS = 60_000
  * - The due check is `dueOccurrence` over a `(lastTick, now]` window rather
  *   than minute-equality — hidden tabs throttle intervals to ~1/min, and a
  *   tick landing at 07:00:45 must still catch the 07:00 alarm.
- * - The toast is gated on `claimScheduleOccurrence`, so two desktop tabs
+ * - The toast is gated on `system.schedule.claim`, so two desktop tabs
  *   produce one notification. The cache patch, the PATCH and the in-window
  *   ring banner are idempotent and happen in every tab regardless.
  *
  * Timers stay unclaimed: they are session state in this tab's store, so no
  * other tab can race them.
+ *
+ * Mounted windowless, so the handle's `window.*` is inert — only notify,
+ * schedule and http are touched here.
  */
 export function ClockBackground() {
+  const system = useSystem()
   useAlarmsQuery({ refetchIntervalMs: ALARMS_REFETCH_MS })
 
   // Seeded inside the effect (render must stay pure): the window opens at
@@ -59,7 +63,7 @@ export function ClockBackground() {
         // not the observing tick's.
         const patch = firedPatch(alarm, new Date(due.occurrenceMs))
         applyAlarmPatchLocally(alarm.id, patch)
-        void patchAlarm(alarm.id, patch)
+        void patchAlarm(system.http, alarm.id, patch)
           .catch(() => undefined)
           .finally(() => invalidateAlarms())
 
@@ -72,34 +76,30 @@ export function ClockBackground() {
           at: due.occurrenceMs,
         })
 
-        void claimScheduleOccurrence('clock', String(alarm.id), due.occurrenceMs).then(
-          (claimed) => {
-            if (!claimed) return
-            notify({
-              title: due.reason === 'snooze' ? 'Alarm (snoozed)' : 'Alarm',
-              body: alarm.label ? `${alarm.label} — ${alarm.time}` : `It's ${alarm.time}`,
-              appId: 'clock',
-              level: 'info',
-            })
-          }
-        )
+        void system.schedule.claim('clock', String(alarm.id), due.occurrenceMs).then((claimed) => {
+          if (!claimed) return
+          system.notify({
+            title: due.reason === 'snooze' ? 'Alarm (snoozed)' : 'Alarm',
+            body: alarm.label ? `${alarm.label} — ${alarm.time}` : `It's ${alarm.time}`,
+            level: 'info',
+          })
+        })
       }
 
       const nowMs = now.getTime()
       for (const timer of getClockState().timers) {
         if (!isDue(timer, nowMs)) continue
         useClockStore.getState().completeTimer(timer.id)
-        notify({
+        system.notify({
           title: 'Timer finished',
           body: completionBody(timer, formatClockDuration(timer.durationMs)),
-          appId: 'clock',
           level: 'info',
         })
       }
     }, 1000)
 
     return () => clearInterval(id)
-  }, [])
+  }, [system])
 
   return null
 }

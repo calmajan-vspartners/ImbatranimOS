@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toSignIns, type LogEntry } from '@imbatranim/core'
+import { toSignIns, type LogEntry } from '@imbatranim/ui'
 import { eventLabel, formatWhen, knownEvents, relativeTime, summarise } from './logFormat'
 
 const entry = (over: Partial<LogEntry> = {}): LogEntry => ({

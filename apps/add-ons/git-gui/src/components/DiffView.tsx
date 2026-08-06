@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Columns2, Minus, Plus, Rows3 } from 'lucide-react'
-import { Button, ScrollArea, cn } from '@imbatranim/core'
+import { Button, ScrollArea, cn } from '@imbatranim/ui'
 import {
   hunkStats,
   parseDiff,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RotateCcw, Undo2 } from 'lucide-react'
-import { Button, ScrollArea, Select, cn, useRegisteredHotkeys } from '@imbatranim/core'
+import { Button, ScrollArea, Select, cn, useRegisteredHotkeys } from '@imbatranim/ui'
 import {
   autoFinishStep,
   autoPlace,

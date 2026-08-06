@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bomb, Flag, Trophy } from 'lucide-react'
-import { Button, ScrollArea, Select, cn, useRegisteredHotkeys } from '@imbatranim/core'
+import { Button, ScrollArea, Select, cn, useRegisteredHotkeys } from '@imbatranim/ui'
 import {
   PRESETS,
   chord,

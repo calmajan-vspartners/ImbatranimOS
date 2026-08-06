@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { queryClient } from '@imbatranim/core'
+import { queryClient, useSystem } from '@imbatranim/ui'
 import { createEvent, deleteEvent, fetchEvents, importEvents, patchEvent } from '../api/calendarApi'
 import type { CalendarEvent, CalendarEventInput } from '../types'
 
@@ -19,9 +19,10 @@ export function invalidateEvents(): void {
 }
 
 export function useEventsQuery(options?: { refetchIntervalMs?: number }) {
+  const system = useSystem()
   return useQuery({
     queryKey: EVENTS_KEY,
-    queryFn: fetchEvents,
+    queryFn: () => fetchEvents(system.http),
     // The background service (brief 93) keeps this cache warm for the reminder
     // watcher even with no Calendar window open — and keeps polling while the
     // tab is hidden, because that is exactly when a reminder must still fire.
@@ -31,16 +32,18 @@ export function useEventsQuery(options?: { refetchIntervalMs?: number }) {
 }
 
 export function useCreateEventMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (input: CalendarEventInput) => createEvent(input),
+    mutationFn: (input: CalendarEventInput) => createEvent(system.http, input),
     onSettled: invalidateEvents,
   })
 }
 
 export function usePatchEventMutation() {
+  const system = useSystem()
   return useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: Partial<CalendarEventInput> }) =>
-      patchEvent(id, patch),
+      patchEvent(system.http, id, patch),
     // Optimistic: an edited event must move on the grid immediately, not after a
     // round trip — the grid is the feedback.
     onMutate: async ({ id, patch }) => {
@@ -59,8 +62,9 @@ export function usePatchEventMutation() {
 }
 
 export function useDeleteEventMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteEvent(id),
+    mutationFn: (id: number) => deleteEvent(system.http, id),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: EVENTS_KEY })
       const previous = queryClient.getQueryData<CalendarEvent[]>(EVENTS_KEY)
@@ -77,8 +81,9 @@ export function useDeleteEventMutation() {
 }
 
 export function useImportEventsMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (events: CalendarEventInput[]) => importEvents(events, false),
+    mutationFn: (events: CalendarEventInput[]) => importEvents(system.http, events, false),
     onSettled: invalidateEvents,
   })
 }

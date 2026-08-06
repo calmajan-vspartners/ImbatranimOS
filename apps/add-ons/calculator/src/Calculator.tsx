@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { BasicPad } from './BasicPad'
 import { ProgrammerPad } from './ProgrammerPad'
 import { ScientificPad } from './ScientificPad'

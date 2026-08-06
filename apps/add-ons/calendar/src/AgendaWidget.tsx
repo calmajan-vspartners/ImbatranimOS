@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import dayjs from 'dayjs'
-import { openApp } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { useEventsQuery } from './queries/calendarQueries'
 import { expandOccurrences } from './recurrence'
 
@@ -13,6 +13,7 @@ const MAX_ROWS = 4
  * requests while either is alive.
  */
 export function AgendaWidget() {
+  const system = useSystem()
   const { data: events } = useEventsQuery()
 
   const today = useMemo(() => {
@@ -28,7 +29,7 @@ export function AgendaWidget() {
     <div className="flex h-full w-full flex-col px-2.5 py-1.5">
       <button
         type="button"
-        onClick={() => openApp('calendar')}
+        onClick={() => system.intents.openApp('calendar')}
         className="font-ui text-on-surface-variant hover:text-on-surface w-fit text-left text-[9px] font-semibold tracking-widest uppercase outline-none"
       >
         Today

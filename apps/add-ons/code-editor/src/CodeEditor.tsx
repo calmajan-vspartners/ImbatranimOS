@@ -5,19 +5,17 @@ import {
   Button,
   Tooltip,
   UploadTooLargeError,
-  api,
   cn,
-  fetchFileBytes,
   fileName,
-  uploadFileBytes,
   useConfirm,
   useFileDialog,
   useOpenIntent,
-  useAppearanceStore,
   usePrompt,
   useSaveHotkey,
+  useSystem,
+  useSystemAppearance,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 // Side-effect: point @monaco-editor/react at the bundled Monaco and wire the
 // same-origin web workers. MUST run before the editor first renders.
 import './monacoSetup'
@@ -69,14 +67,16 @@ function invalidNameReason(name: string): string | null {
   return null
 }
 
-export function CodeEditor({ windowId }: { windowId: string }) {
+export function CodeEditor({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
+
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, saveFile, pickDirectory, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile, pickDirectory } = useFileDialog()
   const { confirm, confirmDialog } = useConfirm()
   const { prompt, promptDialog } = usePrompt()
   const pickFile = () => void openFile({})
@@ -111,12 +111,12 @@ export function CodeEditor({ windowId }: { windowId: string }) {
 
   // Reflect the active filename + a dirty marker in the window title, and warn
   // before closing while any tab has unsaved changes.
-  useUnsavedGuard(windowId, anyDirty, activeName)
+  useUnsavedGuard(anyDirty, activeName)
 
   // Subscribed, not read once at mount: changing the desktop appearance in
   // Settings has to restyle an already-open editor, which a `useMemo(…, [])`
   // over `matchMedia` could not do (it froze Monaco's theme at mount).
-  const appearanceTheme = useAppearanceStore((s) => s.theme)
+  const { theme: appearanceTheme } = useSystemAppearance()
   const theme = appearanceTheme === 'dark' ? 'vs-dark' : 'vs'
 
   const options = useMemo(
@@ -243,7 +243,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
       setError(null)
       for (const t of toLoad) {
         try {
-          const bytes = await fetchFileBytes(t.root, t.path)
+          const bytes = await system.fs.read(t.root, t.path)
           pendingContentRef.current.set(t.id, decoder.decode(bytes))
           const tab: Tab = {
             id: t.id,
@@ -264,7 +264,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
       }
       setLoading(false)
     })()
-  }, [source])
+  }, [source, system])
 
   // Record the on-disk tabs for this session on every change.
   useEffect(() => {
@@ -310,7 +310,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
         // advances and the tab stays dirty (those edits aren't on disk yet).
         const uploadedVersion = model.getAlternativeVersionId()
         const text = model.getValue()
-        await uploadFileBytes(root, path, encoder.encode(text), name)
+        await system.fs.upload(root, path, encoder.encode(text), name)
         savedVersionRef.current.set(id, uploadedVersion)
         recomputeDirty(id)
         return true
@@ -326,7 +326,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
         setSaving(false)
       }
     },
-    [recomputeDirty]
+    [recomputeDirty, system]
   )
 
   const handleSaveAs = useCallback(async () => {
@@ -403,7 +403,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   }, [activeId, tabs, saving, writeTab, handleSaveAs])
 
   // Ctrl/Cmd+S saves the active tab — only for the top-most window.
-  useSaveHotkey(windowId, handleSave)
+  useSaveHotkey(handleSave)
 
   const handleNewFile = useCallback(async () => {
     const raw = await prompt({
@@ -449,7 +449,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
       return
     }
     try {
-      await api.post('/files/directory', {
+      await system.http.post('/files/directory', {
         root: where.root,
         path: where.path ? `${where.path}/${name}` : name,
       })
@@ -458,7 +458,7 @@ export function CodeEditor({ windowId }: { windowId: string }) {
       console.error('[code-editor] failed to create folder', err)
       setError('Could not create that folder.')
     }
-  }, [pickDirectory, prompt])
+  }, [pickDirectory, prompt, system])
 
   const closeTab = useCallback(
     async (id: string) => {
@@ -710,7 +710,6 @@ export function CodeEditor({ windowId }: { windowId: string }) {
         )}
       </div>
 
-      {fileDialog}
       {confirmDialog}
       {promptDialog}
     </div>

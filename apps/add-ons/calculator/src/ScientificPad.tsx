@@ -1,5 +1,5 @@
 import { useCallback, useReducer, useState } from 'react'
-import { Button, cn } from '@imbatranim/core'
+import { Button, cn, useTopWindowKeydown } from '@imbatranim/ui'
 import {
   INITIAL_SCI_STATE,
   backspace,
@@ -11,7 +11,6 @@ import {
   type SciInputState,
 } from './engine/sciInput'
 import { fullPrecision, isRounded, type AngleMode } from './engine/evaluate'
-import { useTopWindowKeydown } from './hooks/useTopWindowKeydown'
 import { CalcToolbar } from './components/CalcToolbar'
 import { Tape } from './components/Tape'
 import type { CalcSession } from './hooks/useCalcSession'
@@ -104,7 +103,13 @@ const PAD_KEYS: Key[][] = [
  * calculator. The window's `minSize` is measured against this pad, which is the tallest of the
  * three.
  */
-export function ScientificPad({ windowId, session }: { windowId: string; session: CalcSession }) {
+export function ScientificPad({
+  windowId: _windowId,
+  session,
+}: {
+  windowId: string
+  session: CalcSession
+}) {
   const [state, dispatch] = useReducer(reducer, INITIAL_SCI_STATE)
   const [angleMode, setAngleMode] = useState<AngleMode>('deg')
   const [tapeOpen, setTapeOpen] = useState(false)
@@ -162,7 +167,7 @@ export function ScientificPad({ windowId, session }: { windowId: string; session
     },
     [equals]
   )
-  useTopWindowKeydown(windowId, onKey)
+  useTopWindowKeydown(onKey)
 
   const display = displayExpr(state)
   const isError = Boolean(state.error)

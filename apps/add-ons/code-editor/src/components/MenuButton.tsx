@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 
 export type MenuEntry =
   | {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import dayjs from 'dayjs'
 import { Repeat } from 'lucide-react'
-import { Button, Checkbox, Dialog, Input, Select, cn, useConfirm } from '@imbatranim/core'
+import { Button, Checkbox, Dialog, Input, Select, cn, useConfirm } from '@imbatranim/ui'
 import { COLOR_OPTIONS, COLOR_SWATCH } from './eventStyle'
 import { RecurrenceFields } from './RecurrenceFields'
 import { draftFromRule, ruleFromDraft, type RecurrenceDraft } from './recurrenceDraft'

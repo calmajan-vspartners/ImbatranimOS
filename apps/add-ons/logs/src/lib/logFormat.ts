@@ -1,6 +1,6 @@
-import type { LogEntry } from '@imbatranim/core'
+import type { LogEntry } from '@imbatranim/ui'
 
-export type { LogEntry, LogLevel, LogSource } from '@imbatranim/core'
+export type { LogEntry, LogLevel, LogSource } from '@imbatranim/ui'
 
 /**
  * Turn a dotted event name into something a person reads without a decoder ring.

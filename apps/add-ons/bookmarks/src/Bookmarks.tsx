@@ -20,13 +20,11 @@ import {
   ScrollArea,
   Select,
   UploadTooLargeError,
-  fetchFileBytes,
-  notify,
-  uploadFileBytes,
   useConfirm,
   useFileDialog,
   usePrompt,
-} from '@imbatranim/core'
+  useSystem,
+} from '@imbatranim/ui'
 import {
   useBookmarkGroupsQuery,
   useCreateGroupMutation,
@@ -246,7 +244,8 @@ function LinkRow({
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
-export function Bookmarks({ windowId }: { windowId: string }) {
+export function Bookmarks({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const { data: groups, isPending } = useBookmarkGroupsQuery()
   const createGroup = useCreateGroupMutation()
   const updateGroup = useUpdateGroupMutation()
@@ -257,7 +256,7 @@ export function Bookmarks({ windowId }: { windowId: string }) {
   const runImport = useImportMutation()
   const { confirm, confirmDialog } = useConfirm()
   const { prompt, promptDialog } = usePrompt()
-  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile } = useFileDialog()
 
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set())
@@ -396,10 +395,9 @@ export function Bookmarks({ windowId }: { windowId: string }) {
     // share a name, so asking the user to retype `Work / Specs` exactly would be a
     // spelling test. The dialog is rendered at the bottom of this component.
     if (all.length < 2) {
-      notify({
+      system.notify({
         title: 'Nowhere to move it',
         body: 'Create another folder first.',
-        appId: 'bookmarks',
         level: 'info',
       })
       return
@@ -424,7 +422,7 @@ export function Bookmarks({ windowId }: { windowId: string }) {
     if (!choice) return
     setBusy(true)
     try {
-      const bytes = await fetchFileBytes(choice.root, choice.path)
+      const bytes = await system.fs.read(choice.root, choice.path)
       const parsed = parseNetscape(new TextDecoder().decode(bytes))
       // Loose top-level bookmarks need somewhere to live; a browser export always
       // has folders, but a hand-written file may not.
@@ -436,35 +434,32 @@ export function Bookmarks({ windowId }: { windowId: string }) {
       const { folders: fresh, duplicates } = dedupeImport(folders, all)
       const counts = countTree(fresh)
       if (counts.links === 0 && counts.folders === 0) {
-        notify({
+        system.notify({
           title: 'Nothing to import',
           body:
             duplicates > 0
               ? `All ${duplicates} bookmarks in that file are already here.`
               : 'That file contained no web bookmarks.',
-          appId: 'bookmarks',
           level: 'info',
         })
         return
       }
 
       const result = await runImport.mutateAsync({ folders: fresh })
-      notify({
+      system.notify({
         title: 'Bookmarks imported',
         body:
           describeImport({ ...result, skipped: parsed.skipped, flattened: parsed.flattened }) +
           (duplicates > 0 ? ` ${duplicates} already here.` : ''),
-        appId: 'bookmarks',
         level: 'success',
       })
     } catch (error) {
       if (error instanceof UploadTooLargeError) {
-        notify({ title: 'That file is too large', appId: 'bookmarks', level: 'error' })
+        system.notify({ title: 'That file is too large', level: 'error' })
       } else {
-        notify({
+        system.notify({
           title: 'Could not read that file',
           body: 'It does not look like a bookmarks export.',
-          appId: 'bookmarks',
           level: 'error',
         })
       }
@@ -475,7 +470,7 @@ export function Bookmarks({ windowId }: { windowId: string }) {
 
   async function handleExport() {
     if (all.length === 0) {
-      notify({ title: 'Nothing to export', appId: 'bookmarks', level: 'info' })
+      system.notify({ title: 'Nothing to export', level: 'info' })
       return
     }
     const choice = await saveFile({
@@ -487,23 +482,21 @@ export function Bookmarks({ windowId }: { windowId: string }) {
     setBusy(true)
     try {
       const html = toNetscape(toParsedTree(buildTree(all)))
-      await uploadFileBytes(
+      await system.fs.upload(
         choice.root,
         choice.path,
         new TextEncoder().encode(html),
         choice.path.split('/').pop() ?? 'bookmarks.html'
       )
-      notify({
+      system.notify({
         title: 'Bookmarks exported',
         body: `${linkCount} bookmark${linkCount === 1 ? '' : 's'} written. Any browser can import this file.`,
-        appId: 'bookmarks',
         level: 'success',
       })
     } catch (error) {
-      notify({
+      system.notify({
         title: 'Export failed',
         body: error instanceof UploadTooLargeError ? error.message : 'The file was not written.',
-        appId: 'bookmarks',
         level: 'error',
       })
     } finally {
@@ -636,7 +629,6 @@ export function Bookmarks({ windowId }: { windowId: string }) {
       )}
       {confirmDialog}
       {promptDialog}
-      {fileDialog}
     </div>
   )
 }

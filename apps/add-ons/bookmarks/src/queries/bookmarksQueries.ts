@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { notify, queryClient } from '@imbatranim/core'
+import { queryClient, useSystem, type SystemHandle } from '@imbatranim/ui'
 import {
   createGroup,
   createLink,
@@ -30,11 +30,10 @@ export const GROUPS_KEY = ['bookmarks', 'groups'] as const
  * `onSuccess` only, so a rejected create or a refused move did nothing visible and
  * the row simply stayed as it was. That reads as the app ignoring the click.
  */
-function reportFailure(action: string): void {
-  notify({
+function reportFailure(system: SystemHandle, action: string): void {
+  system.notify({
     title: `Could not ${action}`,
     body: 'The change was not saved.',
-    appId: 'bookmarks',
     level: 'error',
   })
 }
@@ -47,84 +46,95 @@ export function peekGroups(): BookmarkGroup[] {
 }
 
 export function useBookmarkGroupsQuery() {
-  return useQuery({ queryKey: GROUPS_KEY, queryFn: fetchGroups })
+  const system = useSystem()
+  return useQuery({ queryKey: GROUPS_KEY, queryFn: () => fetchGroups(system.http) })
 }
 
 export function useCreateGroupMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (input: CreateGroupInput) => createGroup(input),
-    onError: () => reportFailure('create that folder'),
+    mutationFn: (input: CreateGroupInput) => createGroup(system.http, input),
+    onError: () => reportFailure(system, 'create that folder'),
     onSettled: invalidate,
   })
 }
 
 export function useUpdateGroupMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateGroupInput }) => updateGroup(id, data),
-    onError: () => reportFailure('save that folder'),
+    mutationFn: ({ id, data }: { id: number; data: UpdateGroupInput }) =>
+      updateGroup(system.http, id, data),
+    onError: () => reportFailure(system, 'save that folder'),
     onSettled: invalidate,
   })
 }
 
 export function useDeleteGroupMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteGroup(id),
-    onError: () => reportFailure('delete that folder'),
+    mutationFn: (id: number) => deleteGroup(system.http, id),
+    onError: () => reportFailure(system, 'delete that folder'),
     onSettled: invalidate,
   })
 }
 
 export function useCreateLinkMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (input: CreateLinkInput) => createLink(input),
-    onError: () => reportFailure('add that bookmark'),
+    mutationFn: (input: CreateLinkInput) => createLink(system.http, input),
+    onError: () => reportFailure(system, 'add that bookmark'),
     onSettled: invalidate,
   })
 }
 
 export function useUpdateLinkMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateLinkInput }) => updateLink(id, data),
-    onError: () => reportFailure('save that bookmark'),
+    mutationFn: ({ id, data }: { id: number; data: UpdateLinkInput }) =>
+      updateLink(system.http, id, data),
+    onError: () => reportFailure(system, 'save that bookmark'),
     onSettled: invalidate,
   })
 }
 
 export function useDeleteLinkMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteLink(id),
-    onError: () => reportFailure('delete that bookmark'),
+    mutationFn: (id: number) => deleteLink(system.http, id),
+    onError: () => reportFailure(system, 'delete that bookmark'),
     onSettled: invalidate,
   })
 }
 
 export function useReorderLinksMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (ids: number[]) => reorderLinks(ids),
-    onError: () => reportFailure('reorder those bookmarks'),
+    mutationFn: (ids: number[]) => reorderLinks(system.http, ids),
+    onError: () => reportFailure(system, 'reorder those bookmarks'),
     onSettled: invalidate,
   })
 }
 
 export function useReorderGroupsMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (ids: number[]) => reorderGroups(ids),
-    onError: () => reportFailure('reorder those folders'),
+    mutationFn: (ids: number[]) => reorderGroups(system.http, ids),
+    onError: () => reportFailure(system, 'reorder those folders'),
     onSettled: invalidate,
   })
 }
 
 export function useImportMutation() {
+  const system = useSystem()
   return useMutation({
     mutationFn: ({ folders, parentId }: { folders: ParsedFolder[]; parentId?: number }) =>
-      importBookmarks(folders, parentId),
+      importBookmarks(system.http, folders, parentId),
     // The import is one transaction, so a failure means nothing was written — say so,
     // because "nothing happened" is otherwise indistinguishable from "nothing to do".
     onError: () =>
-      notify({
+      system.notify({
         title: 'Import failed',
         body: 'No bookmarks were added.',
-        appId: 'bookmarks',
         level: 'error',
       }),
     onSettled: invalidate,

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Play, Pause, Plus, RotateCcw, X } from 'lucide-react'
-import { Button, Input, cn } from '@imbatranim/core'
+import { Button, Input, cn } from '@imbatranim/ui'
 import { MAX_TIMERS, useClockStore } from '../clockStore'
 import { useNow } from '../useNow'
 import { formatClockDuration } from '../format'

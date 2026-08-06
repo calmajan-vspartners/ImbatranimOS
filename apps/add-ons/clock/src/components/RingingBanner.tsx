@@ -1,5 +1,5 @@
 import { AlarmClock } from 'lucide-react'
-import { Button } from '@imbatranim/core'
+import { Button } from '@imbatranim/ui'
 import { SNOOZE_LABEL, snoozePatch } from '../alarmSchedule'
 import { useClockStore } from '../clockStore'
 import { usePatchAlarmMutation } from '../queries/clockQueries'

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, Trash2, Info, BellOff } from 'lucide-react'
-import { Button, Checkbox, Input, cn } from '@imbatranim/core'
+import { Button, Checkbox, Input, cn } from '@imbatranim/ui'
 import {
   DAY_LETTERS,
   EVERY_DAY,

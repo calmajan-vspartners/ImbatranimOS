@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import dayjs from 'dayjs'
-import { claimScheduleOccurrence, notify } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { expandOccurrences } from './recurrence'
 import { peekEvents } from './queries/calendarQueries'
 
@@ -51,7 +51,7 @@ function remember(key: string): void {
 }
 
 /**
- * Fires a `notify(...)` toast once per occurrence when `now` crosses
+ * Fires a `system.notify(...)` toast once per occurrence when `now` crosses
  * `start - reminderMinutes`. Runs a single ~1/min interval for as long as this hook
  * stays mounted. Since brief 93 it is mounted by `CalendarBackground` (the
  * manifest's desktop-lifetime service), so reminders fire while the desktop is
@@ -61,6 +61,7 @@ function remember(key: string): void {
  * callback lives outside React's render cycle and must not re-subscribe every minute.
  */
 export function useCalendarReminders(): void {
+  const system = useSystem()
   useEffect(() => {
     function check() {
       const now = Date.now()
@@ -78,14 +79,13 @@ export function useCalendarReminders(): void {
           // Cross-tab dedupe (brief 93): the trigger instant is derived from
           // stored fields, so every tab computes the same claim key and exactly
           // one of them toasts.
-          void claimScheduleOccurrence('calendar', String(event.id), trigger).then((claimed) => {
+          void system.schedule.claim('calendar', String(event.id), trigger).then((claimed) => {
             if (!claimed) return
-            notify({
+            system.notify({
               title: event.title,
               body: event.allDay
                 ? `Today · ${dayjs(occurrence.start).format('MMM D')}`
                 : `Starting at ${dayjs(occurrence.start).format('HH:mm')}`,
-              appId: 'calendar',
               level: 'info',
             })
           })
@@ -96,5 +96,5 @@ export function useCalendarReminders(): void {
     check()
     const id = setInterval(check, CHECK_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [])
+  }, [system])
 }

@@ -1,5 +1,5 @@
 import { useCallback, useReducer } from 'react'
-import { Button, cn } from '@imbatranim/core'
+import { Button, cn, useTopWindowKeydown } from '@imbatranim/ui'
 import { validDigitsForBase, type Base } from './engine/programmer'
 import {
   INITIAL_PROGRAMMER_STATE,
@@ -14,7 +14,6 @@ import {
   type ProgOp,
   type ProgrammerState,
 } from './engine/programmerInput'
-import { useTopWindowKeydown } from './hooks/useTopWindowKeydown'
 
 type Action =
   | { type: 'digit'; digit: string }
@@ -54,7 +53,7 @@ const BASES: { id: Base; label: string }[] = [
 const HEX_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 
 /** Programmer mode: HEX/DEC/OCT/BIN display + base switch, bitwise + shifts, on a 64-bit bigint. */
-export function ProgrammerPad({ windowId }: { windowId: string }) {
+export function ProgrammerPad({ windowId: _windowId }: { windowId: string }) {
   const [state, dispatch] = useReducer(reducer, INITIAL_PROGRAMMER_STATE)
   const enabledDigits = new Set(validDigitsForBase(state.base))
 
@@ -116,7 +115,7 @@ export function ProgrammerPad({ windowId }: { windowId: string }) {
     },
     [state.base]
   )
-  useTopWindowKeydown(windowId, onKey)
+  useTopWindowKeydown(onKey)
 
   const display = displayString(state)
   const isError = Boolean(state.error)

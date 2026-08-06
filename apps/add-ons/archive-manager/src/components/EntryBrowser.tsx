@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, File as FileIcon, Folder, Search, X } from 'lucide-react'
-import { Button, ScrollArea, cn } from '@imbatranim/core'
+import { Button, ScrollArea, cn } from '@imbatranim/ui'
 import type { ArchiveEntry, ArchiveListing } from '../types'
 import { entrySize } from '../lib/archiveApi'
 

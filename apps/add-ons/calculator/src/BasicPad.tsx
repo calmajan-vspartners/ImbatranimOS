@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { Button, cn } from '@imbatranim/core'
+import { Button, cn, useTopWindowKeydown } from '@imbatranim/ui'
 import {
   INITIAL_BASIC_STATE,
   applyPercent,
@@ -13,7 +13,6 @@ import {
   type BasicInputState,
   type OpGlyph,
 } from './engine/basicInput'
-import { useTopWindowKeydown } from './hooks/useTopWindowKeydown'
 import { fullPrecision, isRounded } from './engine/evaluate'
 import { CalcToolbar } from './components/CalcToolbar'
 import { Tape } from './components/Tape'
@@ -55,7 +54,13 @@ function reducer(state: BasicInputState, action: Action): BasicInputState {
  * `minSize` is what keeps the bottom row — `0 . =`, the entire point of the app — on screen
  * at a short window height.
  */
-export function BasicPad({ windowId, session }: { windowId: string; session: CalcSession }) {
+export function BasicPad({
+  windowId: _windowId,
+  session,
+}: {
+  windowId: string
+  session: CalcSession
+}) {
   const [state, dispatch] = useReducer(reducer, INITIAL_BASIC_STATE)
   const [tapeOpen, setTapeOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -123,7 +128,7 @@ export function BasicPad({ windowId, session }: { windowId: string; session: Cal
         break
     }
   }, [])
-  useTopWindowKeydown(windowId, onKey)
+  useTopWindowKeydown(onKey)
 
   const display = displayString(state)
   const isError = Boolean(state.error)

@@ -1,4 +1,4 @@
-import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 import type {
   ArchiveEntry,
   ArchiveFormat,
@@ -9,13 +9,20 @@ import type {
   ExtractResult,
 } from '../types'
 
+/**
+ * The app's own backend module, reached through the injected handle (brief 48).
+ * Plain functions take the capability as their first argument; only hooks may
+ * call `useSystem()`, and these are not hooks.
+ */
+
 /** POST /api/archive/extract — unpack `path` into `dest` (jailed server-side). */
 export async function extractArchive(
+  http: SystemHttp,
   root: string,
   path: string,
   dest?: string
 ): Promise<ExtractResult> {
-  const { data } = await api.post<ExtractResult>('/archive/extract', {
+  const { data } = await http.post<ExtractResult>('/archive/extract', {
     root,
     path,
     dest,
@@ -25,12 +32,13 @@ export async function extractArchive(
 
 /** POST /api/archive/compress — pack `paths[]` into the archive at `dest`. */
 export async function compressPaths(
+  http: SystemHttp,
   root: string,
   paths: string[],
   dest: string,
   format: ArchiveFormat
 ): Promise<CompressResult> {
-  const { data } = await api.post<CompressResult>('/archive/compress', {
+  const { data } = await http.post<CompressResult>('/archive/compress', {
     root,
     paths,
     dest,
@@ -40,8 +48,8 @@ export async function compressPaths(
 }
 
 /** GET /api/files — list a directory (used to preview extracted contents). */
-export async function listDir(root: string, path: string): Promise<DirEntry[]> {
-  const { data } = await api.get<DirEntry[]>('/files', {
+export async function listDir(http: SystemHttp, root: string, path: string): Promise<DirEntry[]> {
+  const { data } = await http.get<DirEntry[]>('/files', {
     params: { root, path },
   })
   return data
@@ -86,8 +94,12 @@ export function errorMessage(err: unknown): string {
 // ---------------------------------------------------------------------------
 
 /** GET /api/archive/list — read an archive's contents, extracting nothing. */
-export async function listArchive(root: string, path: string): Promise<ArchiveListing> {
-  const { data } = await api.get<ArchiveListing>('/archive/list', {
+export async function listArchive(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<ArchiveListing> {
+  const { data } = await http.get<ArchiveListing>('/archive/list', {
     params: { root, path },
   })
   return data
@@ -101,12 +113,13 @@ export async function listArchive(root: string, path: string): Promise<ArchiveLi
  * archive does not itself declare.
  */
 export async function startExtractJob(
+  http: SystemHttp,
   root: string,
   path: string,
   dest?: string,
   entries?: string[]
 ): Promise<{ id: string }> {
-  const { data } = await api.post<{ id: string }>('/archive/extract-job', {
+  const { data } = await http.post<{ id: string }>('/archive/extract-job', {
     root,
     path,
     dest,
@@ -116,8 +129,8 @@ export async function startExtractJob(
 }
 
 /** GET /api/archive/job/:id — poll a running extraction. */
-export async function fetchJob(id: string): Promise<ArchiveJob> {
-  const { data } = await api.get<ArchiveJob>(`/archive/job/${id}`)
+export async function fetchJob(http: SystemHttp, id: string): Promise<ArchiveJob> {
+  const { data } = await http.get<ArchiveJob>(`/archive/job/${id}`)
   return data
 }
 

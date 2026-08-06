@@ -19,6 +19,7 @@
   "dependencies": {
     "@harbour-enterprises/superdoc": "^1.45.0",
     "@imbatranim/core": "*",
+    "@imbatranim/ui": "*",
     "fflate": "^0.4.8",
     "lucide-react": "^1.14.0"
   },

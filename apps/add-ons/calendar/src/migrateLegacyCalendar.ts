@@ -1,4 +1,4 @@
-import { notify } from '@imbatranim/core'
+import type { SystemHandle } from '@imbatranim/ui'
 import { importEvents } from './api/calendarApi'
 import { LEGACY_KEY, describeMigration, readLegacyCalendarState } from './legacyCalendarState'
 
@@ -17,7 +17,7 @@ import { LEGACY_KEY, describeMigration, readLegacyCalendarState } from './legacy
 /** Guard so the hand-over is attempted once per page load, not once per mount. */
 let attempted = false
 
-export async function migrateLegacyCalendar(): Promise<boolean> {
+export async function migrateLegacyCalendar(system: SystemHandle): Promise<boolean> {
   if (attempted) return false
   attempted = true
 
@@ -37,21 +37,19 @@ export async function migrateLegacyCalendar(): Promise<boolean> {
   }
 
   try {
-    const result = await importEvents(legacy.events, true)
+    const result = await importEvents(system.http, legacy.events, true)
     if (result.imported === 0) return false
 
     forgetLegacyKey()
-    notify({
+    system.notify({
       title: 'Calendar moved into your computer',
       body: describeMigration(result.imported),
-      appId: 'calendar',
       level: 'success',
     })
     if (legacy.skipped > 0) {
-      notify({
+      system.notify({
         title: 'Some old events were skipped',
         body: `${legacy.skipped} entr${legacy.skipped === 1 ? 'y was' : 'ies were'} unreadable and could not be moved.`,
-        appId: 'calendar',
         level: 'warning',
       })
     }

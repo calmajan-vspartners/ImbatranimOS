@@ -9,7 +9,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
-import { Button, cn, notify, useIntentStore, useWindowStore } from '@imbatranim/core'
+import { Button, cn, useSystem } from '@imbatranim/ui'
 import {
   basename,
   compressPaths,
@@ -69,9 +69,9 @@ function normaliseIntent(raw: unknown): ArchiveIntent | null {
  * re-validation of a selected subset — lives on the backend. This is purely UI, and
  * deliberately so: a selection made here is untrusted input there.
  */
-export function ArchiveManager({ windowId }: { windowId: string }) {
-  const closeWindow = useWindowStore((s) => s.closeWindow)
-  const close = useCallback(() => closeWindow(windowId), [closeWindow, windowId])
+export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
+  const close = useCallback(() => system.window.requestClose(), [system])
 
   const [phase, setPhase] = useState<Phase>('idle')
   const [label, setLabel] = useState('')
@@ -83,17 +83,19 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
   const [errorText, setErrorText] = useState('')
   const startedRef = useRef(false)
 
-  const fail = useCallback((err: unknown) => {
-    const msg = errorMessage(err)
-    setErrorText(msg)
-    setPhase('error')
-    notify({
-      title: 'Archive operation failed',
-      body: msg,
-      appId: 'archive-manager',
-      level: 'error',
-    })
-  }, [])
+  const fail = useCallback(
+    (err: unknown) => {
+      const msg = errorMessage(err)
+      setErrorText(msg)
+      setPhase('error')
+      system.notify({
+        title: 'Archive operation failed',
+        body: msg,
+        level: 'error',
+      })
+    },
+    [system]
+  )
 
   /**
    * Run an extraction as a polled job.
@@ -112,10 +114,16 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
       setPercent(0)
       setPhase('running')
       try {
-        const { id } = await startExtractJob(root, path, dest, entries.length ? entries : undefined)
+        const { id } = await startExtractJob(
+          system.http,
+          root,
+          path,
+          dest,
+          entries.length ? entries : undefined
+        )
         for (;;) {
           await new Promise((r) => setTimeout(r, POLL_MS))
-          const job = await fetchJob(id)
+          const job = await fetchJob(system.http, id)
           setPercent(job.percent)
           if (job.state === 'running') continue
           if (job.state === 'failed') {
@@ -125,7 +133,7 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
           const result = job.result!
           let contents: DirEntry[] = []
           try {
-            contents = await listDir(root, result.dest)
+            contents = await listDir(system.http, root, result.dest)
           } catch {
             contents = []
           }
@@ -137,10 +145,9 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
             contents,
           })
           setPhase('done')
-          notify({
+          system.notify({
             title: 'Extraction complete',
             body: `${basename(path)} → ${result.dest}`,
-            appId: 'archive-manager',
             level: 'success',
           })
           return
@@ -149,7 +156,7 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
         fail(err)
       }
     },
-    [fail]
+    [fail, system]
   )
 
   const run = useCallback(
@@ -160,7 +167,7 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
         setLabel(`Reading ${basename(intent.path)}…`)
         setPhase('listing')
         try {
-          const found = await listArchive(intent.root, intent.path)
+          const found = await listArchive(system.http, intent.root, intent.path)
           setListing(found)
           setPhase('browsing')
         } catch (err) {
@@ -173,7 +180,13 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
       setPercent(null)
       setPhase('running')
       try {
-        const res = await compressPaths(intent.root, intent.paths, intent.dest, intent.format)
+        const res = await compressPaths(
+          system.http,
+          intent.root,
+          intent.paths,
+          intent.dest,
+          intent.format
+        )
         setOutcome({
           title: 'Compressed',
           detail: `${res.entries} file${res.entries === 1 ? '' : 's'} · ${formatBytes(
@@ -182,17 +195,16 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
           contents: [],
         })
         setPhase('done')
-        notify({
+        system.notify({
           title: 'Archive created',
           body: `${res.entries} file${res.entries === 1 ? '' : 's'} → ${intent.dest}`,
-          appId: 'archive-manager',
           level: 'success',
         })
       } catch (err) {
         fail(err)
       }
     },
-    [fail]
+    [fail, system]
   )
 
   // Drain the one-shot intent exactly once (ref-guarded for StrictMode) and
@@ -202,12 +214,12 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    const intent = normaliseIntent(useIntentStore.getState().consumeIntent(windowId))
+    const intent = normaliseIntent(system.intents.consume())
     if (intent) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void run(intent)
     }
-  }, [windowId, run])
+  }, [system, run])
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {

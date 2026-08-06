@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { queryClient } from '@imbatranim/core'
+import { queryClient, useSystem } from '@imbatranim/ui'
 import {
   createAlarm,
   createWorldClock,
@@ -46,20 +46,23 @@ export function applyAlarmPatchLocally(id: number, patch: AlarmPatch): void {
 }
 
 export function useWorldClocksQuery() {
-  return useQuery({ queryKey: WORLD_CLOCKS_KEY, queryFn: fetchWorldClocks })
+  const system = useSystem()
+  return useQuery({ queryKey: WORLD_CLOCKS_KEY, queryFn: () => fetchWorldClocks(system.http) })
 }
 
 export function useCreateWorldClockMutation() {
+  const system = useSystem()
   return useMutation({
     mutationFn: ({ label, timeZone }: { label: string; timeZone: string }) =>
-      createWorldClock(label, timeZone),
+      createWorldClock(system.http, label, timeZone),
     onSettled: () => queryClient.invalidateQueries({ queryKey: WORLD_CLOCKS_KEY }),
   })
 }
 
 export function useDeleteWorldClockMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteWorldClock(id),
+    mutationFn: (id: number) => deleteWorldClock(system.http, id),
     // Optimistic: a removed row must vanish on click, not after a round trip.
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: WORLD_CLOCKS_KEY })
@@ -77,9 +80,10 @@ export function useDeleteWorldClockMutation() {
 }
 
 export function useAlarmsQuery(options?: { refetchIntervalMs?: number }) {
+  const system = useSystem()
   return useQuery({
     queryKey: ALARMS_KEY,
-    queryFn: fetchAlarms,
+    queryFn: () => fetchAlarms(system.http),
     // The background service (brief 93) keeps this cache warm for the watcher
     // even with no Clock window open — and keeps polling while the tab is
     // hidden, because that is exactly when an alarm must still ring.
@@ -89,16 +93,19 @@ export function useAlarmsQuery(options?: { refetchIntervalMs?: number }) {
 }
 
 export function useCreateAlarmMutation() {
+  const system = useSystem()
   return useMutation({
     mutationFn: ({ label, time, days }: { label: string; time: string; days: string }) =>
-      createAlarm(label, time, days),
+      createAlarm(system.http, label, time, days),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ALARMS_KEY }),
   })
 }
 
 export function usePatchAlarmMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: AlarmPatch }) => patchAlarm(id, patch),
+    mutationFn: ({ id, patch }: { id: number; patch: AlarmPatch }) =>
+      patchAlarm(system.http, id, patch),
     onMutate: async ({ id, patch }) => {
       await queryClient.cancelQueries({ queryKey: ALARMS_KEY })
       const previous = queryClient.getQueryData<Alarm[]>(ALARMS_KEY)
@@ -115,8 +122,9 @@ export function usePatchAlarmMutation() {
 }
 
 export function useDeleteAlarmMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteAlarm(id),
+    mutationFn: (id: number) => deleteAlarm(system.http, id),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: ALARMS_KEY })
       const previous = queryClient.getQueryData<Alarm[]>(ALARMS_KEY)

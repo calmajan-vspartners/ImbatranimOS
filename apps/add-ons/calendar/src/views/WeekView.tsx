@@ -1,5 +1,5 @@
 import dayjs, { type Dayjs } from 'dayjs'
-import { cn, ScrollArea } from '@imbatranim/core'
+import { cn, ScrollArea } from '@imbatranim/ui'
 import {
   HOURS,
   HOUR_HEIGHT,

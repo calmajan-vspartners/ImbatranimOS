@@ -1,4 +1,4 @@
-import { notify } from '@imbatranim/core'
+import type { SystemHandle } from '@imbatranim/ui'
 import { importClockState } from './api/clockApi'
 import { LEGACY_KEY, describeMigration, readLegacyClockState } from './legacyClockState'
 
@@ -26,8 +26,10 @@ let attempted = false
  * refetch. The key is removed only on a successful adoption — if the container
  * already had clock data, this browser's copy is left alone rather than thrown
  * away, because it may be the only copy of alarms set on a *different* machine.
+ *
+ * Takes the handle: not a hook, and it needs both `http` and `notify`.
  */
-export async function migrateLegacyClockState(): Promise<boolean> {
+export async function migrateLegacyClockState(system: SystemHandle): Promise<boolean> {
   if (attempted) return false
   attempted = true
 
@@ -48,24 +50,22 @@ export async function migrateLegacyClockState(): Promise<boolean> {
   }
 
   try {
-    const result = await importClockState({
+    const result = await importClockState(system.http, {
       worldClocks: legacy.worldClocks,
       alarms: legacy.alarms,
     })
     if (!result.imported) return false
 
     forgetLegacyKey()
-    notify({
+    system.notify({
       title: 'Clock data moved into your computer',
       body: describeMigration(result.worldClocks, result.alarms),
-      appId: 'clock',
       level: 'success',
     })
     if (legacy.skipped > 0) {
-      notify({
+      system.notify({
         title: 'Some old clock entries were skipped',
         body: `${legacy.skipped} entr${legacy.skipped === 1 ? 'y was' : 'ies were'} unreadable and could not be moved.`,
-        appId: 'clock',
         level: 'warning',
       })
     }

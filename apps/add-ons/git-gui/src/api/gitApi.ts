@@ -1,4 +1,5 @@
 import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 import type {
   BranchesResponse,
   CommitResponse,
@@ -17,48 +18,65 @@ import type {
 //   POST /api/git/unstage  { root, path?, paths[] }
 //   POST /api/git/commit   { root, path?, message }
 
-export async function fetchStatus(root: string, path: string): Promise<StatusResponse> {
-  const res = await api.get<StatusResponse>('/git/status', { params: { root, path } })
+export async function fetchStatus(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<StatusResponse> {
+  const res = await http.get<StatusResponse>('/git/status', { params: { root, path } })
   return res.data
 }
 
-export async function fetchLog(root: string, path: string, limit = 30): Promise<LogResponse> {
-  const res = await api.get<LogResponse>('/git/log', { params: { root, path, limit } })
+export async function fetchLog(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  limit = 30
+): Promise<LogResponse> {
+  const res = await http.get<LogResponse>('/git/log', { params: { root, path, limit } })
   return res.data
 }
 
 export async function fetchDiff(
+  http: SystemHttp,
   root: string,
   path: string,
   staged: boolean,
   file?: string
 ): Promise<DiffResponse> {
-  const res = await api.get<DiffResponse>('/git/diff', {
+  const res = await http.get<DiffResponse>('/git/diff', {
     params: { root, path, staged, file },
   })
   return res.data
 }
 
 export async function stagePaths(
+  http: SystemHttp,
   root: string,
   path: string,
   paths: string[]
 ): Promise<StatusResponse> {
-  const res = await api.post<StatusResponse>('/git/stage', { root, path, paths })
+  const res = await http.post<StatusResponse>('/git/stage', { root, path, paths })
   return res.data
 }
 
 export async function unstagePaths(
+  http: SystemHttp,
   root: string,
   path: string,
   paths: string[]
 ): Promise<StatusResponse> {
-  const res = await api.post<StatusResponse>('/git/unstage', { root, path, paths })
+  const res = await http.post<StatusResponse>('/git/unstage', { root, path, paths })
   return res.data
 }
 
-export async function commit(root: string, path: string, message: string): Promise<CommitResponse> {
-  const res = await api.post<CommitResponse>('/git/commit', { root, path, message })
+export async function commit(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  message: string
+): Promise<CommitResponse> {
+  const res = await http.post<CommitResponse>('/git/commit', { root, path, message })
   return res.data
 }
 
@@ -71,72 +89,114 @@ export async function commit(root: string, path: string, message: string): Promi
 //   GET/POST/DELETE /api/git/recents
 // ---------------------------------------------------------------------------
 
-export async function fetchBranches(root: string, path: string): Promise<BranchesResponse> {
-  const res = await api.get<BranchesResponse>('/git/branches', { params: { root, path } })
+export async function fetchBranches(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<BranchesResponse> {
+  const res = await http.get<BranchesResponse>('/git/branches', { params: { root, path } })
   return res.data
 }
 
-export async function createBranch(root: string, path: string, name: string): Promise<void> {
-  await api.post('/git/branch', { root, path, name })
+export async function createBranch(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  name: string
+): Promise<void> {
+  await http.post('/git/branch', { root, path, name })
 }
 
-export async function switchBranch(root: string, path: string, name: string): Promise<void> {
-  await api.post('/git/switch', { root, path, name })
+export async function switchBranch(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  name: string
+): Promise<void> {
+  await http.post('/git/switch', { root, path, name })
 }
 
 export async function discardPaths(
+  http: SystemHttp,
   root: string,
   path: string,
   paths: string[]
 ): Promise<StatusResponse> {
-  const res = await api.post<StatusResponse>('/git/discard', { root, path, paths })
+  const res = await http.post<StatusResponse>('/git/discard', { root, path, paths })
   return res.data
 }
 
-export async function fetchStashes(root: string, path: string): Promise<StashListResponse> {
-  const res = await api.get<StashListResponse>('/git/stash', { params: { root, path } })
+export async function fetchStashes(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<StashListResponse> {
+  const res = await http.get<StashListResponse>('/git/stash', { params: { root, path } })
   return res.data
 }
 
-export async function stashPush(root: string, path: string, message?: string): Promise<void> {
-  await api.post('/git/stash', { root, path, message })
+export async function stashPush(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  message?: string
+): Promise<void> {
+  await http.post('/git/stash', { root, path, message })
 }
 
-export async function stashPop(root: string, path: string, index?: number): Promise<void> {
-  await api.post('/git/stash/pop', { root, path, index })
+export async function stashPop(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  index?: number
+): Promise<void> {
+  await http.post('/git/stash/pop', { root, path, index })
 }
 
-export async function fetchLastMessage(root: string, path: string): Promise<string> {
-  const res = await api.get<{ message: string }>('/git/last-message', {
+export async function fetchLastMessage(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<string> {
+  const res = await http.get<{ message: string }>('/git/last-message', {
     params: { root, path },
   })
   return res.data.message
 }
 
-export async function amendCommit(root: string, path: string, message: string): Promise<void> {
-  await api.post('/git/amend', { root, path, message })
+export async function amendCommit(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  message: string
+): Promise<void> {
+  await http.post('/git/amend', { root, path, message })
 }
 
 /** Stage (or, with `reverse`, unstage) exactly one hunk. */
 export async function applyPatch(
+  http: SystemHttp,
   root: string,
   path: string,
   patch: string,
   reverse: boolean
 ): Promise<StatusResponse> {
-  const res = await api.post<StatusResponse>('/git/apply', { root, path, patch, reverse })
+  const res = await http.post<StatusResponse>('/git/apply', { root, path, patch, reverse })
   return res.data
 }
 
-export async function fetchRecents(): Promise<RecentsResponse> {
-  const res = await api.get<RecentsResponse>('/git/recents')
+export async function fetchRecents(http: SystemHttp): Promise<RecentsResponse> {
+  const res = await http.get<RecentsResponse>('/git/recents')
   return res.data
 }
 
-export async function rememberRepo(root: string, path: string): Promise<void> {
-  await api.post('/git/recents', { root, path })
+export async function rememberRepo(http: SystemHttp, root: string, path: string): Promise<void> {
+  await http.post('/git/recents', { root, path })
 }
 
 export async function forgetRepo(root: string, path: string): Promise<void> {
+  // Stays on the core client: DELETE /git/recents reads its body, and the
+  // protocol's SystemHttpRequestConfig carries no `data` for DELETE (brief 48).
+  // Migrates the day the protocol grows one — not worked around here.
   await api.delete('/git/recents', { data: { root, path } })
 }

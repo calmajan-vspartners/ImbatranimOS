@@ -18,16 +18,15 @@ import {
   Button,
   Tooltip,
   cn,
-  downloadUrl,
   fileName,
   reportFileFailure,
-  uploadFileBytes,
   useFileDialog,
   useOpenIntent,
   useElementSize,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { listDir } from './api/listDir'
 import type { FsEntry } from './api/types'
 import { isImagePath, parentDir, clamp } from './lib/imagePath'
@@ -41,16 +40,18 @@ const ZOOM_STEP = 0.25
 type ZoomMode = 'fit' | 'manual'
 type Size = { width: number; height: number }
 
-export function ImageViewer({ windowId }: { windowId: string }) {
+export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
+
   // One-shot open intent, drained by the shared hook (StrictMode-safe). This is
   // the file the window was opened with; folder navigation below only ever
   // moves a local `index` over the sibling list — it never re-drains an intent.
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile } = useFileDialog()
   const pickFile = () =>
     void openFile({
       extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico'],
@@ -110,7 +111,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     ;(async () => {
       try {
         const dir = parentDir(source.path)
-        const entries = await listDir(source.root, dir)
+        const entries = await listDir(system.http, source.root, dir)
         const images = entries
           .filter((e) => e.type === 'file' && isImagePath(e.name))
           .sort((a, b) => a.name.localeCompare(b.name))
@@ -135,7 +136,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     return () => {
       cancelled = true
     }
-  }, [source])
+  }, [source, system])
 
   // Loading a new image resets zoom/rotate and the loaded-natural-size cache.
   // Deliberately NOT a `useEffect` (which would set state synchronously inside
@@ -276,7 +277,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
 
   // Same spine as every other editor in the OS: the title carries a dirty marker
   // and closing with unsaved changes warns.
-  useUnsavedGuard(windowId, dirty, currentPath ? fileName(currentPath, 'image') : '')
+  useUnsavedGuard(dirty, currentPath ? fileName(currentPath, 'image') : '')
 
   /**
    * Re-encode the visible image at its current rotation.
@@ -318,14 +319,13 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     setError(null)
     try {
       const bytes = await encodeRotated(encodeMime(currentPath))
-      await uploadFileBytes(currentRoot, currentPath, bytes, fileName(currentPath, 'image'))
+      await system.fs.upload(currentRoot, currentPath, bytes, fileName(currentPath, 'image'))
       // Only now is the file's rotation the one on screen. If the user turned it
       // again mid-save, `rotation` has moved on and it stays dirty.
       setSavedRotation(turnedTo)
     } catch (err) {
       setError(
-        reportFileFailure('save', err, {
-          appId: 'image-viewer',
+        reportFileFailure(system, 'save', err, {
           noun: 'image',
           name: fileName(currentPath, 'image'),
         })
@@ -333,9 +333,9 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     } finally {
       setSaving(false)
     }
-  }, [currentRoot, currentPath, dirty, saving, savable, rotation, encodeRotated])
+  }, [currentRoot, currentPath, dirty, saving, savable, rotation, encodeRotated, system])
 
-  useSaveHotkey(windowId, saveRotation)
+  useSaveHotkey(saveRotation)
 
   const saveCopy = useCallback(async () => {
     if (!currentPath || saving || !naturalSize) return
@@ -351,11 +351,10 @@ export function ImageViewer({ windowId }: { windowId: string }) {
       // Always PNG: a copy is a new file, so there is no extension to keep
       // faithful to, and lossless is the right default for one.
       const bytes = await encodeRotated('image/png')
-      await uploadFileBytes(choice.root, choice.path, bytes, fileName(choice.path, 'image.png'))
+      await system.fs.upload(choice.root, choice.path, bytes, fileName(choice.path, 'image.png'))
     } catch (err) {
       setError(
-        reportFileFailure('save', err, {
-          appId: 'image-viewer',
+        reportFileFailure(system, 'save', err, {
           noun: 'image copy',
           name: fileName(choice.path, 'image.png'),
         })
@@ -363,7 +362,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
     } finally {
       setSaving(false)
     }
-  }, [currentPath, saving, naturalSize, rotation, saveFile, encodeRotated])
+  }, [currentPath, saving, naturalSize, rotation, saveFile, encodeRotated, system])
 
   function handleImgLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     const img = e.currentTarget
@@ -377,7 +376,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
 
   function triggerDownload() {
     if (!currentRoot || !currentPath) return
-    const url = downloadUrl(currentRoot, currentPath)
+    const url = system.fs.downloadUrl(currentRoot, currentPath)
     const a = document.createElement('a')
     a.href = url
     a.download = fileName(currentPath, 'image')
@@ -431,7 +430,6 @@ export function ImageViewer({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open an image
         </Button>
-        {fileDialog}
       </div>
     )
   }
@@ -598,7 +596,7 @@ export function ImageViewer({ windowId }: { windowId: string }) {
           <img
             key={currentPath}
             ref={imgRef}
-            src={downloadUrl(currentRoot, currentPath)}
+            src={system.fs.downloadUrl(currentRoot, currentPath)}
             alt={fileName(currentPath)}
             draggable={false}
             onLoad={handleImgLoad}

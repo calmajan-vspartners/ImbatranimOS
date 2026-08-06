@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ChevronLeft, ChevronRight, Download, Info, Search, Upload, X } from 'lucide-react'
-import {
-  Button,
-  Input,
-  cn,
-  fetchFileBytes,
-  notify,
-  queryClient,
-  uploadFileBytes,
-  useFileDialog,
-} from '@imbatranim/core'
+import { Button, Input, cn, queryClient, useFileDialog, useSystem } from '@imbatranim/ui'
 import { buildMonthGrid, buildWeekDays } from './dateUtils'
 import { EventDialog } from './EventDialog'
 import { MonthView } from './views/MonthView'
@@ -71,15 +62,16 @@ function visibleRange(anchor: Dayjs, view: ViewMode): [number, number] {
   return [days[0].startOf('day').valueOf(), days[6].endOf('day').valueOf()]
 }
 
-// Window contract: ComponentType<{ windowId: string }>. Single-instance app, and
-// the file dialog is modal within it, so there is no per-window state to key on.
+// Window contract: ComponentType<{ windowId: string }>. Single-instance app,
+// so there is no per-window state to key on.
 export function Calendar({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const { data: events, isPending, isError } = useEventsQuery()
   const createEvent = useCreateEventMutation()
   const patchEvent = usePatchEventMutation()
   const removeEvent = useDeleteEventMutation()
   const importMutation = useImportEventsMutation()
-  const { openFile, saveFile, fileDialog } = useFileDialog()
+  const { openFile, saveFile } = useFileDialog()
 
   const [anchor, setAnchor] = useState<Dayjs>(() => dayjs())
   const [view, setView] = useState<ViewMode>('month')
@@ -90,10 +82,10 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
   // One-time hand-over of any pre-brief-72 localStorage calendar. Guarded twice: a
   // module-level flag, and the server refusing to import into a non-empty table.
   useEffect(() => {
-    void migrateLegacyCalendar().then((imported) => {
+    void migrateLegacyCalendar(system).then((imported) => {
       if (imported) void queryClient.invalidateQueries({ queryKey: EVENTS_KEY })
     })
-  }, [])
+  }, [system])
 
   const [rangeStart, rangeEnd] = visibleRange(anchor, view)
 
@@ -170,10 +162,9 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
   async function handleExport() {
     const all = events ?? []
     if (all.length === 0) {
-      notify({
+      system.notify({
         title: 'Nothing to export',
         body: 'This calendar has no events yet.',
-        appId: 'calendar',
         level: 'info',
       })
       return
@@ -186,23 +177,21 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
     if (!choice) return
     try {
       const text = eventsToIcs(all, Date.now())
-      await uploadFileBytes(
+      await system.fs.upload(
         choice.root,
         choice.path,
         new TextEncoder().encode(text),
         choice.path.split('/').pop() ?? 'calendar.ics'
       )
-      notify({
+      system.notify({
         title: 'Calendar exported',
         body: `${all.length} event${all.length === 1 ? '' : 's'} written to ${choice.path}`,
-        appId: 'calendar',
         level: 'success',
       })
     } catch {
-      notify({
+      system.notify({
         title: 'Export failed',
         body: 'The calendar file could not be written.',
-        appId: 'calendar',
         level: 'error',
       })
     }
@@ -212,13 +201,12 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
     const choice = await openFile({ title: 'Import calendar', extensions: ['ics'] })
     if (!choice) return
     try {
-      const bytes = await fetchFileBytes(choice.root, choice.path)
+      const bytes = await system.fs.read(choice.root, choice.path)
       const result = icsToEvents(new TextDecoder().decode(bytes))
       if (result.events.length === 0) {
-        notify({
+        system.notify({
           title: 'Nothing imported',
           body: 'No readable events were found in that file.',
-          appId: 'calendar',
           level: 'warning',
         })
         return
@@ -227,26 +215,23 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
         onSuccess: () => {
           // Says what was lost as well as what arrived — an import that silently
           // flattens a repeat rule is worse than one that admits it.
-          notify({
+          system.notify({
             title: 'Calendar imported',
             body: describeImport(result),
-            appId: 'calendar',
             level: result.recurrenceDropped > 0 || result.skipped > 0 ? 'warning' : 'success',
           })
         },
         onError: () =>
-          notify({
+          system.notify({
             title: 'Import failed',
             body: 'The events in that file were refused.',
-            appId: 'calendar',
             level: 'error',
           }),
       })
     } catch {
-      notify({
+      system.notify({
         title: 'Import failed',
         body: 'That file could not be read.',
-        appId: 'calendar',
         level: 'error',
       })
     }
@@ -406,7 +391,6 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
         onUpdate={handleUpdate}
         onDelete={handleDelete}
       />
-      {fileDialog}
     </div>
   )
 }

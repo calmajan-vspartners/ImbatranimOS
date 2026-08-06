@@ -12,17 +12,16 @@ import {
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
   fileName,
   reportFileFailure,
   reportFileRefusal,
-  uploadFileBytes,
   useFileDialog,
   useOpenIntent,
   useSaveHotkey,
+  useSystem,
   useTopWindowKeydown,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { createDocEngine, type DocEngine } from './engine/superdoc'
 import { normalizeDocx } from './engine/docxNormalize'
 import { unsupportedReason } from './lib/formats'
@@ -33,13 +32,14 @@ import type { DocMatch } from './engine/superdoc'
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 export function Docs({ windowId }: { windowId: string }) {
+  const system = useSystem()
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile } = useFileDialog()
   const pickFile = () => void openFile({ extensions: ['docx'] })
   const editorWrapRef = useRef<HTMLDivElement>(null)
   const toolbarWrapRef = useRef<HTMLDivElement>(null)
@@ -64,15 +64,15 @@ export function Docs({ windowId }: { windowId: string }) {
 
   // Reflect filename + dirty marker in the window title and warn before closing
   // with unsaved changes.
-  useUnsavedGuard(windowId, dirty, docName)
+  useUnsavedGuard(dirty, docName)
 
   // Say so once, in the notification centre as well as in the window — the same
   // reason every other failure here does. `notify` writes to an external store
   // rather than this component's state, which is what an effect is for.
   useEffect(() => {
     if (!refusal || !source) return
-    reportFileRefusal(refusal, { appId: 'docs', name: docName })
-  }, [refusal, source, docName])
+    reportFileRefusal(system, refusal, { name: docName })
+  }, [system, refusal, source, docName])
 
   // Boot SuperDoc and load the docx. Each run mounts into FRESH host nodes
   // (not the persistent wrappers) so React StrictMode's mount→cleanup→mount and
@@ -100,7 +100,7 @@ export function Docs({ windowId }: { windowId: string }) {
     setError(null)
     ;(async () => {
       try {
-        const bytes = await fetchFileBytes(source.root, source.path)
+        const bytes = await system.fs.read(source.root, source.path)
         if (cancelled) return
         // Guarantee the parts SuperDoc's exporter needs, so Save actually
         // re-serializes edits instead of silently re-emitting the original.
@@ -110,8 +110,7 @@ export function Docs({ windowId }: { windowId: string }) {
           // Not a zip at all — a renamed file, or a truncated download. Refuse
           // it here rather than letting the engine fail like a broken app.
           setError(
-            reportFileRefusal('This file is not a readable .docx package.', {
-              appId: 'docs',
+            reportFileRefusal(system, 'This file is not a readable .docx package.', {
               name: docName,
             })
           )
@@ -146,9 +145,7 @@ export function Docs({ windowId }: { windowId: string }) {
           },
           onError: (err) => {
             if (!cancelled) {
-              setError(
-                reportFileFailure('open', err, { appId: 'docs', noun: 'document', name: docName })
-              )
+              setError(reportFileFailure(system, 'open', err, { noun: 'document', name: docName }))
               setLoading(false)
             }
           },
@@ -160,9 +157,7 @@ export function Docs({ windowId }: { windowId: string }) {
         engineRef.current = engine
       } catch (err) {
         if (!cancelled) {
-          setError(
-            reportFileFailure('open', err, { appId: 'docs', noun: 'document', name: docName })
-          )
+          setError(reportFileFailure(system, 'open', err, { noun: 'document', name: docName }))
           setLoading(false)
         }
       }
@@ -174,7 +169,7 @@ export function Docs({ windowId }: { windowId: string }) {
       editorHost.remove()
       toolbarHost.remove()
     }
-  }, [source, refusal, windowId, docName])
+  }, [system, source, refusal, windowId, docName])
 
   // ── Word count ──────────────────────────────────────────────────────────────
   // Recomputed on demand rather than on every keystroke: reading the whole
@@ -222,14 +217,13 @@ export function Docs({ windowId }: { windowId: string }) {
     refreshCounts()
   }, [refreshCounts])
 
-  // Ctrl/Cmd+F opens the find bar. Scoped to the TOP window via the core seam so
+  // Ctrl/Cmd+F opens the find bar. Scoped to the TOP window via the SDK seam so
   // it never fires for a background Docs window or steals the keystroke from
   // another app; preventDefault so the browser's own find does not take it — the
   // OS's find is the one that can reach inside the editor's document model.
   // `ignoreTextEntry: false` because the document surface is contentEditable, so
   // the user is always "typing" — dropping the key there would kill the shortcut.
   useTopWindowKeydown(
-    windowId,
     (e) => {
       if (!source || refusal) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -251,7 +245,7 @@ export function Docs({ windowId }: { windowId: string }) {
     setError(null)
     try {
       const bytes = await engine.exportDocx()
-      await uploadFileBytes(source.root, source.path, bytes, docName)
+      await system.fs.upload(source.root, source.path, bytes, docName)
       if (
         shouldClearDirty({
           uploaded: true,
@@ -264,14 +258,14 @@ export function Docs({ windowId }: { windowId: string }) {
     } catch (err) {
       // `dirty` is deliberately untouched: the bytes did not land, so the
       // document still differs from disk and the close guard must stay armed.
-      setError(reportFileFailure('save', err, { appId: 'docs', noun: 'document', name: docName }))
+      setError(reportFileFailure(system, 'save', err, { noun: 'document', name: docName }))
     } finally {
       setSaving(false)
     }
-  }, [source, saving, docName])
+  }, [system, source, saving, docName])
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
-  useSaveHotkey(windowId, handleSave)
+  useSaveHotkey(handleSave)
 
   if (source && refusal) {
     return (
@@ -282,7 +276,6 @@ export function Docs({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open a .docx instead
         </Button>
-        {fileDialog}
       </div>
     )
   }
@@ -295,7 +288,6 @@ export function Docs({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open a document
         </Button>
-        {fileDialog}
       </div>
     )
   }

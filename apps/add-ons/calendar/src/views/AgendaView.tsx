@@ -1,6 +1,6 @@
 import dayjs, { type Dayjs } from 'dayjs'
 import { CalendarClock, Repeat } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { eventColorClass } from '../eventStyle'
 import type { Occurrence } from '../recurrence'
 

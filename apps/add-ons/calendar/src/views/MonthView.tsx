@@ -1,5 +1,5 @@
 import dayjs, { type Dayjs } from 'dayjs'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { WEEKDAY_LABELS, buildMonthGrid } from '../dateUtils'
 import { occurrencesOnDay } from '../recurrence'
 import { compareForDay, eventColorClass, occurrenceLabel } from '../eventStyle'

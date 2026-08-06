@@ -1,4 +1,4 @@
-import { Input, Select, cn } from '@imbatranim/core'
+import { Input, Select, cn } from '@imbatranim/ui'
 import { WEEKDAY_LABELS } from './dateUtils'
 import { describeRule } from './recurrence'
 import { ruleFromDraft, type RecurrenceDraft } from './recurrenceDraft'

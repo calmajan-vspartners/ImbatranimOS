@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, GitBranch, Plus, RefreshCw, X } from 'lucide-react'
-import { Button, Select, cn } from '@imbatranim/core'
+import { Button, Select, cn } from '@imbatranim/ui'
 import type { BranchesResponse, RecentRepo, StashEntry } from '../types'
 
 /**
