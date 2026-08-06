@@ -210,3 +210,42 @@ template CSS/assets; `TASKBAR_HEIGHT` defined in three places.
   verifiable by the hash check in the audit).
 - Ungrilled items that turn out to be by-design get a one-line rejection note
   here at completion time rather than silent omission.
+
+---
+
+## Outcome (2026-08-06)
+
+**Shipped: every finding except one deliberate deferral.** Implemented across a
+foundation commit + six parallel package-scoped lanes (backend, core,
+pdcore-engine, heavy add-ons, light add-ons, infra) + a final config pass, on
+branch `claude/code-exploration-improvements-0epjig`. Ten commits; the full
+`turbo typecheck lint test` gate is **75/75 green** with strict mode on, up from
+the pre-sweep baseline (which was also green but far less covered).
+
+- **Tier 0–2: all done**, including T2-10 (pdf.js dispose), which was *missed in
+  the initial dispatch and caught in a self-audit* before completion — engine +
+  norPDF now release worker-side documents on save/reopen/unmount.
+- **Tier 3: done except the backend half of T3-8.** T3-7 (strict) turned out
+  **free** — enabling `strict` across all 23 add-ons + core and `noImplicitAny`
+  on the backend produced **0 errors**; the code was already compliant and only
+  the config lagged, so "typecheck green" now means what it claims. T3-1 could
+  not use a topological `dependsOn` (core↔add-on package cycle); fixed instead
+  with a core-scoped `inputs` override (hash-proven). **Deferred:** bumping the
+  backend to TS 6 / eslint 10 (the dedup half of T3-8) — a real migration
+  (strictPropertyInitialization, jest globals, ts-jest `rootDir`), not a version
+  bump, and not worth destabilising 302 green backend tests in this sweep. The
+  dev-compose half of T3-8 shipped.
+- **Tier 4 + test gaps: done.** New regression tests landed with each fix
+  (backend +15, engine +15, core +5, plus calendar/clock/todo/bookmarks/
+  calculator/git-gui/snipping/rest-client/sheets suites).
+
+**By-design, not fixed** (noted so they are not re-opened): `Pages.reorder` stays
+0-based while its siblings are 1-based (documented in the capability); the
+handful of audit LOW-items that were dropped during brief compression
+(#square degenerate appearance, sign-vector convention, `Text.plain` spacing,
+`search` normalizeChar expansion) were never in this brief's scope.
+
+**Verification:** per-package `tsc`/`vitest` in every lane, then a forced
+full-tree `turbo typecheck lint test` (75/75) after each wave and after the
+final pass. The prod image's unbuildability (T0-1) was reproduced-then-fixed;
+the Docker build itself was not run here (no daemon).

@@ -14,7 +14,7 @@ updated: 2026-08-06
 > decision (npm `overrides` is ignored in this workspace). Full detail in
 > [../log.md](../log.md) 2026-07-19 + [decisions.md](decisions.md) 2026-07-19.
 
-> **2026-08-06:** code-health audit filed as [brief 93](../briefs/todo/93-code-health-sweep-2026-08-06.md) — ~75 tiered ungrilled findings; ship-blockers: unbuildable prod image, @pdfcore page-delete corruption, Sheets date corruption, 100 KB body cap.
+> **2026-08-06:** code-health sweep [brief 93](../briefs/done/93-code-health-sweep-2026-08-06.md) **DONE** — all ~75 findings shipped bar one deferral (backend TS6/eslint10, see decisions), across 10 commits, gate **75/75** with strict mode now on. Fixed the unbuildable prod image, the @pdfcore page-delete corruption + pdf.js worker leak, Sheets date corruption, the 100 KB body cap, norPDF write-back, calendar recurrence, missed clock alarms, and much more. Ship-blockers gone.
 
 # Status — 2026-07-17
 
