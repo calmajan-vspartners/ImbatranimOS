@@ -8,9 +8,16 @@ interface SidebarProps {
   onOpenSaved: (req: SavedRequest) => void
   onDeleteSaved: (id: string) => void
   onOpenHistory: (entry: HistoryEntry) => void
+  onClearHistory: () => void
 }
 
-export function Sidebar({ data, onOpenSaved, onDeleteSaved, onOpenHistory }: SidebarProps) {
+export function Sidebar({
+  data,
+  onOpenSaved,
+  onDeleteSaved,
+  onOpenHistory,
+  onClearHistory,
+}: SidebarProps) {
   return (
     <aside className="border-outline-variant bg-surface-container-low flex w-56 shrink-0 flex-col border-r">
       <ScrollArea className="min-h-0 flex-1">
@@ -45,7 +52,22 @@ export function Sidebar({ data, onOpenSaved, onDeleteSaved, onOpenHistory }: Sid
           )}
         </Section>
 
-        <Section icon="clock" label="History">
+        <Section
+          icon="clock"
+          label="History"
+          action={
+            data.history.length > 0 ? (
+              <button
+                type="button"
+                onClick={onClearHistory}
+                className="text-on-surface-variant hover:text-error font-ui text-[10px]"
+                title="Clear history"
+              >
+                Clear
+              </button>
+            ) : null
+          }
+        >
           {data.history.length === 0 ? (
             <Empty>Nothing sent yet</Empty>
           ) : (
@@ -67,7 +89,14 @@ export function Sidebar({ data, onOpenSaved, onDeleteSaved, onOpenHistory }: Sid
                 <span className="text-secondary shrink-0 font-mono text-[10px]">
                   {entry.method}
                 </span>
-                <span className="text-on-surface-variant truncate text-[11px]">{entry.url}</span>
+                <span className="text-on-surface-variant min-w-0 flex-1 truncate text-[11px]">
+                  {entry.url}
+                </span>
+                {entry.elapsedMs !== undefined && (
+                  <span className="text-on-surface-variant shrink-0 font-mono text-[10px]">
+                    {entry.elapsedMs}ms
+                  </span>
+                )}
               </button>
             ))
           )}
@@ -80,10 +109,12 @@ export function Sidebar({ data, onOpenSaved, onDeleteSaved, onOpenHistory }: Sid
 function Section({
   icon,
   label,
+  action,
   children,
 }: {
   icon: 'folder' | 'clock'
   label: string
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -91,6 +122,8 @@ function Section({
       <div className="text-on-surface-variant font-ui flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold tracking-wider uppercase">
         {icon === 'folder' ? <Folder size={12} /> : <Clock size={12} />}
         {label}
+        <span className="flex-1" />
+        {action}
       </div>
       {children}
     </div>

@@ -2455,6 +2455,67 @@ case on the brief's list refused, all 13 new routes 401 without a session, and z
 `decisions.md` passed its 200-line cap and was split — the 2026-07-16/17 pivot-era
 decisions moved to `decisions-pivot-era.md`, unchanged and still locked.
 
-Tests: backend unit **208 → 282** (74 new), frontend vitest **828 → 858** (30 new in a
+Tests: backend unit **208 → 282** (74 new), frontend vitest **886 → 916** (30 new in a
 package that had zero). Backend e2e unchanged at 138. All 102 turbo tasks green. Zero
 new dependencies.
+
+## 2026-08-05 — Brief 77: the REST client gets a workflow
+
+Environments are the feature that makes a REST client usable rather than a curiosity:
+`{{var}}` in URL, headers and body, substituted **at send time and never stored**, so
+one saved request works against localhost and a deployed instance without editing.
+
+The security-relevant part is that a variable ends up inside a URL the proxy fetches,
+so the reviewer's trick is a value that smuggles a scheme — an innocent
+`{{base}}/users` with `base = file:///etc/passwd`. That is refused in the client **and**
+by the proxy: defence in depth, where the shallower layer exists to give the better
+message (which scheme, and where to fix it) rather than an opaque backend error. Same
+for a variable injecting `\r\n` into a header. A *missing* variable, by contrast, is
+only a warning — sending is still the user's call — and the strip offers to add it to
+the environment in one click.
+
+Secrets are stated plainly to be **unencrypted on disk**, at the top of the editor,
+because encrypting them needs a key and the honest home for that key is brief 50's
+account-derived one. What the flag buys is real and listed: masked, excluded from an
+export by default (name kept so the recipient fills in their own), and never baked into
+a saved request.
+
+**The brief's item 2 was half wrong, and the half that was right hid a real bug.**
+History *was* surfaced with a replay handler — but `HistoryEntry` stored only method,
+url, status and ts, so replay set those two fields and left whatever headers and body
+were already in the builder. Click a GET from history while a POST body and an
+`Authorization` header are loaded, press Send, and you send a different request with
+the previous request's credentials attached. Worse than no replay. History now carries
+headers, body and elapsed time.
+
+curl in and out is hand-written with 40 tests, and explicitly **not a shell**: `$(…)`
+and backticks stay literal, because a pasted command is untrusted data. **The
+round-trip test earned its keep immediately** — the tokenizer only handled a backslash
+before a newline, so `shellQuote("it's")` (which emits `'it'\''s'`) came back with a
+stray backslash. Import previews what it parsed before applying it and names anything
+dropped, so a `-o out.json` cannot vanish silently.
+
+Multipart and raw binary needed one backend change: `bodyBase64` on the proxy DTO. It
+bypasses nothing — the scheme allowlist, size cap, timeout, redirect cap and header
+sanitising are all upstream of the body — and the review re-checked that a
+`bodyBase64` request to `file://` is still refused. The envelope is built client-side,
+keeping the proxy a dumb relay whose guardrails are about *where* a request goes.
+
+**Found in my own work:** the Bearer helper defaulted to the first variable, which in
+a normal environment is `base` — producing `Authorization: Bearer {{base}}`, wrong in
+a way that still looks plausible. It now prefers a secret-looking name. Also, every
+`notify()` in this app was missing `appId`, so its toasts had no icon (§23).
+
+The **SSRF stance is unchanged and was re-verified**: private ranges stay allowed here
+because the owner types every URL, and `decisions.md` explicitly forbids "harmonising"
+it with brief 50. The review also confirmed the pre-existing guarantees still hold: a
+redirect that changes host drops `authorization` and `cookie` while an ordinary header
+travels, and a 14 MB response is capped at 10 MB and flagged rather than hanging.
+
+Tests: frontend vitest **916 → 1022** (106 new in a package that had zero), backend unit
+**282 → 287**. e2e unchanged at 138. All 103 turbo tasks green. Zero new dependencies.
+
+*(Housekeeping: brief 76's outcome recorded its frontend totals as "828 → 858". The
+baseline was carried over from brief 74 rather than brief 75; the true figures are
+886 → 916, corrected in place. The "30 new" count was right, and no other number in
+that entry was affected.)*

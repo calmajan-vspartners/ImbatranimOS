@@ -261,6 +261,87 @@ describe('HttpProxyService', () => {
     });
   });
 
+  describe('binary request body (brief 77)', () => {
+    it('sends the decoded bytes, not the base64 text', async () => {
+      // Without this, the REST client could only send a string — no multipart, no
+      // file upload. The bytes must arrive byte-for-byte, including a NUL and a
+      // 0xFF that no UTF-8 string round trip would survive.
+      const raw = new Uint8Array([0x00, 0x01, 0xff, 0xfe, 0x41, 0x42]);
+      const base64 = Buffer.from(raw).toString('base64');
+      const fetchMock = jest.fn().mockResolvedValue(okResponse('ok'));
+      global.fetch = fetchMock;
+
+      await service.request({
+        method: HttpProxyMethod.POST,
+        url: 'https://example.com/upload',
+        bodyBase64: base64,
+      });
+
+      const sent = (
+        fetchMock.mock.calls[0] as [string, { body: ArrayBuffer }]
+      )[1].body;
+      expect(sent).toBeInstanceOf(ArrayBuffer);
+      expect(Array.from(new Uint8Array(sent))).toEqual(Array.from(raw));
+    });
+
+    it('sends an exact-size buffer, not a window into a pooled one', async () => {
+      // Buffer.from(...).buffer can be a view into a larger pooled allocation, so
+      // handing it to fetch unsliced would send trailing bytes that are not the body.
+      const raw = new Uint8Array([1, 2, 3]);
+      const fetchMock = jest.fn().mockResolvedValue(okResponse('ok'));
+      global.fetch = fetchMock;
+      await service.request({
+        method: HttpProxyMethod.POST,
+        url: 'https://example.com/x',
+        bodyBase64: Buffer.from(raw).toString('base64'),
+      });
+      const sent = (
+        fetchMock.mock.calls[0] as [string, { body: ArrayBuffer }]
+      )[1].body;
+      expect(sent.byteLength).toBe(3);
+    });
+
+    it('prefers bodyBase64 over a string body when both arrive', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(okResponse('ok'));
+      global.fetch = fetchMock;
+      await service.request({
+        method: HttpProxyMethod.POST,
+        url: 'https://example.com/x',
+        body: 'string body',
+        bodyBase64: Buffer.from('bytes body').toString('base64'),
+      });
+      const sent = (
+        fetchMock.mock.calls[0] as [string, { body: ArrayBuffer }]
+      )[1].body;
+      expect(Buffer.from(new Uint8Array(sent)).toString()).toBe('bytes body');
+    });
+
+    it('still refuses a disallowed scheme — the body changes no guardrail', async () => {
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock;
+      await expect(
+        service.request({
+          method: HttpProxyMethod.POST,
+          url: 'file:///etc/passwd',
+          bodyBase64: Buffer.from('x').toString('base64'),
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('omits the body entirely for GET, as before', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(okResponse('ok'));
+      global.fetch = fetchMock;
+      await service.request({
+        method: HttpProxyMethod.GET,
+        url: 'https://example.com/x',
+        bodyBase64: Buffer.from('x').toString('base64'),
+      });
+      const init = (fetchMock.mock.calls[0] as [string, { body?: unknown }])[1];
+      expect(init.body).toBeUndefined();
+    });
+  });
+
   describe('happy path', () => {
     it('performs a GET and returns a parsed, base64-encoded response', async () => {
       global.fetch = jest.fn().mockResolvedValue(

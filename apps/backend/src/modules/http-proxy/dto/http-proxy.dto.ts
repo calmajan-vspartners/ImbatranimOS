@@ -1,4 +1,5 @@
 import {
+  IsBase64,
   IsEnum,
   IsNotEmpty,
   IsObject,
@@ -51,6 +52,24 @@ export class HttpProxyRequestDto {
   @IsString()
   @MaxLength(10 * 1024 * 1024)
   body?: string;
+
+  /**
+   * A **binary** request body, base64-encoded (brief 77).
+   *
+   * The REST client could previously only send a string, which meant no multipart
+   * upload and no raw binary — "a client that cannot upload a file cannot exercise
+   * half of a real API". The body is entirely opaque to this service either way: it
+   * is passed to `fetch` and never parsed, so accepting bytes adds no attack surface.
+   * It does NOT bypass any guardrail — the scheme allowlist, size caps, timeout,
+   * redirect cap and header sanitising are all upstream of the body.
+   *
+   * When both are present `bodyBase64` wins, and the client is expected to send only
+   * one. The cap is the base64 length, so the decoded body is ~3/4 of it.
+   */
+  @IsOptional()
+  @IsBase64()
+  @MaxLength(14 * 1024 * 1024)
+  bodyBase64?: string;
 }
 
 /** Shape returned to the caller. Body is always base64 (may be binary). */

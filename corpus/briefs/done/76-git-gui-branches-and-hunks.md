@@ -243,8 +243,10 @@ page errors: none
 
 Tests: backend unit **208 → 282** (74 new — 57 asserting the exact arg arrays and the
 27 hostile ref names, 17 against real git in a real jailed repo). Frontend vitest
-**828 → 858** (30 new in a package that had **zero**, covering the diff parser, the
-patch builder's round trip, side-by-side pairing and the word diff). Backend e2e
+**886 → 916** (30 new in a package that had **zero**, covering the diff parser, the
+patch builder's round trip, side-by-side pairing and the word diff).
+*(Corrected 2026-08-05: this first read "828 → 858", a baseline carried over from
+brief 74 instead of brief 75's. The 30-new figure was right.)* Backend e2e
 unchanged at 138. All 102 turbo tasks green. Zero new dependencies.
 
 Out of scope and untouched, as specified: push/pull/fetch and credential storage

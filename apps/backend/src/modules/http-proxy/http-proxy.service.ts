@@ -58,6 +58,18 @@ const HOP_BY_HOP_HEADERS = new Set([
   'proxy-authenticate',
 ]);
 
+/**
+ * Decode a base64 body to a standalone ArrayBuffer.
+ *
+ * The slice matters: `Buffer.from(...).buffer` may be a view into a larger pooled
+ * allocation, so handing it straight to `fetch` can send bytes that are not the
+ * body. Copying to an exact-size buffer is the only correct reading.
+ */
+function bytesOf(base64: string): ArrayBuffer {
+  const buf = Buffer.from(base64, 'base64');
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+
 /** RFC 7230 token — valid header field-name characters. */
 const HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
@@ -74,7 +86,13 @@ export class HttpProxyService {
     // Guardrail 1: parse + scheme allowlist on the *initial* URL.
     let currentUrl = this.parseAndValidateUrl(dto.url);
     let method: string = dto.method;
-    let body = dto.body;
+    // A binary body (brief 77) wins over the string one. Decoded once, here, and
+    // then treated exactly as the string body is — opaque bytes handed to `fetch`.
+    // Every guardrail (scheme, size, timeout, redirects, headers) is upstream of it.
+    // `ArrayBuffer` rather than `Uint8Array`: undici's `BodyInit` accepts the former
+    // directly, and going through a view would need a cast that hides the intent.
+    let body: string | ArrayBuffer | undefined =
+      dto.bodyBase64 !== undefined ? bytesOf(dto.bodyBase64) : dto.body;
 
     // Guardrail 5: outbound headers are derived ONLY from user input — the
     // incoming request (and thus the OS session cookie / Authorization) is

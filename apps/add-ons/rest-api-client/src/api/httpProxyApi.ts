@@ -12,6 +12,11 @@ export async function sendProxyRequest(input: {
   url: string
   headers?: Record<string, string>
   body?: string
+  /**
+   * A binary body, base64-encoded (brief 77) — multipart and raw file uploads.
+   * The proxy prefers this over `body` when both are present.
+   */
+  bodyBase64?: string
 }): Promise<ProxyResponse> {
   const res = await api.post<ProxyResponse>('/http/request', input)
   return res.data
