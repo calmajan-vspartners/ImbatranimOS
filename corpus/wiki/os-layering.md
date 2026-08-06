@@ -1,6 +1,6 @@
 ---
-summary: The OS-as-layers design (2026-07-19 grilling) — three layers (kernel/userland ↔ compositor/display ↔ apps), an injected `system` capability handle as the app↔OS protocol seam, the `@imbatranim/ui`-library vs capabilities bisection, and the kill-list of real-Linux daemons we deliberately do NOT build.
-updated: 2026-07-19
+summary: The OS-as-layers design (2026-07-19 grilling) — three layers (kernel/userland ↔ compositor/display ↔ apps), an injected `system` capability handle as the app↔OS protocol seam, the `@imbatranim/ui`-library vs capabilities bisection, and the kill-list of real-Linux daemons we deliberately do NOT build. BUILT 2026-08-06 (brief 48) — the seam is live in all 26 apps and eslint-enforced.
+updated: 2026-08-06
 ---
 
 # OS layering — the compositor seam
@@ -44,6 +44,19 @@ slim-image + real-DOM soul. The authoritative server streams **data** (PTY
 bytes, FS, `/proc`), never pixels.
 
 ## The seam — an injected `system` capability handle
+
+**DONE 2026-08-06** — [brief 48](../briefs/done/48-protocol-seam-system-handle.md),
+whose outcome note carries the full detail. The load-bearing refinements: the
+protocol spec lives in the **SDK** (`packages/ui/src/system.ts`, so both sides
+resolve one context and the eslint rule is absolute — zero value imports from
+core, type-only allowed); the file dialog became a **portal capability**
+(`system.fs.pick*`, xdg-desktop-portal style — 17 apps' `{fileDialog}` render
+line deleted); three namespaces were added as API decisions (`shortcuts`,
+`appearance`, `schedule`) plus `ctx` on `CommandSource.search`; `notify` lost
+its appId field (the handle stamps it), which pushed recents-recording for
+launched files into core's `openApp`; and windowless handles serve background
+services, layers and widgets. Boot bundle byte-identical across the flip; all
+29 apps verified opening clean in a production build.
 
 The mechanism (grilled option **B**, not "narrowed imports"): the compositor
 hands each app a **`system` handle** at mount. The app **imports nothing from

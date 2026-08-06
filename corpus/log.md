@@ -3194,3 +3194,47 @@ model intact.
 
 Frontend vitest **1272 → 1286**. Backend unit 423 and e2e 141 unchanged. All 115
 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 48: the protocol seam is live
+
+The largest brief in the backlog, closed. Apps import **nothing** from the OS
+any more: the UI kit and pure helpers come from the new `@imbatranim/ui` SDK
+package, and every runtime ability arrives through one injected `system` handle
+whose TypeScript interface — `packages/ui/src/system.ts` — is the versioned
+protocol spec. Core's public barrel shrank to the add-on contract's types, and
+eslint in every add-on now rejects a value import from core (planted one to
+watch it fail; type-only passes). Swap the in-process transport for a sandboxed
+iframe someday and no app changes — which is the entire point.
+
+Departures from the brief, each recorded in the outcome: the spec lives in the
+SDK rather than core (both sides must resolve the same context, and it makes
+the eslint rule absolute); the file dialog became a **portal capability**
+(`system.fs.pick*` — the OS renders its one dialog, apps await pure data, and
+seventeen apps' copy-pasted `{fileDialog}` render line is gone); and three
+namespaces the 2026-07-19 grilling did not foresee were added as API decisions
+(`shortcuts`, `appearance`, `schedule`), plus a `ctx` parameter on
+`CommandSource.search` because palette sources run with no mount.
+
+Scoping is the security model, and it caught a real design flaw: `notify` has
+no appId field — the handle stamps it — which forced File Manager's habit of
+recording OS recents *attributed to the app it launches* into the right place.
+Core's `openApp` now records "file X opened with app Y" at the one choke point
+every launcher shares.
+
+Mechanically: seven commits, gates green at each. Package split with core-side
+re-export shims (core's ~200 internal `cn` imports never moved); protocol +
+per-window injection + ten scoping tests; sticky-notes proof (including the
+windowless desktop-layer path); file-manager stress test (the brief-81 probes
+pass through the handle unchanged); then the remaining **24 apps in a parallel
+agent fan-out** — one agent per app on a shared recipe, structured results,
+interrupted once by the session usage cap and resumed with the finished half
+replayed from cache; then the flip. The shrink exposed one genuine latent bug:
+pdfcore-engine's `isNodeEnvironment()` only ever type-checked through an
+accidental import-graph leak into `@types/node`.
+
+Verified: 119/119 turbo tasks (the ui package adds four), backend unit 423 and
+e2e 141, frontend vitest **1286 → 1292**. Boot bundle **byte-identical** across
+the flip (36,476 KB dist, 396 KB entry chunk) — the brief's no-growth bar met
+exactly. In the browser, production build: all 29 apps open clean from search
+with zero page errors, and the four regression probes (brief 81 ×2, the
+sticky-notes seam probe, brief 82's startup probe) all pass.
