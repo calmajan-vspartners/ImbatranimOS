@@ -2519,3 +2519,38 @@ Tests: frontend vitest **916 → 1022** (106 new in a package that had zero), ba
 baseline was carried over from brief 74 rather than brief 75; the true figures are
 886 → 916, corrected in place. The "30 new" count was right, and no other number in
 that entry was affected.)*
+
+## 2026-08-06 — Feature exploration: seven new ungrilled briefs (93-99)
+
+Charter: "do code exploration and a deep research; write a brief for new features
+or add-ons we should implement." A platform-capability map of the code plus an
+external landscape pass (Puter, daedalOS, AnuraOS, CasaOS/Umbrel) went into
+[wiki/feature-exploration-2026-08-06.md](wiki/feature-exploration-2026-08-06.md).
+
+The sharp finding: **the OS keeps building capabilities and giving them exactly
+one consumer** — the HTTP proxy (REST client only), content search (palette
+only), the recents table (Notepad only, with git-gui growing a parallel one),
+`desktopLayer` (sticky notes only), `commandSources` (2 of 23 apps). And Clock,
+Calendar and Todo each apologise in their own UI for the same missing core
+scheduler. So the sweep proposes mostly second consumers for existing seams,
+plus the two missing app categories: an image editor and games.
+
+New briefs, all ungrilled: **93** core reminder scheduler (desktop-lifetime; the
+SW variant stays gated on brief 50), **94** OS-wide recent files (one service,
+three consumers: Start menu / FilePicker / palette), **95** Paint (lift the
+snipping tool's annotation layer), **96** desktop widgets (generalise
+`desktopLayer`; clock / agenda / system sparkline), **97** auto-lock on idle
+(the cheap VPS security win), **98** Minesweeper + Solitaire (the
+identity-affirming tier every comparable ships; zero deps), **99** diff tool
+(Monaco's DiffEditor is already in the bundle; second manifest in the
+code-editor package).
+
+Kept out of brief form, with reasons on the wiki page: a cheap-wins list (more
+palette sources, find-in-files UI, hotkey-registry coverage), a grill-first tier
+(RSS reader, PWA installability, sound recorder, hex viewer, image wallpaper +
+custom accent as a decisions.md revisit, disk treemap, file share links vs
+"auth everywhere"), and an explicit no-relitigation pass over
+[wiki/real-os-gaps.md](wiki/real-os-gaps.md) — no emulators, no multi-user, no
+i18n, no email/sync. The sweep endorses the two standing todos
+(install-apps-from-github as the strategic add-on story, gated on 47→48 + a
+kill-list revisit; TOTP recovery codes).
