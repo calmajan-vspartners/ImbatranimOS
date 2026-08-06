@@ -79,15 +79,8 @@ export function groupShortcuts(shortcuts: Shortcut[]): [ShortcutScope, Shortcut[
  * The `textarea` case covers the Terminal too: xterm reads input through a
  * hidden textarea, and it must receive every keystroke it is given.
  */
-export function isTextEntry(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName.toLowerCase()
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
-  // Explicit `=== true`: lib.dom types isContentEditable as boolean, but it is
-  // absent in some environments and returns undefined there, which would make
-  // this function's declared boolean return a lie.
-  return target.isContentEditable === true
-}
+// isTextEntry moved to @imbatranim/ui (brief 48): pure DOM predicate, SDK-side.
+export { isTextEntry } from '@imbatranim/ui'
 
 /** Human-readable binding, e.g. `mod+k` → `Ctrl + K` (or `⌘ + K` on a Mac). */
 export function formatKeys(keys: string, mac: boolean): string {

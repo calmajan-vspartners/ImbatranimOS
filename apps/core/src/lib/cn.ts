@@ -1,6 +1,3 @@
-import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
+// Moved to the SDK (brief 48). Core links against @imbatranim/ui like any app;
+// this shim keeps core's ~200 internal '../lib/cn' imports untouched.
+export { cn } from '@imbatranim/ui'

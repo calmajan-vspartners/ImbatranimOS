@@ -1,3 +1,4 @@
+import { UploadTooLargeError } from '@imbatranim/ui'
 import { api } from './axios'
 
 /** True when an error carries an HTTP status (axios-style), matching `status`. */
@@ -26,13 +27,10 @@ export async function fetchFileBytes(root: string, path: string): Promise<ArrayB
   return res.data
 }
 
-/** Raised when the backend refuses an over-cap upload (413). */
-export class UploadTooLargeError extends Error {
-  constructor(message = 'File exceeds the maximum upload size.') {
-    super(message)
-    this.name = 'UploadTooLargeError'
-  }
-}
+// UploadTooLargeError moved to @imbatranim/ui (brief 48): the class is part of
+// the protocol — apps `instanceof` against it, so it ships with the SDK and the
+// capability implementation here throws the SDK's class.
+export { UploadTooLargeError } from '@imbatranim/ui'
 
 /**
  * Serialize+save bytes back to the same path via `POST /api/files/upload`
@@ -77,7 +75,5 @@ export function downloadUrl(root: string, path: string): string {
   return `${base}/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`
 }
 
-/** Last path segment (the file's own name), or `fallback` when the path is empty. */
-export function fileName(path: string, fallback = 'file'): string {
-  return path.split('/').pop() || fallback
-}
+// fileName moved to @imbatranim/ui (brief 48): pure string helper, SDK-side.
+export { fileName } from '@imbatranim/ui'

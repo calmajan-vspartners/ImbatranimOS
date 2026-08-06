@@ -2,6 +2,7 @@
 @plugin '@tailwindcss/typography';
 /* Add-on packages live outside core's auto-detection root — scan them too. */
 @source '../../add-ons';
+@source '../../../packages/ui';
 
 /*
  * Fonts are vendored (latin subset, variable-weight woff2) and served from

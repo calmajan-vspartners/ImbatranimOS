@@ -21,34 +21,29 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      // Codified convention: a leading underscore marks intentionally unused
-      // (e.g. the windowId prop of single-instance apps).
       '@typescript-eslint/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
       ],
-      // Core must not depend on the apps that plug into it. Exactly one file
-      // — src/manifest.ts, the composition root — may import add-on
-      // packages; the override below grants it. The one exception is the SDK:
-      // @imbatranim/ui sits BELOW core (brief 48), so core links against it
-      // the same way every app does.
+      // The SDK sits BELOW the OS: it is what apps link against, so it may
+      // depend on nothing above itself. An import from core here would drag
+      // the whole compositor into every app bundle and dissolve the seam.
       'no-restricted-imports': [
         'error',
         {
           patterns: [
             {
-              group: ['@imbatranim/*', '!@imbatranim/ui'],
-              message: 'Only src/manifest.ts (the composition root) may import add-on packages.',
+              group: ['@imbatranim/core', '@imbatranim/core/*'],
+              message:
+                'The SDK must not depend on the OS. Capabilities reach apps through the injected system handle; the handle implementation lives in core.',
             },
           ],
         },
       ],
-    },
-  },
-  {
-    files: ['src/manifest.ts'],
-    rules: {
-      'no-restricted-imports': 'off',
     },
   },
 ])
