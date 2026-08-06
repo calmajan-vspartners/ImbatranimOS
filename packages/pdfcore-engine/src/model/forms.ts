@@ -52,8 +52,6 @@ export class FormModel {
    * never mutates the document on save (e.g. by creating an AcroForm).
    */
   hasWork(): boolean {
-    return (
-      this.#pending.size > 0 || this.#flattenAll || this.#flatten.size > 0
-    );
+    return this.#pending.size > 0 || this.#flattenAll || this.#flatten.size > 0;
   }
 }

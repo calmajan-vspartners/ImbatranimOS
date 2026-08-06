@@ -199,48 +199,48 @@ export async function readAnnotationsWithPdfjs(
   bytes: PdfBytes,
 ): Promise<AnnotationSpec[]> {
   return withPdfjsDoc(bytes, async (pdf) => {
-  const out: AnnotationSpec[] = [];
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anns = (await page.getAnnotations()) as any[];
-    for (const a of anns) {
-      const endings: string[] = Array.isArray(a.lineEndings)
-        ? a.lineEndings
-        : [];
-      const raw: RawAnnotation = {
-        subtype: a.subtype,
-        page: p,
-        rect: [a.rect[0], a.rect[1], a.rect[2], a.rect[3]],
-        color: colorFrom(a.color),
-        fill: colorFrom(a.interiorColor),
-        contents: a.contentsObj?.str || undefined,
-        author: a.titleObj?.str || undefined,
-        width:
-          typeof a.borderStyle?.width === "number"
-            ? a.borderStyle.width
+    const out: AnnotationSpec[] = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anns = (await page.getAnnotations()) as any[];
+      for (const a of anns) {
+        const endings: string[] = Array.isArray(a.lineEndings)
+          ? a.lineEndings
+          : [];
+        const raw: RawAnnotation = {
+          subtype: a.subtype,
+          page: p,
+          rect: [a.rect[0], a.rect[1], a.rect[2], a.rect[3]],
+          color: colorFrom(a.color),
+          fill: colorFrom(a.interiorColor),
+          contents: a.contentsObj?.str || undefined,
+          author: a.titleObj?.str || undefined,
+          width:
+            typeof a.borderStyle?.width === "number"
+              ? a.borderStyle.width
+              : undefined,
+          quadPoints: a.quadPoints
+            ? Array.from(a.quadPoints as ArrayLike<number>)
             : undefined,
-        quadPoints: a.quadPoints
-          ? Array.from(a.quadPoints as ArrayLike<number>)
-          : undefined,
-        inkList: a.inkLists
-          ? (a.inkLists as ArrayLike<number>[]).map((l) => Array.from(l))
-          : undefined,
-        line: a.lineCoordinates
-          ? [
-              a.lineCoordinates[0],
-              a.lineCoordinates[1],
-              a.lineCoordinates[2],
-              a.lineCoordinates[3],
-            ]
-          : undefined,
-        arrow: endings.some((e) => /Arrow/i.test(e)),
-        name: a.name || undefined,
-      };
-      const spec = rawToSpec(raw);
-      if (spec) out.push(spec);
+          inkList: a.inkLists
+            ? (a.inkLists as ArrayLike<number>[]).map((l) => Array.from(l))
+            : undefined,
+          line: a.lineCoordinates
+            ? [
+                a.lineCoordinates[0],
+                a.lineCoordinates[1],
+                a.lineCoordinates[2],
+                a.lineCoordinates[3],
+              ]
+            : undefined,
+          arrow: endings.some((e) => /Arrow/i.test(e)),
+          name: a.name || undefined,
+        };
+        const spec = rawToSpec(raw);
+        if (spec) out.push(spec);
+      }
     }
-  }
-  return out;
+    return out;
   });
 }

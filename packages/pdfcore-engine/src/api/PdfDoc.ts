@@ -92,7 +92,9 @@ export class PdfDoc {
       // EncryptedPDFError). Per errors.ts no backend error is re-thrown
       // directly, so map the encrypted case to a typed engine error.
       if (isEncryptedPdfError(err)) {
-        throw new EncryptedDocument(err instanceof Error ? err.message : undefined);
+        throw new EncryptedDocument(
+          err instanceof Error ? err.message : undefined,
+        );
       }
       throw err;
     }

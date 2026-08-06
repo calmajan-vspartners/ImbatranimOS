@@ -19,7 +19,9 @@ const DEFAULT_PAGE_SIZE: readonly [number, number] = [612, 792];
  * types hide it, so cast through `unknown`.
  */
 function invalidatePageCache(pdfDoc: PDFDocument): void {
-  (pdfDoc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate();
+  (
+    pdfDoc as unknown as { pageCache: { invalidate(): void } }
+  ).pageCache.invalidate();
 }
 
 /**

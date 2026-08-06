@@ -326,7 +326,12 @@ export function TrackStage({
   // (T2-1).
   useDocumentedShortcuts([
     { id: 'media.playpause', keys: 'space', description: 'Play / pause', scope: 'Editing' },
-    { id: 'media.back', keys: 'left', description: `Back ${ARROW_SKIP_SECONDS}s`, scope: 'Editing' },
+    {
+      id: 'media.back',
+      keys: 'left',
+      description: `Back ${ARROW_SKIP_SECONDS}s`,
+      scope: 'Editing',
+    },
     {
       id: 'media.forward',
       keys: 'right',

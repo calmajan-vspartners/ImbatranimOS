@@ -34,29 +34,29 @@ export async function readFormGeometry(
   bytes: PdfBytes,
 ): Promise<Map<string, WidgetGeometry[]>> {
   return withPdfjsDoc(bytes, async (doc) => {
-  const byField = new Map<string, WidgetGeometry[]>();
+    const byField = new Map<string, WidgetGeometry[]>();
 
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-    const page = await doc.getPage(pageNumber);
-    const annotations = await page.getAnnotations();
-    for (const annot of annotations) {
-      const a = annot as {
-        subtype?: string;
-        fieldName?: string;
-        rect?: number[];
-      };
-      if (a.subtype !== "Widget") continue;
-      if (typeof a.fieldName !== "string" || a.fieldName === "") continue;
-      const rect = normalizeRect(a.rect);
-      if (!rect) continue;
-      const list = byField.get(a.fieldName);
-      const geom: WidgetGeometry = { page: pageNumber, rect };
-      if (list) list.push(geom);
-      else byField.set(a.fieldName, [geom]);
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+      const page = await doc.getPage(pageNumber);
+      const annotations = await page.getAnnotations();
+      for (const annot of annotations) {
+        const a = annot as {
+          subtype?: string;
+          fieldName?: string;
+          rect?: number[];
+        };
+        if (a.subtype !== "Widget") continue;
+        if (typeof a.fieldName !== "string" || a.fieldName === "") continue;
+        const rect = normalizeRect(a.rect);
+        if (!rect) continue;
+        const list = byField.get(a.fieldName);
+        const geom: WidgetGeometry = { page: pageNumber, rect };
+        if (list) list.push(geom);
+        else byField.set(a.fieldName, [geom]);
+      }
     }
-  }
 
-  return byField;
+    return byField;
   });
 }
 

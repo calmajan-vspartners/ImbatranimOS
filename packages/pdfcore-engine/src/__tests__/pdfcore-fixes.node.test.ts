@@ -131,7 +131,9 @@ describe("T0-5 — annotation text must not corrupt the file", () => {
       .filter((a) => a.type === "freeText")
       .map((a) => (a as { text: string }).text)
       .sort();
-    expect(texts).toEqual(["café ☺ résumé 日本語", "smile :) done\\path"].sort());
+    expect(texts).toEqual(
+      ["café ☺ résumé 日本語", "smile :) done\\path"].sort(),
+    );
   });
 });
 
@@ -156,7 +158,11 @@ describe("T1-10 — editing a seeded annotation keeps its other keys", () => {
     const annotDict = lib.context.lookup(annots.get(0) as PDFRef, PDFDict);
     annotDict.set(PDFName.of("NM"), PDFHexString.fromText("third-party-id"));
     const popupRef = lib.context.register(
-      lib.context.obj({ Type: "Annot", Subtype: "Popup", Rect: [0, 0, 10, 10] }),
+      lib.context.obj({
+        Type: "Annot",
+        Subtype: "Popup",
+        Rect: [0, 0, 10, 10],
+      }),
     );
     annotDict.set(PDFName.of("Popup"), popupRef);
     const withExtras = await lib.save();

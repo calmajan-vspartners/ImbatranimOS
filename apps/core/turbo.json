@@ -3,25 +3,13 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "../add-ons/*/src/**",
-        "../../packages/*/src/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "../add-ons/*/src/**", "../../packages/*/src/**"]
     },
     "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "../add-ons/*/src/**",
-        "../../packages/*/src/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "../add-ons/*/src/**", "../../packages/*/src/**"]
     },
     "test": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "../add-ons/*/src/**",
-        "../../packages/*/src/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "../add-ons/*/src/**", "../../packages/*/src/**"]
     }
   }
 }
