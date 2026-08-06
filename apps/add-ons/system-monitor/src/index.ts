@@ -12,4 +12,13 @@ export const manifest: AddonManifest = {
   multiInstance: false,
   defaultSize: { width: 560, height: 480 },
   minSize: { width: 420, height: 360 },
+  // Desktop widget (brief 96): CPU trace + RAM bar, hosted by core's layer.
+  widgets: [
+    {
+      id: 'stats',
+      name: 'System stats',
+      component: lazy(() => import('./StatsWidget').then((m) => ({ default: m.StatsWidget }))),
+      defaultSize: { width: 220, height: 118 },
+    },
+  ],
 }

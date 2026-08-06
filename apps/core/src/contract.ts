@@ -2,6 +2,27 @@ import { type ComponentType, type LazyExoticComponent } from 'react'
 import type { CommandSource } from './shared/commands/CommandSourcesRegistry'
 
 /**
+ * A desktop widget an app contributes (brief 96): a small always-visible
+ * panel the user can place on the desktop — Win7 gadgets, in the house style.
+ *
+ * Unlike `desktopLayer` (one free-form surface the app paints itself), a
+ * widget is *hosted*: core owns placement, drag, clamping and persistence, so
+ * every widget behaves identically and none reimplements the choreography.
+ * Contract for the component: render exactly the widget's content (the host
+ * draws the frame), be cheap, poll in seconds not frames, and hold no
+ * WebSocket.
+ */
+export type WidgetConfig = {
+  /** Unique within the app; the stored key is `<appId>:<id>`. */
+  id: string
+  /** Shown in the desktop's "Add widget" menu. */
+  name: string
+  component: ComponentType | LazyExoticComponent<ComponentType>
+  /** Fixed size in px — widgets are not resizable (v1). */
+  defaultSize: { width: number; height: number }
+}
+
+/**
  * The add-on contract. An add-on package (`apps/add-ons/<app>`) exports a
  * single `manifest: AddonManifest` from its entry point; core's
  * `manifest.ts` — the ONE file allowed to import add-on packages —
@@ -55,6 +76,8 @@ export type AppConfig = {
    *   `claimScheduleOccurrence`) so a second desktop tab does not double-toast.
    */
   background?: ComponentType
+  /** Desktop widgets this app contributes (brief 96) — hosted by core's layer. */
+  widgets?: WidgetConfig[]
 }
 
 export type AddonManifest = AppConfig & {

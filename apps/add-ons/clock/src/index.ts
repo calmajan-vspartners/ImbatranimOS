@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { Clock as ClockIcon } from 'lucide-react'
 import type { AddonManifest } from '@imbatranim/core'
 import { ClockBackground } from './ClockBackground'
+import { ClockWidget } from './ClockWidget'
 
 export const manifest: AddonManifest = {
   id: 'clock',
@@ -18,4 +19,8 @@ export const manifest: AddonManifest = {
   // purpose: it must run from login, and it pulls only the small pure modules
   // (alarmSchedule, timerModel, queries), not the lazy Clock UI chunk.
   background: ClockBackground,
+  // Desktop widget (brief 96): the time at a glance, hosted by core's layer.
+  widgets: [
+    { id: 'clock', name: 'Clock', component: ClockWidget, defaultSize: { width: 180, height: 76 } },
+  ],
 }
