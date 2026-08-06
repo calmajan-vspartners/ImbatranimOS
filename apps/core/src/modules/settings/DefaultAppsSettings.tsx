@@ -45,6 +45,10 @@ export function DefaultAppsSettings() {
         }
       })
       .filter((row) => row.candidates.length > 0)
+    // `overrides` is not referenced in the body but IS the input: `resolveOpener`
+    // reads it from the store, so dropping it here would leave every row's
+    // "current" value stale the moment a default changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, overrides])
 
   const changed = Object.keys(overrides).length

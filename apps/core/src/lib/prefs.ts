@@ -44,6 +44,7 @@ export const DOTFILE_KEYS = [
   'desktop-storage',
   'imbatranimos:addons',
   'imbatranimos:file-associations',
+  'imbatranimos:startup',
 ] as const
 
 type Cache = Map<string, string>

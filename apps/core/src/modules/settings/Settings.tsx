@@ -17,6 +17,7 @@ import {
   HardDrive,
   DatabaseBackup,
   FileCog,
+  Power,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Checkbox } from '../../shared/components/ui'
@@ -27,6 +28,7 @@ import { ShortcutList } from '../../shared/components/shortcuts/ShortcutsOverlay
 import { StorageSettings } from './StorageSettings'
 import { BackupSettings } from './BackupSettings'
 import { DefaultAppsSettings } from './DefaultAppsSettings'
+import { StartupSettings } from './StartupSettings'
 import { SecuritySettings } from '../auth/SecuritySettings'
 import { AboutMachine } from './AboutMachine'
 
@@ -264,6 +266,12 @@ export function Settings() {
         <section className="mb-10">
           <SectionHeader icon={FileCog} title="Default apps" />
           <DefaultAppsSettings />
+        </section>
+
+        {/* Startup ────────────────────────────────────────────── */}
+        <section className="mb-10">
+          <SectionHeader icon={Power} title="Startup" />
+          <StartupSettings />
         </section>
 
         {/* Backup ─────────────────────────────────────────────── */}

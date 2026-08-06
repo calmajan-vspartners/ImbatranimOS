@@ -3137,3 +3137,60 @@ in Archive Manager **already listing** its two files.
 
 Frontend vitest **1147 → 1150**. Backend unit 408 and e2e 141 unchanged. All 115
 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 82: startup apps, and a brief whose premise had expired
+
+An ordered list of apps that open when you sign in, stored as a brief-49 dotfile.
+Cheap feature; the interesting part is that **the brief was wrong about the code it
+was written against**, and following it literally would have shipped a bug on every
+reload.
+
+Brief 82 says brief 49 "deliberately deletes" the layout restore, so every load
+lands on a bare desktop and startup apps are the honest replacement. 49 did not
+delete it — it moved the layout to `sessionStorage`. A reload of the same tab still
+comes back with its windows; only a *new tab* starts bare. "Open the set once per
+session, after authentication" would therefore have re-opened everything **on top
+of** the restored windows: a second Notepad, a second Code Editor, and focus yanked
+to the end of the list every time anyone pressed F5.
+
+The corrected rule: never when a layout was restored, because those windows *are*
+this session's arrangement; and never twice in one tab even when the desktop is
+empty, because otherwise an app on the startup list can never be got rid of. The
+marker lives in `sessionStorage` so it shares its lifetime with the layout it
+guards, and a duplicated tab — which copies `sessionStorage` — inherits both
+together. That is 49's own session/dotfile split applied one level further in than
+82 could see. A consequence worth writing down: **a reload is not a test of this
+feature.** Every meaningful probe check opens a fresh browser context.
+
+`imbatranimos:startup` was registered in **both** `DOTFILE_KEYS` and
+`rehydrateDotfileStores` — the pairing brief 81 learned the hard way, where a store
+had the first without the second and the setting silently never left the browser.
+
+`startupCandidates()` skips ids the registry no longer has and apps disabled in
+brief 46, and Settings shows that same function's result — so the "2 apps will open
+at startup" line cannot drift from what boot does. A disabled entry stays in the
+list, struck through, saying it will be skipped: silently dropping it would lose the
+setting, and re-enabling the app should bring its entry back.
+
+Three judgement calls against the brief's letter. **No hand-rolled cascade**: the
+brief asks that several startup windows respect brief 52's clamp, which `openWindow`
+already does, and it also scatters new windows ±100px around centre — a wider spread
+than any stagger worth writing, so `runStartupApps` calls plain `openApp` with no
+placement argument. **Buttons, not drag, for reordering**: for a two-to-four item
+list, move-earlier/later is keyboard-accessible, screen-reader-legible, needs no
+gesture library and cannot half-complete. **Two lists rather than one checkbox
+list**: order is the only reason this is a list rather than a set — the last app
+opened is the one in front — and an alphabetical checkbox list would hide exactly
+that. "Use my current windows" takes **z-order**, so the arrangement you are looking
+at is the one you get back.
+
+Verified with one probe, 19 checks green: a new session opens exactly the two
+configured apps and nothing else; a reload leaves two windows and not four; closing
+them and reloading leaves the desktop empty; the snapshot button rewrites the list
+and the next session honours it; a disabled app is skipped while its entry is kept;
+and two tabs of one account each open their own set, keep their own layout, and
+closing everything in one leaves the other untouched across a reload — brief 49's
+model intact.
+
+Frontend vitest **1272 → 1286**. Backend unit 423 and e2e 141 unchanged. All 115
+turbo tasks green. Zero new dependencies.

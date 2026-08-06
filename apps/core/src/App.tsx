@@ -12,6 +12,7 @@ import { useDocumentedShortcuts, useRegisteredHotkeys } from './shared/hooks/use
 import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay'
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
 import { useIdleLock } from './shared/hooks/useIdleLock'
+import { runStartupApps } from './shared/lib/startup'
 
 export default function App() {
   const wallpaper = useWallpaperStore((s) => s.wallpaper)
@@ -85,9 +86,18 @@ export default function App() {
   const persistLayout = useWindowStore((s) => s.persistLayout)
   const windows = useWindowStore((s) => s.windows)
 
-  // Restore persisted layout on first mount
+  // Restore this tab's layout, then open the startup set (brief 82) — in that
+  // order, and in one effect, because the second decision depends on the first.
+  //
+  // `runStartupApps` opens nothing when the restore brought windows back: those
+  // windows *are* this session's arrangement, and re-running the startup list on
+  // top of them would double every multi-instance app and steal focus on every
+  // reload. It also marks the tab, so closing everything and reloading does not
+  // resurrect the set. App mounts behind AuthGate's `prefsReady`, so the list has
+  // already been read from the server by the time this runs.
   useEffect(() => {
     restoreLayout()
+    runStartupApps()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist layout whenever windows change. Drag/resize mints a new `windows`
