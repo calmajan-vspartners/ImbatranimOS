@@ -13,6 +13,7 @@ import {
   useConfirm,
   useFileDialog,
   useOpenIntent,
+  useAppearanceStore,
   usePrompt,
   useSaveHotkey,
   useUnsavedGuard,
@@ -112,13 +113,11 @@ export function CodeEditor({ windowId }: { windowId: string }) {
   // before closing while any tab has unsaved changes.
   useUnsavedGuard(windowId, anyDirty, activeName)
 
-  const theme = useMemo(
-    () =>
-      typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
-        ? 'vs-dark'
-        : 'vs',
-    []
-  )
+  // Subscribed, not read once at mount: changing the desktop appearance in
+  // Settings has to restyle an already-open editor, which a `useMemo(…, [])`
+  // over `matchMedia` could not do (it froze Monaco's theme at mount).
+  const appearanceTheme = useAppearanceStore((s) => s.theme)
+  const theme = appearanceTheme === 'dark' ? 'vs-dark' : 'vs'
 
   const options = useMemo(
     () => ({

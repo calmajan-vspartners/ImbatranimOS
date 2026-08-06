@@ -166,6 +166,22 @@ function cellToUniverBorders(cell: ExcelJS.Cell): IStyleData['bd'] | undefined {
   return Object.keys(bd).length ? (bd as IStyleData['bd']) : undefined
 }
 
+/**
+ * A JS `Date` as an Excel **serial number** — days since the 1899-12-30 epoch,
+ * with a fractional part for the time of day.
+ *
+ * Excel (and Univer) store a date as this number under a *date* number format;
+ * the old code wrote the `Date` back as ISO TEXT (`v.toISOString()`), which left
+ * a string sitting under a date numFmt so Excel could no longer sort, filter, or
+ * compute with it. Reuses ExcelJS's own constant (`25569` = 1970-01-01 in the
+ * serial system), which already bakes in Excel's phantom 1900-02-29 for every
+ * real-world date — so a value read here round-trips back to the same serial
+ * ExcelJS would have written.
+ */
+function dateToExcelSerial(d: Date): number {
+  return 25569 + d.getTime() / (24 * 3600 * 1000)
+}
+
 function cellValueToUniver(cell: ExcelJS.Cell): Pick<ICellData, 'v' | 'f'> {
   const v = cell.value
   if (v == null) return {}
@@ -190,7 +206,7 @@ function cellValueToUniver(cell: ExcelJS.Cell): Pick<ICellData, 'v' | 'f'> {
     }
     if ('text' in v) return { v: String((v as { text: unknown }).text) }
     if ('hyperlink' in v) return { v: String((v as { hyperlink: unknown }).hyperlink) }
-    if (v instanceof Date) return { v: v.toISOString() }
+    if (v instanceof Date) return { v: dateToExcelSerial(v) }
     return {}
   }
   return { v: v as string | number | boolean }

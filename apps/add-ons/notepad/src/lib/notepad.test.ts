@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   findMatches,
   matchIndexFrom,
+  minimalEdit,
   replaceRange,
   replaceAll,
   caretPosition,
@@ -100,6 +101,32 @@ describe('replaceRange', () => {
 
   it('handles an empty replacement (a delete)', () => {
     expect(replaceRange('abc', { start: 1, end: 2 }, '')).toEqual({ text: 'ac', caret: 1 })
+  })
+})
+
+describe('minimalEdit', () => {
+  // The exact span a Replace changes, so it can be applied through insertText and
+  // keep the textarea's native undo stack (L8) instead of a whole-value reset.
+  it('is empty when nothing changed', () => {
+    expect(minimalEdit('abc', 'abc')).toEqual({ start: 0, end: 0, insert: '' })
+  })
+
+  it('finds a single-span replacement inside the text', () => {
+    expect(minimalEdit('hello world', 'hello there')).toEqual({
+      start: 6,
+      end: 11,
+      insert: 'there',
+    })
+  })
+
+  it('spans from the first to the last change for a replace-all', () => {
+    // "a b a" → "X b X": the minimal contiguous edit covers the whole middle.
+    expect(minimalEdit('a b a', 'X b X')).toEqual({ start: 0, end: 5, insert: 'X b X' })
+  })
+
+  it('reports a pure insertion and a pure deletion', () => {
+    expect(minimalEdit('ac', 'abc')).toEqual({ start: 1, end: 1, insert: 'b' })
+    expect(minimalEdit('abc', 'ac')).toEqual({ start: 1, end: 2, insert: '' })
   })
 })
 

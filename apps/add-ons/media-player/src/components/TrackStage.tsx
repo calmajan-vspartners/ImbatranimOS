@@ -4,7 +4,7 @@ import { Button, api, downloadUrl, fileName, notify } from '@imbatranim/core'
 import type { MediaKind } from '../api/listDir'
 import { mediaErrorReport } from '../lib/mediaError'
 import { TransportBar } from './TransportBar'
-import { useRegisteredHotkeys } from '@imbatranim/core'
+import { useDocumentedShortcuts, useTopWindowKeydown } from '@imbatranim/core'
 import {
   ARROW_SKIP_SECONDS,
   COARSE_SKIP_SECONDS,
@@ -13,10 +13,13 @@ import {
   clampSeek,
 } from '../lib/transport'
 import { parseSubtitles, stripSsaOverrides } from '../lib/subtitles'
+import { shouldResume } from '../lib/resume'
 import type { RepeatMode } from '../lib/queueOrder'
 import { formatTime } from '../lib/formatTime'
 
 type TrackStageProps = {
+  /** The media-player window this stage lives in, so its keys stay scoped to it. */
+  windowId: string
   root: string
   path: string
   kind: MediaKind
@@ -54,6 +57,7 @@ type TrackStageProps = {
  * React, so nothing keeps decoding after the user has moved on.
  */
 export function TrackStage({
+  windowId,
   root,
   path,
   kind,
@@ -110,11 +114,14 @@ export function TrackStage({
 
     function handleLoadedMetadata() {
       setDuration(el!.duration || 0)
-      // Resume only once the duration is known: a stored position past the end (the file
-      // was replaced on disk) would otherwise seek nowhere useful. The decision itself
-      // lives in `lib/resume.ts`; by here it has already been made.
+      // Resume only once the duration is known, and only when the stored position is
+      // actually resumable for THIS duration. `clampSeek` alone would pin a stale
+      // position past the end (the file was replaced on disk) to `duration`, so the
+      // track would instantly fire `ended` and auto-advance (T1-13). `shouldResume`
+      // is the decision that guards against that — a candidate is passed in and
+      // checked here, where the duration is finally known.
       const target = liveRef.current.resumeAt
-      if (target !== null) {
+      if (target !== null && shouldResume(target, el!.duration)) {
         const seekTo = clampSeek(target, el!.duration)
         if (seekTo !== null) {
           el!.currentTime = seekTo
@@ -310,74 +317,73 @@ export function TrackStage({
     if (next !== null) el.currentTime = next
   }
 
-  // VLC's keyboard set, scoped to the top-most window so two players cannot
-  // fight over a keystroke, and registered so it appears in the `?` overlay
-  // instead of being invisible.
-  useRegisteredHotkeys([
-    {
-      id: 'media.playpause',
-      keys: 'space',
-      description: 'Play / pause',
-      scope: 'Editing',
-      handler: togglePlay,
-    },
-    {
-      id: 'media.back',
-      keys: 'left',
-      description: `Back ${ARROW_SKIP_SECONDS}s`,
-      scope: 'Editing',
-      handler: () => skip(-ARROW_SKIP_SECONDS),
-    },
+  // VLC's keyboard set. Published to the `?` overlay for discoverability, but
+  // BOUND through `useTopWindowKeydown` — not a bare `window` listener — so the
+  // keys fire only for the top-most media-player window and never while the user
+  // is typing in another app. The transport used to bind these window-globally
+  // (via `useRegisteredHotkeys` → `useGlobalHotkeys`), so `space`/`m`/`f`/arrows
+  // fired for every media-player window at once, regardless of which was on top
+  // (T2-1).
+  useDocumentedShortcuts([
+    { id: 'media.playpause', keys: 'space', description: 'Play / pause', scope: 'Editing' },
+    { id: 'media.back', keys: 'left', description: `Back ${ARROW_SKIP_SECONDS}s`, scope: 'Editing' },
     {
       id: 'media.forward',
       keys: 'right',
       description: `Forward ${ARROW_SKIP_SECONDS}s`,
       scope: 'Editing',
-      handler: () => skip(ARROW_SKIP_SECONDS),
     },
     {
       id: 'media.back.coarse',
       keys: 'shift+left',
       description: `Back ${COARSE_SKIP_SECONDS}s`,
       scope: 'Editing',
-      handler: () => skip(-COARSE_SKIP_SECONDS),
     },
     {
       id: 'media.forward.coarse',
       keys: 'shift+right',
       description: `Forward ${COARSE_SKIP_SECONDS}s`,
       scope: 'Editing',
-      handler: () => skip(COARSE_SKIP_SECONDS),
     },
-    {
-      id: 'media.mute',
-      keys: 'm',
-      description: 'Mute / unmute',
-      scope: 'Editing',
-      handler: toggleMute,
-    },
-    {
-      id: 'media.volume.up',
-      keys: 'up',
-      description: 'Volume up',
-      scope: 'Editing',
-      handler: () => nudgeVolume(VOLUME_STEP),
-    },
-    {
-      id: 'media.volume.down',
-      keys: 'down',
-      description: 'Volume down',
-      scope: 'Editing',
-      handler: () => nudgeVolume(-VOLUME_STEP),
-    },
-    {
-      id: 'media.fullscreen',
-      keys: 'f',
-      description: 'Fullscreen (video)',
-      scope: 'Editing',
-      handler: toggleFullscreen,
-    },
+    { id: 'media.mute', keys: 'm', description: 'Mute / unmute', scope: 'Editing' },
+    { id: 'media.volume.up', keys: 'up', description: 'Volume up', scope: 'Editing' },
+    { id: 'media.volume.down', keys: 'down', description: 'Volume down', scope: 'Editing' },
+    { id: 'media.fullscreen', keys: 'f', description: 'Fullscreen (video)', scope: 'Editing' },
   ])
+
+  useTopWindowKeydown(windowId, (e) => {
+    // Real shortcuts (Ctrl/⌘/Alt combos) belong to the shell and other apps.
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    // Left/Right take a coarse variant on Shift; everything else is Shift-free.
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      skip(e.shiftKey ? -COARSE_SKIP_SECONDS : -ARROW_SKIP_SECONDS)
+      return
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      skip(e.shiftKey ? COARSE_SKIP_SECONDS : ARROW_SKIP_SECONDS)
+      return
+    }
+    if (e.shiftKey) return
+    const k = e.key.toLowerCase()
+    if (e.key === ' ') {
+      e.preventDefault()
+      togglePlay()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      nudgeVolume(VOLUME_STEP)
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      nudgeVolume(-VOLUME_STEP)
+    } else if (k === 'm') {
+      e.preventDefault()
+      toggleMute()
+    } else if (k === 'f') {
+      e.preventDefault()
+      toggleFullscreen()
+    }
+  })
 
   function changeRate(rate: number) {
     const el = mediaRef.current

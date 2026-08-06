@@ -48,6 +48,26 @@ const pending = new Map<
   }
 >()
 
+/**
+ * Fail every in-flight request and drop — and, when it may still be alive,
+ * TERMINATE — the worker, so the next call spawns a fresh one.
+ *
+ * Used for a loud worker failure (crash / uncloneable message) AND for the
+ * silent-but-alive case a request timeout catches. The timeout previously
+ * deleted just the one entry and left the worker running: a worker wedged once
+ * stayed wedged, and every subsequent open/save hit the same dead instance and
+ * timed out in turn. Terminating here is what lets the singleton recover.
+ */
+function killWorker(message: string): void {
+  for (const entry of pending.values()) {
+    clearTimeout(entry.timer)
+    entry.reject(new Error(message))
+  }
+  pending.clear()
+  worker?.terminate()
+  worker = null
+}
+
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./xlsxWorker.ts', import.meta.url), { type: 'module' })
@@ -68,16 +88,8 @@ function getWorker(): Worker {
     // A worker-level failure (module load error, uncaught crash) sends no
     // id-tagged reply, so fail every in-flight request rather than hang, and
     // drop the instance so the next call spawns a fresh worker.
-    const failAll = (message: string) => {
-      for (const entry of pending.values()) {
-        clearTimeout(entry.timer)
-        entry.reject(new Error(message))
-      }
-      pending.clear()
-      worker = null
-    }
-    worker.onerror = (ev) => failAll(ev.message || 'xlsx worker crashed')
-    worker.onmessageerror = () => failAll('xlsx worker received an uncloneable message')
+    worker.onerror = (ev) => killWorker(ev.message || 'xlsx worker crashed')
+    worker.onmessageerror = () => killWorker('xlsx worker received an uncloneable message')
   }
   return worker
 }
@@ -96,8 +108,11 @@ function request<T>(
   const id = nextId++
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      pending.delete(id)
-      reject(new Error('The spreadsheet engine stopped responding.'))
+      // The worker is alive but silent. Terminate the whole instance (not just
+      // this entry) so a wedged worker cannot strand every future open/save —
+      // `killWorker` rejects this and any other in-flight request and nulls the
+      // singleton, so the next call re-spawns a clean worker.
+      killWorker('The spreadsheet engine stopped responding.')
     }, REQUEST_TIMEOUT_MS)
     pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
     w.postMessage({ ...msg, id }, transfer)

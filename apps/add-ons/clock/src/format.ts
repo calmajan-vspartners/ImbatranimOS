@@ -47,32 +47,68 @@ export function currentHHmm(now: Date): string {
   return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
 }
 
+/**
+ * Cache `Intl.DateTimeFormat` instances per zone.
+ *
+ * Constructing one is expensive (it loads locale/zone data), and the world-clock
+ * list rebuilt three per row every second — visible jank with a handful of clocks
+ * (L4). A formatter is immutable and reusable across instants, so one per zone per
+ * shape is kept in a module `Map` and only the `.format(date)` call runs per tick.
+ */
+function cachedFormatter(
+  cache: Map<string, Intl.DateTimeFormat>,
+  timeZone: string,
+  make: () => Intl.DateTimeFormat
+): Intl.DateTimeFormat {
+  let fmt = cache.get(timeZone)
+  if (!fmt) {
+    fmt = make()
+    cache.set(timeZone, fmt)
+  }
+  return fmt
+}
+
+const timeFormatters = new Map<string, Intl.DateTimeFormat>()
+const dateFormatters = new Map<string, Intl.DateTimeFormat>()
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>()
+
 /** Time-of-day in a given IANA zone, e.g. "14:07:52". */
 export function formatTimeInZone(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return cachedFormatter(
+    timeFormatters,
     timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).format(date)
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      })
+  ).format(date)
 }
 
 /** Date-of-day in a given IANA zone, e.g. "Sat, Jul 18". */
 export function formatDateInZone(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return cachedFormatter(
+    dateFormatters,
     timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).format(date)
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      })
+  ).format(date)
 }
 
 /** UTC offset label for a zone at a given instant, e.g. "GMT+05:30". */
 export function formatUtcOffset(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = cachedFormatter(
+    offsetFormatters,
     timeZone,
-    timeZoneName: 'shortOffset',
-  }).formatToParts(date)
+    () => new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' })
+  ).formatToParts(date)
   return parts.find((p) => p.type === 'timeZoneName')?.value ?? timeZone
 }

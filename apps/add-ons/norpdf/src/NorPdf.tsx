@@ -37,7 +37,6 @@ import {
   notify,
   useFileDialog,
   useOpenIntent,
-  useSaveHotkey,
 } from '@imbatranim/core'
 import { Download, FileText } from 'lucide-react'
 import { ReaderContext } from './app/context'
@@ -61,15 +60,15 @@ installMapGetOrInsert()
 configureWorker(workerUrl)
 
 export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
-  const ctrl = useReaderController()
+  const ctrl = useReaderController(windowId)
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
   const source = useOpenIntent(windowId)
   const [dragging, setDragging] = useState(false)
   const [fetching, setFetching] = useState(false)
   const dragDepth = useRef(0)
 
-  // Ctrl/Cmd+S → download the current (possibly edited) bytes.
-  useSaveHotkey(windowId, () => void ctrl.save())
+  // Ctrl/Cmd+S (write-back Save) is registered in TopBar, which lives inside
+  // EditorProvider and can reach the editor's save-and-reload path.
 
   /* ── Open the OS-provided file once the intent latches ─────────────────── */
   const openBytes = ctrl.openBytes
@@ -81,7 +80,12 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
       try {
         const buf = await fetchFileBytes(source.root, source.path)
         if (cancelled) return
-        await openBytes(new Uint8Array(buf), fileName(source.path, 'document.pdf'))
+        // Retain the source as the write-back target: Save writes back here,
+        // rather than only offering a download.
+        await openBytes(new Uint8Array(buf), fileName(source.path, 'document.pdf'), {
+          root: source.root,
+          path: source.path,
+        })
       } catch (err) {
         if (!cancelled) {
           notify({

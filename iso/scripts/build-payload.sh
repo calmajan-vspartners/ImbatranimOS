@@ -9,7 +9,8 @@
 #   apps/backend/dist   the NestJS build
 #   public              the core (React desktop) build
 # All native addons (better-sqlite3, node-pty, argon2) are compiled against
-# the same Alpine 3.22 nodejs the ISO ships, so the ABI matches at boot.
+# the same Alpine 3.22 nodejs-current (Node 24 series) the ISO ships, so the
+# ABI matches at boot and the appliance meets the engines floor (node >=24).
 #
 # Env:
 #   SCRIPTS  read-only mount of iso/scripts (rootfs/, apkbuild/, this file)
@@ -52,10 +53,18 @@ for pkg in "$REPO"/apps/add-ons/*/package.json; do
 done
 ( cd "$PROD" && npm ci --omit=dev --workspace=backend )
 # Strip native build intermediates now that the .node binaries are compiled.
-( cd "$PROD/node_modules" \
-	&& find . -name '*.o' -delete \
-	&& find . -type d -name obj.target -prune -exec rm -rf {} + \
-	&& rm -rf better-sqlite3/deps better-sqlite3/src node-pty/src node-pty/deps 2>/dev/null || true )
+# No `|| true`: under `set -e` a failed `cd` (e.g. proddeps never assembled)
+# must abort the build, not silently skip the whole size-trim chain. rm -rf is
+# already a no-op when a target is absent, so nothing here needs suppression.
+# typescript is backend's devDep and leaks into the tree (~23MB) despite
+# --omit=dev; drop it (mirrors the Dockerfile proddeps strip).
+(
+	cd "$PROD/node_modules"
+	find . -name '*.o' -delete
+	find . -type d -name obj.target -prune -exec rm -rf {} +
+	rm -rf better-sqlite3/deps better-sqlite3/src node-pty/src node-pty/deps
+	rm -rf typescript
+)
 # Drop foreign-arch prebuilt addons — dead weight on an x86_64 ISO (and they
 # trip up binary tooling). Keep only linux-x64 (the musl build lives here too).
 find "$PROD/node_modules" -type d -name prebuilds | while read -r pb; do

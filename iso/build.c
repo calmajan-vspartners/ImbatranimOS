@@ -50,7 +50,7 @@ static bool build_image(void) {
 }
 
 static bool run_iso(void) {
-    nob_mkdir_if_not_exists(p("out"));
+    if (!nob_mkdir_if_not_exists(p("out"))) return false;
     nob_log(NOB_INFO, "Running mkimage pipeline in Docker (unprivileged)");
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "docker", "run", "--rm", "--network", "host");

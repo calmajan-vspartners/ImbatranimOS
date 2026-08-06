@@ -55,9 +55,13 @@ describe('Security hardening (e2e)', () => {
       const csp = res.headers['content-security-policy'];
       expect(csp).toContain("default-src 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
-      // Google Fonts must be permitted (CDN @import in the bundled stylesheet).
-      expect(csp).toContain('https://fonts.googleapis.com');
-      expect(csp).toContain('https://fonts.gstatic.com');
+      // Fonts are vendored and served from 'self' — no Google Fonts origin is
+      // whitelisted, so the offline kiosk / air-gapped LAN renders its real
+      // fonts with no external fetch and leaks no visitor IP to Google.
+      expect(csp).not.toContain('fonts.googleapis.com');
+      expect(csp).not.toContain('fonts.gstatic.com');
+      expect(csp).toContain("font-src 'self'");
+      expect(csp).toMatch(/style-src 'self' 'unsafe-inline'(;|$)/);
       // connect-src is scoped to same-origin only (SEC-9): 'self' covers the
       // terminal ws/wss on the page's own origin per CSP3, and the bare
       // ws:/wss: wildcards are gone so an XSS can't open a socket off-origin.

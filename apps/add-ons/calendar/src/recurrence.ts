@@ -213,6 +213,14 @@ export function expandOccurrences(
   const exceptions = new Set(event.exceptions)
   const first = dayjs(event.start)
   const untilEnd = rule.until ? dayjs(rule.until).endOf('day').valueOf() : null
+  // Whether the series is bounded by its own rule. When it is, the safety cap
+  // counts the series index (the whole series is small). When it is NOT, an old
+  // no-end rule can have thousands of occurrences BEFORE the visible range, and
+  // capping on the index exhausts the budget before reaching the window — the
+  // view then shows nothing and reminders stop (T1-5). Cap on the occurrences
+  // actually collected in range instead; the `start >= rangeEnd` break still
+  // bounds the walk.
+  const hasSeriesLimit = rule.count !== undefined || untilEnd !== null
   const out: Occurrence[] = []
   let index = 0
 
@@ -222,7 +230,7 @@ export function expandOccurrences(
     // counts occurrences of the series and not of the visible window.
     if (untilEnd !== null && start > untilEnd) break
     if (rule.count !== undefined && index >= rule.count) break
-    if (index >= MAX_OCCURRENCES) break
+    if (hasSeriesLimit ? index >= MAX_OCCURRENCES : out.length >= MAX_OCCURRENCES) break
 
     const end = start + durationMs
     const date = occurrenceDateOf(start)

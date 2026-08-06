@@ -49,6 +49,14 @@ function NoteEditor({ noteId, windowId }: { noteId: number; windowId: string }) 
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Typed-but-unsaved value + latest mutation, so the debounce is FLUSHED (not
+  // dropped) when the editor unmounts — pressing Back within 800ms of a keystroke
+  // used to lose it (M7).
+  const pending = useRef<string | null>(null)
+  const latest = useRef({ noteId, update })
+  useEffect(() => {
+    latest.current = { noteId, update }
+  })
 
   // Sync content when the note (re)loads from the query — state adjustment
   // during render instead of an effect (react.dev/you-might-not-need-an-effect)
@@ -61,8 +69,11 @@ function NoteEditor({ noteId, windowId }: { noteId: number; windowId: string }) 
   const handleChange = useCallback(
     (value: string) => {
       setContent(value)
+      pending.current = value
       if (debounceRef.current) clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = null
+        pending.current = null
         update.mutate(
           { id: noteId, patch: { content: value } },
           {
@@ -80,6 +91,16 @@ function NoteEditor({ noteId, windowId }: { noteId: number; windowId: string }) 
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      // Flush the last unsaved keystrokes on unmount (Back / window close). No
+      // success callback here: the component is gone, so there is no "Saved" flash
+      // to show and no state to touch — just persist the content.
+      if (pending.current !== null) {
+        latest.current.update.mutate({
+          id: latest.current.noteId,
+          patch: { content: pending.current },
+        })
+        pending.current = null
+      }
     }
   }, [])
 

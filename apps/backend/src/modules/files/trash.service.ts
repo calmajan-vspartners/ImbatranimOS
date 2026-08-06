@@ -40,6 +40,20 @@ export interface TrashEntry {
   sizeBytes: number;
 }
 
+/**
+ * Format a date as the freedesktop trash spec requires: local wall-clock
+ * `YYYY-MM-DDThh:mm:ss`, with no milliseconds and no timezone/`Z` suffix.
+ * `toISOString()` (UTC + ms + `Z`) violates the spec this service claims to
+ * implement.
+ */
+function formatTrashDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
 @Injectable()
 export class TrashService {
   constructor(
@@ -105,7 +119,12 @@ export class TrashService {
   }
 
   async trash(virtualPath: string): Promise<{ id: string }> {
-    const { rootDir, abs } = await this.files.resolveSafe('home', virtualPath);
+    // No-follow resolve: a broken symlink, or one pointing out of the jail,
+    // must still be trashable — we move the link itself, never its target.
+    const { rootDir, abs } = await this.files.resolveSafeNoFollow(
+      'home',
+      virtualPath,
+    );
 
     const rel = relative(rootDir, abs);
     if (!rel || rel.startsWith('..')) {
@@ -130,7 +149,7 @@ export class TrashService {
     const info =
       `[Trash Info]\n` +
       `Path=${this.encodePath(rel.split(sep).join('/'))}\n` +
-      `DeletionDate=${new Date().toISOString()}\n`;
+      `DeletionDate=${formatTrashDate(new Date())}\n`;
     await fs.writeFile(join(infoDir, `${id}.trashinfo`), info, 'utf8');
 
     try {

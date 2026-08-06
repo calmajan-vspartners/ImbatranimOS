@@ -1,4 +1,11 @@
-import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFName,
+  PDFNumber,
+  PDFRef,
+  type PDFDocument,
+} from "pdf-lib";
 import type {
   Annotate,
   Annotation,
@@ -30,8 +37,12 @@ import type { PdfLibDocument } from "./document.js";
  */
 export class PdfLibAnnotate implements Annotate {
   #seeded = false;
-  /** Model id → the PDF object backing it, for later rewrite/removal. */
-  readonly #refs = new Map<string, { ref: PDFRef; pageIndex: number }>();
+  /**
+   * Model id → the PDF object backing it, for later rewrite/removal. Keyed by
+   * the page's `PDFRef` (NOT a load-time page index): a delete/reorder shuffles
+   * indices, so an index would strip the annotation off the wrong page.
+   */
+  readonly #refs = new Map<string, { ref: PDFRef; pageRef: PDFRef }>();
 
   private readonly doc: PdfLibDocument;
   private readonly model: AnnotationModel;
@@ -72,20 +83,37 @@ export class PdfLibAnnotate implements Annotate {
     this.#ensureSeeded();
     const pdf = this.doc.pdfLibDocument;
 
-    // Strip stale objects (deletes + edited-in-place) first.
+    const toWrite = this.model.toWrite();
+    // Seeded (pre-existing) annotations that were EDITED: their object is
+    // stripped and re-emitted, so we must carry forward any third-party keys
+    // (/M /NM /RC /F /IRT /CreationDate …) the native writer doesn't author.
+    const editedIds = new Set(
+      toWrite.filter((a) => this.model.isSeeded(a.id)).map((a) => a.id),
+    );
+
+    // Strip stale objects (deletes + edited-in-place) first, capturing the old
+    // dict of edited ones so their keys can be merged onto the re-emit.
+    const preserved = new Map<string, PDFDict>();
     for (const id of this.model.toRemove()) {
       const entry = this.#refs.get(id);
       if (!entry) continue;
-      const page = pdf.getPages()[entry.pageIndex];
+      if (editedIds.has(id)) {
+        const old = pdf.context.lookupMaybe(entry.ref, PDFDict);
+        if (old) preserved.set(id, old);
+      }
+      const page = pdf.getPages().find((p) => p.ref === entry.pageRef);
       page?.node.removeAnnot(entry.ref);
       this.#refs.delete(id);
     }
 
     // Emit new + edited annotations.
     const writer = new NativeAnnotationWriter(this.doc);
-    for (const ann of this.model.toWrite()) {
+    for (const ann of toWrite) {
       const { ref, pageIndex } = await writer.emit(ann);
-      this.#refs.set(ann.id, { ref, pageIndex });
+      const old = preserved.get(ann.id);
+      if (old) mergePreservedKeys(pdf, old, ref);
+      const pageRef = pdf.getPages()[pageIndex]?.ref;
+      if (pageRef) this.#refs.set(ann.id, { ref, pageRef });
     }
 
     this.model.markCommitted();
@@ -112,9 +140,64 @@ export class PdfLibAnnotate implements Annotate {
         if (!spec) continue;
         const id = `existing_p${p + 1}_${i}`;
         this.model.seed({ ...spec, id } as Annotation);
-        this.#refs.set(id, { ref: el, pageIndex: p });
+        this.#refs.set(id, { ref: el, pageRef: pages[p]!.ref });
       }
     }
+  }
+}
+
+/* ── key preservation for edited seeded annotations ─────────────────────── */
+
+/**
+ * Keys the {@link NativeAnnotationWriter} authors itself — everything the
+ * engine owns and re-derives from the model on each re-emit. Any key on the old
+ * dict NOT in this set is third-party (a viewer's `/M`, `/NM`, `/RC`, `/F`,
+ * `/IRT`, `/CreationDate`, …) and must be carried forward.
+ */
+const ENGINE_OWNED_KEYS = new Set<string>([
+  "Type",
+  "Rect",
+  "Subtype",
+  "Contents",
+  "T",
+  "CA",
+  "C",
+  "IC",
+  "QuadPoints",
+  "AP",
+  "BS",
+  "InkList",
+  "L",
+  "LE",
+  "Name",
+  "Open",
+  "DA",
+]);
+
+/**
+ * Copy third-party keys from an edited annotation's OLD dict onto its freshly
+ * re-emitted one, so re-editing a pre-existing (third-party) annotation does
+ * not silently drop the keys the engine doesn't model. The orphaned `/Popup`
+ * (its `/Parent` pointed at the object we just replaced) is dropped and its
+ * object deleted rather than carried forward.
+ */
+function mergePreservedKeys(
+  pdf: PDFDocument,
+  oldDict: PDFDict,
+  newRef: PDFRef,
+): void {
+  const newDict = pdf.context.lookupMaybe(newRef, PDFDict);
+  if (!newDict) return;
+
+  const popupRef = oldDict.get(PDFName.of("Popup"));
+  if (popupRef instanceof PDFRef) pdf.context.delete(popupRef);
+
+  for (const [key, value] of oldDict.entries()) {
+    const name = key.decodeText();
+    if (name === "Popup") continue;
+    if (ENGINE_OWNED_KEYS.has(name)) continue;
+    if (newDict.has(key)) continue;
+    newDict.set(key, value);
   }
 }
 

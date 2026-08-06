@@ -2,7 +2,16 @@ import { create } from 'zustand'
 import type { NotepadRoot } from '../lib/notepadRoot'
 
 /** What a Notepad window has open: a root AND a path, never a bare path. */
-export type OpenDoc = { root: NotepadRoot; path: string }
+export type OpenDoc = {
+  root: NotepadRoot
+  path: string
+  /**
+   * A brand-new file that does not exist on disk yet ("start a new file"). The
+   * editor treats a read miss on this path as an empty draft rather than a 404
+   * error screen — the file is created when the user first saves.
+   */
+  isNew?: boolean
+}
 
 type NotepadState = {
   /** windowId -> the open document. */

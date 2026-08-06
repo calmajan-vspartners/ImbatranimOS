@@ -1,12 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useWindowStore } from '../store/windowStore'
-
-/** True when this window is the top-most visible one (owns global Ctrl+S). */
-function isTopWindow(windowId: string): boolean {
-  const { windows } = useWindowStore.getState()
-  const top = windows.filter((w) => w.isVisible).sort((a, b) => b.zIndex - a.zIndex)[0]
-  return top?.id === windowId
-}
+import { isTopWindow } from '../store/windowStore'
 
 /**
  * Bind Ctrl/⌘+S (capture phase) to `onSave`, but only while this window is the

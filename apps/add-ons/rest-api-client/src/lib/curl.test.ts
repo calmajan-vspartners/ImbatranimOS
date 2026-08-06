@@ -148,11 +148,23 @@ describe('parseCurl', () => {
     expect(parseCurl(`curl -G 'http://x?z=0' -d 'a=1'`).url).toBe('http://x?z=0&a=1')
   })
 
-  it('collects -F form fields and sets a multipart content type', () => {
+  it('parses -F parts into real form fields, not a boundary-less text body', () => {
     const result = parseCurl(`curl http://x -F 'name=alice' -F 'file=@a.txt'`)
     expect(result.method).toBe('POST')
-    expect(result.body).toBe('name=alice\nfile=@a.txt')
-    expect(result.headers).toEqual([{ name: 'Content-Type', value: 'multipart/form-data' }])
+    // No fake multipart body / content-type — that produced a request no server
+    // could read (no boundary). The parts go into the form model instead.
+    expect(result.body).toBe('')
+    expect(result.headers).toEqual([])
+    expect(result.form).toEqual([
+      { name: 'name', value: 'alice' },
+      { name: 'file', value: '', filePath: 'a.txt' },
+    ])
+  })
+
+  it('records a -F part with no = as ignored rather than dropping it silently', () => {
+    const result = parseCurl(`curl http://x -F 'oops'`)
+    expect(result.form).toEqual([])
+    expect(result.ignored).toContain('-F oops')
   })
 
   it('finds the URL wherever it sits in the command', () => {

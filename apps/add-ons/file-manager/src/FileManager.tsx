@@ -13,7 +13,7 @@ import {
   LayoutGrid,
   List,
 } from 'lucide-react'
-import { Button, ConfirmDialog, notify, usePrompt } from '@imbatranim/core'
+import { Button, ConfirmDialog, notify, useConfirm, usePrompt } from '@imbatranim/core'
 import { TrashDialog } from './components/TrashDialog'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import { Input } from '@imbatranim/core'
@@ -159,6 +159,7 @@ export function FileManager({ windowId }: { windowId: string }) {
   const createDirMutation = useCreateDirectoryMutation(root, path)
   const writeContentMutation = useWriteContentMutation(root, path)
   const { prompt: promptName, promptDialog } = usePrompt()
+  const { confirm, confirmDialog } = useConfirm()
   const deleteMutation = useDeleteEntryMutation(root, path)
   const moveMutation = useMoveEntryMutation(root, path)
   const copyMutation = useCopyEntryMutation(root, path)
@@ -166,7 +167,7 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   const selection = useFileSelection()
   const { selected, setSelected } = selection
-  const clipboard = useFileClipboard({ path, copyMutation, moveMutation })
+  const clipboard = useFileClipboard({ path, copyMutation, moveMutation, onError: failAction })
   const deleteFlow = useDeleteFlow({
     selected,
     setSelected,
@@ -221,13 +222,31 @@ export function FileManager({ windowId }: { windowId: string }) {
       setRenamingPath(null)
       return
     }
+    const trimmed = renameValue.trim()
     const dir = renamingPath.includes('/')
       ? renamingPath.substring(0, renamingPath.lastIndexOf('/'))
       : ''
-    const newPath = dir ? `${dir}/${renameValue.trim()}` : renameValue.trim()
-    if (newPath !== renamingPath) {
-      moveMutation.mutate({ from: renamingPath, to: newPath })
+    // Same guards as handleNewFile: a filename, not a path, and not already taken
+    // in this directory. Rename had neither check nor any error feedback (M4).
+    if (/[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+      failAction('That name is not a valid filename.')
+      setRenamingPath(null)
+      return
     }
+    const newPath = dir ? `${dir}/${trimmed}` : trimmed
+    if (newPath === renamingPath) {
+      setRenamingPath(null)
+      return
+    }
+    if ((dirQuery.data ?? []).some((e) => e.name === trimmed && e.path !== renamingPath)) {
+      failAction(`"${trimmed}" already exists here.`)
+      setRenamingPath(null)
+      return
+    }
+    moveMutation.mutate(
+      { from: renamingPath, to: newPath },
+      { onError: () => failAction(`Could not rename to "${trimmed}".`) }
+    )
     setRenamingPath(null)
   }
 
@@ -289,13 +308,37 @@ export function FileManager({ windowId }: { windowId: string }) {
   }
 
   async function handleUploadFiles(files: File[]) {
+    // Never silently overwrite: an upload (or a drag-drop) whose name already
+    // exists here used to clobber the file on disk with no warning (M5). Ask
+    // before replacing; if declined, upload only the names that collide with
+    // nothing and skip the rest.
+    const existing = new Set((dirQuery.data ?? []).map((e) => e.name))
+    const clashes = files.filter((f) => existing.has(f.name))
+    let toUpload = files
+    if (clashes.length > 0) {
+      const ok = await confirm({
+        title: clashes.length === 1 ? 'Replace file?' : 'Replace files?',
+        message:
+          clashes.length === 1
+            ? `"${clashes[0].name}" already exists here. Uploading replaces it.`
+            : `${clashes.length} files already exist here and will be replaced: ${clashes
+                .map((f) => f.name)
+                .join(', ')}.`,
+        destructive: true,
+        confirmLabel: 'Replace',
+      })
+      if (!ok) {
+        toUpload = files.filter((f) => !existing.has(f.name))
+        if (toUpload.length === 0) return
+      }
+    }
     const results = await Promise.allSettled(
-      files.map((file) => {
+      toUpload.map((file) => {
         const filePath = path ? `${path}/${file.name}` : file.name
         return uploadMutation.mutateAsync({ path: filePath, file })
       })
     )
-    const failed = files.filter((_, i) => results[i].status === 'rejected')
+    const failed = toUpload.filter((_, i) => results[i].status === 'rejected')
     if (failed.length > 0) {
       failAction(
         `Failed to upload ${failed.length} file${failed.length !== 1 ? 's' : ''}: ${failed
@@ -828,6 +871,7 @@ export function FileManager({ windowId }: { windowId: string }) {
       </Dialog>
 
       {promptDialog}
+      {confirmDialog}
 
       <PropertiesDialog
         entry={propsEntry}

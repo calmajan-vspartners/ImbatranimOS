@@ -3,6 +3,9 @@ export {
   PdfEngineError,
   NotImplemented,
   UnsupportedPlatform,
+  EncryptedDocument,
+  PdfEngineWarning,
+  SignatureInvalidationWarning,
 } from "./errors.js";
 export type {
   PdfBytes,

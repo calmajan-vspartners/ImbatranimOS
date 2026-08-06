@@ -128,6 +128,19 @@ describe('scope: all', () => {
       deleteOriginal: true,
     })
   })
+
+  it('clears the rule when the dialog set "Does not repeat" (T1-6)', () => {
+    // `null` is the dialog saying "Does not repeat" and must strip the rule, not
+    // be treated as "untouched" and silently re-apply the old weekly rule.
+    const e = series()
+    const plan = planEdit(
+      e,
+      occurrenceOf(e, e.start),
+      edited('2026-07-06T09:00', '2026-07-06T09:30', { recurrence: null }),
+      'all'
+    )
+    expect(plan.patch?.recurrence).toBeNull()
+  })
 })
 
 describe('scope: single — detach', () => {
@@ -263,6 +276,21 @@ describe('scope: following — split', () => {
       'following'
     )
     expect(plan.create?.recurrence).toMatchObject({ until: '2026-09-30' })
+  })
+
+  it('honours a just-set end on the tail instead of the original one (M6)', () => {
+    // The user edited the rule AND gave it a new `until`; the tail must carry the
+    // edited end, not silently revert to the original series' end.
+    const e = series({ recurrence: { freq: 'weekly', interval: 1, until: '2026-09-30' } })
+    const plan = planEdit(
+      e,
+      occurrenceOf(e, third.start, third.index),
+      edited('2026-07-20T10:00', '2026-07-20T11:00', {
+        recurrence: { freq: 'weekly', interval: 1, until: '2026-12-31' },
+      }),
+      'following'
+    )
+    expect(plan.create?.recurrence).toMatchObject({ until: '2026-12-31' })
   })
 
   it('sends each existing exception to the half that still contains it', () => {

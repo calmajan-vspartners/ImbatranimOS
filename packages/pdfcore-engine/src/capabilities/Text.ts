@@ -30,4 +30,10 @@ export interface Text {
    * Implemented by **brief 16** — the brief-09 adapter throws `NotImplemented`.
    */
   search(query: string, opts?: TextSearchOptions): Promise<TextHit[]>;
+
+  /**
+   * Release the underlying pdf.js document (and its worker-side memory).
+   * Idempotent; the adapter re-parses lazily if used again after disposal.
+   */
+  dispose(): void;
 }

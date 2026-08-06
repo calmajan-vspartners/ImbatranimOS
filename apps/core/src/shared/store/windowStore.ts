@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
+import { useIntentStore } from './intentStore'
+import { clearOpenedFile } from '../hooks/useOpenIntent'
 
 export type SnapRegion = 'left' | 'right' | 'top' | 'tl' | 'tr' | 'bl' | 'br'
 
@@ -289,6 +291,62 @@ type WindowStore = {
   restoreLayout: () => void
 }
 
+/**
+ * The id of the top-most *visible* window, or null when none is visible.
+ * Single source of truth for "which window owns global keyboard focus" —
+ * WindowContainer chrome, the taskbar highlight and every window-scoped hotkey
+ * must agree on this, so they all read it here rather than each re-deriving it
+ * (some over all windows, some over visible ones, which used to disagree when
+ * the focused window was minimized).
+ */
+export function topVisibleWindowId(): string | null {
+  const { windows, activeWorkspace } = useWindowStore.getState()
+  let top: WindowInstance | null = null
+  for (const w of windows) {
+    // Scoped to the active workspace (brief 85): a window on another virtual
+    // desktop is `display:none`, so it must not be treated as focused — else
+    // the taskbar highlight, window chrome and Ctrl+S/Mod+W would target a
+    // window the user cannot see.
+    if (!w.isVisible || w.workspaceId !== activeWorkspace) continue
+    if (!top || w.zIndex > top.zIndex) top = w
+  }
+  return top?.id ?? null
+}
+
+/** True when `windowId` is the top-most visible window (owns global hotkeys). */
+export function isTopWindow(windowId: string): boolean {
+  return topVisibleWindowId() === windowId
+}
+
+/**
+ * Reactive hook: is this window currently on screen (not minimized)? Minimize
+ * is `display:none` with the component still mounted, so an app that polls
+ * (System Monitor) or animates can gate that work on visibility instead of
+ * running it forever behind a hidden window. Re-renders only when the boolean
+ * flips, since the selector returns a primitive.
+ */
+export function useWindowVisible(windowId: string): boolean {
+  return useWindowStore((s) => s.windows.find((w) => w.id === windowId)?.isVisible ?? false)
+}
+
+/**
+ * A sane floating geometry to restore a maximized window to when its pre-max
+ * state is gone (a layout restored while maximized keeps no pre-max entry).
+ * Three-quarters of the usable desktop, centered, never below a usable floor.
+ */
+function fallbackFloatingGeometry(currentSize: { width: number; height: number }): {
+  position: { x: number; y: number }
+  size: { width: number; height: number }
+} {
+  const availW = window.innerWidth
+  const availH = window.innerHeight - TASKBAR_HEIGHT
+  const width = Math.max(360, Math.min(currentSize.width, Math.round(availW * 0.75)))
+  const height = Math.max(240, Math.min(currentSize.height, Math.round(availH * 0.75)))
+  const x = Math.max(0, Math.floor((availW - width) / 2))
+  const y = Math.max(0, Math.floor((availH - height) / 2))
+  return { position: { x, y }, size: { width, height } }
+}
+
 export const useWindowStore = create<WindowStore>((set, get) => ({
   windows: [],
   activeWorkspace: 1,
@@ -356,6 +414,12 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
     // bypass it.
     const guard = get().closeGuards[id]
     if (guard && !guard()) return
+    // A window id keys entries in two side stores as well. Nothing removes them
+    // when the window goes away, so a long session leaks one entry per opened
+    // window (and a stale intent could be mis-delivered to a recycled id). Clear
+    // both here, the single choke point every close funnels through.
+    useIntentStore.getState().clearIntent(id)
+    clearOpenedFile(id)
     set((state) => {
       const { [id]: _removedPre, ...remainingPreMax } = state.preMaximizeStates
       const { [id]: _removedSnap, ...remainingPreSnap } = state.preSnapStates
@@ -434,10 +498,17 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
   restoreWindow: (id) => {
     set((state) => {
-      const saved = state.preMaximizeStates[id]
-      if (!saved) return state
+      const win = state.windows.find((w) => w.id === id)
+      if (!win) return state
 
+      const saved = state.preMaximizeStates[id]
       const { [id]: _removed, ...remainingPreMax } = state.preMaximizeStates
+
+      // A window maximized *before* a layout save has no pre-max geometry after
+      // restore (restoreLayout drops those), so the old early-return here left it
+      // permanently un-restorable. Fall back to a centered, desktop-clamped
+      // floating size so the restore button always does something sane.
+      const geometry = saved ?? fallbackFloatingGeometry(win.size)
 
       return {
         windows: state.windows.map((w) =>
@@ -446,8 +517,8 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
                 ...w,
                 isMaximized: false,
                 snapState: undefined,
-                position: saved.position,
-                size: saved.size,
+                position: geometry.position,
+                size: geometry.size,
               }
             : w
         ),
@@ -457,6 +528,10 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
   },
 
   focusWindow: (id) => {
+    // Every in-window click funnels through here. Without this guard a click on
+    // the already-top window still minted a new zIndex + windows array + a
+    // debounced localStorage write — pure churn. Bail when nothing would change.
+    if (topVisibleWindowId() === id) return
     const { nextZIndex } = get()
     set((state) => {
       const target = state.windows.find((w) => w.id === id)

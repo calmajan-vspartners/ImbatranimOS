@@ -125,8 +125,8 @@ export function Desktop({ wallpaper }: DesktopProps) {
         containerRef.current = el
         sizeRef(el)
       }}
-      className="absolute top-0 right-0 bottom-[44px] left-0 w-full overflow-hidden"
-      style={WALLPAPER_STYLES[wallpaper]}
+      className="absolute top-0 right-0 left-0 w-full overflow-hidden"
+      style={{ ...WALLPAPER_STYLES[wallpaper], bottom: TASKBAR_HEIGHT }}
       onContextMenu={(e) => {
         // The desktop's own menu (widgets). Only for the background — an icon
         // or a layer element keeps the browser/default behaviour it had.

@@ -1,6 +1,6 @@
 import type { Color, PdfBytes, Point, Rect } from "../../api/types.js";
 import type { AnnotationSpec } from "../../capabilities/Annotate.js";
-import { loadPdfjsDocument } from "./document.js";
+import { withPdfjsDoc } from "./document.js";
 
 /**
  * Read existing PDF annotations back into engine specs so a loaded document's
@@ -198,7 +198,7 @@ function colorFrom(
 export async function readAnnotationsWithPdfjs(
   bytes: PdfBytes,
 ): Promise<AnnotationSpec[]> {
-  const pdf = await loadPdfjsDocument(bytes);
+  return withPdfjsDoc(bytes, async (pdf) => {
   const out: AnnotationSpec[] = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
@@ -242,4 +242,5 @@ export async function readAnnotationsWithPdfjs(
     }
   }
   return out;
+  });
 }

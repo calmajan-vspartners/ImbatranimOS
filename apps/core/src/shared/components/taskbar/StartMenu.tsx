@@ -42,6 +42,36 @@ export function StartMenu({ onClose, onOpenApp, anchorRef }: StartMenuProps) {
     }
   }, [onClose, anchorRef])
 
+  // Move focus into the menu on open and restore it to the trigger on close, so
+  // the menu is operable and the keyboard user is not stranded when it dismisses.
+  useEffect(() => {
+    const trigger = anchorRef.current
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    return () => trigger?.focus()
+  }, [anchorRef])
+
+  // Roving focus across the menu items (Arrow keys wrap; Home/End jump).
+  function handleMenuKeyDown(e: React.KeyboardEvent) {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []
+    )
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      items[current < 0 ? 0 : (current + 1) % items.length].focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length].focus()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      items[0].focus()
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      items[items.length - 1].focus()
+    }
+  }
+
   // Lock: return to the lock screen without ending the session on the client.
   function handleLock() {
     setAuthenticated(false)
@@ -66,6 +96,7 @@ export function StartMenu({ onClose, onOpenApp, anchorRef }: StartMenuProps) {
       transition={{ duration: 0.12, ease: 'easeOut' }}
       role="menu"
       aria-label="Start menu"
+      onKeyDown={handleMenuKeyDown}
       className={cn(
         'absolute bottom-full left-0 z-[9001] mb-1 flex w-[280px] flex-col',
         'border-outline-variant bg-surface-container-low border',

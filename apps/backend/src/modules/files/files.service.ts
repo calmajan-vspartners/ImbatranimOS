@@ -8,7 +8,7 @@ import {
 import { join, resolve, relative, basename, dirname, sep } from 'path';
 import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
-import type { Dirent } from 'fs';
+import type { Dirent, Stats } from 'fs';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Readable } from 'stream';
@@ -129,8 +129,19 @@ export class FilesService {
   }
 
   /**
-   * Fully percent-decode a path defensively (handles double/triple encoding
-   * such as %252e). Stops on malformed input rather than throwing.
+   * Percent-decode a path defensively, unwrapping nested encoding of traversal
+   * (e.g. `%252e%252e` → `%2e%2e` → `..`) WITHOUT over-decoding benign literals.
+   *
+   * Express already decodes query params once, so most input arrives decoded.
+   * The old version decoded up to 6× unconditionally, which meant a real file
+   * named `a%2Bb.txt` became `a+b.txt` (unaddressable) and `report%20v2.txt`
+   * silently became `report v2.txt`. The fix keeps unwrapping only while a pass
+   * actually REVEALS a new traversal-significant character (a path separator, a
+   * `..` segment, or a NUL); the moment a pass introduces none of those, it is
+   * decoding a legitimate literal, so we stop and keep the pre-decode form.
+   *
+   * Traversal safety is unchanged: encoded `..`/separators still unwrap all the
+   * way to their dangerous form, where {@link resolveSafe}'s jail rejects them.
    */
   private fullyDecode(input: string): string {
     let prev = input;
@@ -142,9 +153,27 @@ export class FilesService {
         return prev; // malformed % sequence — treat remainder as literal
       }
       if (next === prev) return next;
+      // A pass that reveals no new separator/`..`/NUL is unwrapping a benign
+      // literal — keep the previous (still-encoded) form so it stays addressable.
+      if (!this.revealsTraversalChar(prev, next)) return prev;
       prev = next;
     }
     return prev;
+  }
+
+  /**
+   * True when `after` contains a traversal-significant character (a path
+   * separator, a `..` path segment, or a NUL) that `before` did not — i.e. this
+   * decode pass unwrapped something that matters to the jail.
+   */
+  private revealsTraversalChar(before: string, after: string): boolean {
+    const dotdot = /(?:^|[/\\])\.\.(?:[/\\]|$)/;
+    const sep = /[/\\]/;
+    return (
+      (sep.test(after) && !sep.test(before)) ||
+      (dotdot.test(after) && !dotdot.test(before)) ||
+      (after.includes('\0') && !before.includes('\0'))
+    );
   }
 
   /**
@@ -213,6 +242,45 @@ export class FilesService {
     return { rootDir, abs };
   }
 
+  /**
+   * Like {@link resolveSafe}, but validates realpath containment on the PARENT
+   * directory only and never follows a symlink AT the leaf.
+   *
+   * `resolveSafe` realpaths the leaf, which follows a symlink there — so a
+   * broken link (its target ENOENTs) reads as "not found" (404) and a link
+   * pointing out of the jail reads as an escape (400). Both mean the UI can
+   * never remove such a link. Operations that act on the link ITSELF
+   * (delete/trash) resolve through this instead: the parent chain must still sit
+   * inside the jail (symlink-proof), but the leaf is taken lexically so it can
+   * be `lstat`/`unlink`ed as the link it is, never its target.
+   */
+  async resolveSafeNoFollow(
+    root: string,
+    virtualPath = '',
+  ): Promise<{ rootDir: string; abs: string }> {
+    const rootDir = this.getRootDir(root);
+    let vp = this.fullyDecode(virtualPath ?? '');
+    if (vp.includes('\0')) throw new BadRequestException('Invalid path');
+    vp = vp.replace(/^[/\\]+/, '');
+    const abs = resolve(rootDir, vp);
+
+    if (abs !== rootDir && !abs.startsWith(rootDir + sep)) {
+      throw new BadRequestException('Path traversal detected');
+    }
+    // No leaf (the root itself) — nothing to follow; defer to resolveSafe.
+    if (abs === rootDir) return { rootDir, abs };
+
+    const realRoot = await this.realpathAllowingMissing(rootDir);
+    const realParent = await this.realpathAllowingMissing(dirname(abs));
+    if (realParent !== realRoot && !realParent.startsWith(realRoot + sep)) {
+      throw new BadRequestException('Path traversal detected');
+    }
+    // Return the lexical abs (like resolveSafe) — the containment check above
+    // used the realpath, but lstat/unlink never follow the final component, so
+    // the leaf link is operated on in place.
+    return { rootDir, abs };
+  }
+
   private async exists(p: string): Promise<boolean> {
     try {
       await fs.stat(p);
@@ -257,9 +325,20 @@ export class FilesService {
     if (!stat.isDirectory()) throw new BadRequestException('Not a directory');
 
     const entries = await fs.readdir(abs, { withFileTypes: true });
-    return Promise.all(
-      entries.map((e) => this.toEntry(rootDir, join(abs, e.name))),
+    // An entry can vanish between readdir and lstat — e.g. uploadFile stages a
+    // `.part` sibling in this very directory and renames it away, or another
+    // client deletes a file mid-refresh. A per-entry ENOENT must drop that one
+    // entry, not 500 the whole listing (mirrors dirSize's vanished-mid-walk
+    // tolerance).
+    const mapped = await Promise.all(
+      entries.map((e) =>
+        this.toEntry(rootDir, join(abs, e.name)).catch((err) => {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+          throw err;
+        }),
+      ),
     );
+    return mapped.filter((e): e is FileEntry => e !== null);
   }
 
   /**
@@ -456,6 +535,14 @@ export class FilesService {
     return createReadStream(abs, { start, end });
   }
 
+  /**
+   * Open the whole of an already-jailed absolute path (from `statFile`), so the
+   * download route need not re-resolve + re-stat a path it already validated.
+   */
+  openFile(abs: string): Readable {
+    return createReadStream(abs);
+  }
+
   async writeFile(
     root: string,
     virtualPath: string,
@@ -552,6 +639,10 @@ export class FilesService {
     const { abs: absTo } = await this.resolveSafe(root, to);
     if (!(await this.exists(absFrom)))
       throw new NotFoundException('Source not found');
+    // Moving a directory into itself (a → a/b) is a raw EINVAL 500; reject it.
+    if (absTo === absFrom || absTo.startsWith(absFrom + sep)) {
+      throw new BadRequestException('Cannot move a folder into itself');
+    }
     if (await this.exists(absTo))
       throw new BadRequestException('Destination already exists');
     await withDiskSpaceCheck(async () => {
@@ -566,23 +657,40 @@ export class FilesService {
     const { abs: absTo } = await this.resolveSafe(root, to);
     if (!(await this.exists(absFrom)))
       throw new NotFoundException('Source not found');
+    // Copying a directory into itself (a → a/b) recurses / EINVALs into a 500.
+    if (absTo === absFrom || absTo.startsWith(absFrom + sep)) {
+      throw new BadRequestException('Cannot copy a folder into itself');
+    }
     if (await this.exists(absTo))
       throw new BadRequestException('Destination already exists');
-    await fs.mkdir(dirname(absTo), { recursive: true });
+    // Wrap the writes in withDiskSpaceCheck so a full volume surfaces as a
+    // clear 503 rather than a generic 500 — same as writeFile/uploadFile.
     const stat = await fs.stat(absFrom);
-    if (stat.isDirectory()) {
-      await fs.cp(absFrom, absTo, { recursive: true });
-    } else {
-      await fs.copyFile(absFrom, absTo);
-    }
+    await withDiskSpaceCheck(async () => {
+      await fs.mkdir(dirname(absTo), { recursive: true });
+      if (stat.isDirectory()) {
+        await fs.cp(absFrom, absTo, { recursive: true });
+      } else {
+        await fs.copyFile(absFrom, absTo);
+      }
+    });
     return this.toEntry(rootDir, absTo);
   }
 
   async delete(root: string, virtualPath: string): Promise<void> {
-    const { abs } = await this.resolveSafe(root, virtualPath);
-    if (!(await this.exists(abs))) throw new NotFoundException('Not found');
-    const stat = await fs.lstat(abs);
-    if (stat.isDirectory()) {
+    // No-follow resolve + lstat: a broken symlink (its target ENOENTs) or one
+    // pointing out of the jail must still be removable — we operate on the link
+    // itself, never its target.
+    const { abs } = await this.resolveSafeNoFollow(root, virtualPath);
+    let stat: Stats;
+    try {
+      stat = await fs.lstat(abs);
+    } catch {
+      throw new NotFoundException('Not found');
+    }
+    if (stat.isSymbolicLink()) {
+      await fs.unlink(abs); // remove the link, never chase its target
+    } else if (stat.isDirectory()) {
       await fs.rm(abs, { recursive: true });
     } else {
       await fs.unlink(abs);

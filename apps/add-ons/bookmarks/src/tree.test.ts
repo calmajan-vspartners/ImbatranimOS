@@ -64,6 +64,15 @@ describe('buildTree', () => {
     const tree = buildTree([group(1, 'A', 2), group(2, 'B', 1)])
     expect(allFolderIds(tree).length).toBeLessThanOrEqual(2)
   })
+
+  it('surfaces the folders in a pure cycle rather than dropping them (L5)', () => {
+    // A→B→A with both present: neither is parented at the root, so the null-root walk
+    // reaches neither and both used to vanish entirely. Both must still appear, once
+    // each, in a finite tree.
+    const tree = buildTree([group(1, 'A', 2), group(2, 'B', 1)])
+    const ids = allFolderIds(tree).sort((a, b) => a - b)
+    expect(ids).toEqual([1, 2])
+  })
 })
 
 describe('toRows', () => {

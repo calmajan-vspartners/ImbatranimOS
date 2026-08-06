@@ -242,26 +242,28 @@ export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
     })
   }
 
+  // The two setStates run SEQUENTIALLY, never one nested in the other's updater.
+  // Calling `setAnnotations` inside the `setDraft`/`setTextDraft` updater meant
+  // that under StrictMode — which double-invokes updaters to surface impurity —
+  // the annotation was committed twice. Reading the current draft and then
+  // issuing each update once keeps every commit exactly once.
   function commitDraft() {
     draggingRef.current = false
-    setDraft((d) => {
-      if (!d) return null
-      if (isWorthKeeping(d)) setAnnotations((prev) => [...prev, normalizeRect(d)])
-      return null
-    })
+    const d = draft
+    if (d && isWorthKeeping(d)) setAnnotations((prev) => [...prev, normalizeRect(d)])
+    setDraft(null)
   }
 
   function commitText() {
-    setTextDraft((t) => {
-      if (t && t.value.trim()) {
-        const value = t.value
-        setAnnotations((prev) => [
-          ...prev,
-          { type: 'text', x: t.cx, y: t.cy, text: value, color, size: fontSize },
-        ])
-      }
-      return null
-    })
+    const t = textDraft
+    if (t && t.value.trim()) {
+      const value = t.value
+      setAnnotations((prev) => [
+        ...prev,
+        { type: 'text', x: t.cx, y: t.cy, text: value, color, size: fontSize },
+      ])
+    }
+    setTextDraft(null)
   }
 
   function undo() {

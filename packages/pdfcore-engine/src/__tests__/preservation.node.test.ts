@@ -282,5 +282,32 @@ describe("@pdfcore/engine — a write preserves what it did not touch", () => {
       expect(after.forms.get("applicant.name")?.value).toBe("Ada Lovelace");
       expect(await pageTexts(saved)).toEqual(await pageTexts(fixture));
     });
+
+    it("a no-edit load→save preserves Producer / CreationDate / ModDate (T1-11)", async () => {
+      // pdf-lib's default load(updateMetadata: true) rewrites /Producer and
+      // /ModDate on every open — so merely opening and saving a file silently
+      // rebrands it and moves its modification time. A signed or provenance-
+      // tracked document must survive a no-op round-trip untouched.
+      const stamped = await PDFDocument.create();
+      stamped.addPage([200, 200]);
+      stamped.setProducer("Acme Publishing 4.2");
+      stamped.setCreationDate(new Date("2021-01-02T03:04:05Z"));
+      stamped.setModificationDate(new Date("2022-06-07T08:09:10Z"));
+      const bytes = await stamped.save();
+
+      const before = (await loadPdf(bytes)).metadata();
+      expect(before.producer).toBe("Acme Publishing 4.2");
+
+      const saved = await (await loadPdf(bytes)).save();
+      const after = (await loadPdf(saved)).metadata();
+
+      expect(after.producer).toBe("Acme Publishing 4.2");
+      expect(after.creationDate?.toISOString()).toBe(
+        before.creationDate?.toISOString(),
+      );
+      expect(after.modificationDate?.toISOString()).toBe(
+        before.modificationDate?.toISOString(),
+      );
+    });
   });
 });

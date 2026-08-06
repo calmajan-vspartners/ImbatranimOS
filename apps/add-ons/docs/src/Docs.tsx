@@ -20,6 +20,7 @@ import {
   useFileDialog,
   useOpenIntent,
   useSaveHotkey,
+  useTopWindowKeydown,
   useUnsavedGuard,
 } from '@imbatranim/core'
 import { createDocEngine, type DocEngine } from './engine/superdoc'
@@ -221,20 +222,23 @@ export function Docs({ windowId }: { windowId: string }) {
     refreshCounts()
   }, [refreshCounts])
 
-  // Ctrl/Cmd+F opens the find bar. Bound only while a document is open, and
-  // preventDefault so the browser's own find does not take it — the OS's find is
-  // the one that can reach inside the editor's document model.
-  useEffect(() => {
-    if (!source || refusal) return
-    function onKey(e: KeyboardEvent) {
+  // Ctrl/Cmd+F opens the find bar. Scoped to the TOP window via the core seam so
+  // it never fires for a background Docs window or steals the keystroke from
+  // another app; preventDefault so the browser's own find does not take it — the
+  // OS's find is the one that can reach inside the editor's document model.
+  // `ignoreTextEntry: false` because the document surface is contentEditable, so
+  // the user is always "typing" — dropping the key there would kill the shortcut.
+  useTopWindowKeydown(
+    windowId,
+    (e) => {
+      if (!source || refusal) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         openFind()
       }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [source, refusal, openFind])
+    },
+    { ignoreTextEntry: false }
+  )
 
   const handleSave = useCallback(async () => {
     const engine = engineRef.current

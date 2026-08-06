@@ -20,13 +20,43 @@ import type { HeaderRow, HttpMethod } from '../types'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
+/** One parsed `-F/--form` part, in the shape the UI's form editor loads. */
+export type ParsedForm = { name: string; value: string; filePath?: string }
+
 export type ParsedCurl = {
   method: HttpMethod
   url: string
   headers: { name: string; value: string }[]
   body: string
+  /**
+   * Multipart form parts from `-F/--form`, when present. The UI loads these into
+   * its form editor (multipart body mode) — NOT into the text body, which is what
+   * produced a boundary-less `multipart/form-data` request that no server could read.
+   */
+  form: ParsedForm[]
   /** Flags recognised but not representable here, so the UI can say so. */
   ignored: string[]
+}
+
+/**
+ * Split one `-F name=value` part into the form-field model.
+ *
+ * curl's `@file` / `<file` read a file on the machine running curl — bytes this
+ * app cannot reach — so the path is kept in `filePath` (the form model's own slot
+ * for a file-backed field) for the user to repoint, rather than sent as the
+ * literal text `@file`. A part with no `=` is not a field; the caller records it.
+ */
+function parseFormPart(raw: string): ParsedForm | null {
+  const eq = raw.indexOf('=')
+  if (eq < 0) return null
+  const name = raw.slice(0, eq)
+  const value = raw.slice(eq + 1)
+  if (value.startsWith('@') || value.startsWith('<')) {
+    // Drop any `;type=…`/`;filename=…` suffix curl allows — the path is what matters.
+    return { name, value: '', filePath: value.slice(1).split(';')[0] }
+  }
+  // A literal value can also carry `;type=…`; keep the value verbatim otherwise.
+  return { name, value }
 }
 
 export class CurlParseError extends Error {}
@@ -302,12 +332,16 @@ export function parseCurl(input: string): ParsedCurl {
   if (url === '') throw new CurlParseError('No URL in that command')
 
   let body = ''
+  const form: ParsedForm[] = []
   if (formParts.length > 0) {
-    // Multipart is modelled by the UI's own form editor; represent it as the
-    // `name=value` lines curl used, which the UI can load into that editor.
-    body = formParts.join('\n')
-    if (!headers.some((h) => h.name.toLowerCase() === 'content-type')) {
-      headers.push({ name: 'Content-Type', value: 'multipart/form-data' })
+    // Multipart is modelled by the UI's own form editor. Parse each part into a
+    // real form field so the UI imports it in multipart body mode (with a proper
+    // boundary at send time), NOT as a text body under a boundary-less
+    // `multipart/form-data` content-type — which no server can read.
+    for (const raw of formParts) {
+      const field = parseFormPart(raw)
+      if (field) form.push(field)
+      else ignored.push(`-F ${raw}`)
     }
   } else if (dataParts.length > 0) {
     body = dataParts.join('&')
@@ -332,7 +366,7 @@ export function parseCurl(input: string): ParsedCurl {
     }
   }
 
-  return { method, url, headers, body, ignored }
+  return { method, url, headers, body, form, ignored }
 }
 
 /** Base64 without Node's Buffer, so this stays a browser-safe pure module. */

@@ -1,7 +1,13 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef } from 'react'
+import { useShallow } from 'zustand/shallow'
 import { Search } from 'lucide-react'
 import { cn } from '../../../lib/cn'
-import { useWindowStore, type WorkspaceId } from '../../store/windowStore'
+import {
+  TASKBAR_HEIGHT,
+  topVisibleWindowId,
+  useWindowStore,
+  type WorkspaceId,
+} from '../../store/windowStore'
 import { usePaletteStore } from '../../store/paletteStore'
 import { APP_REGISTRY } from '../../registry/registry'
 import { openApp } from '../../intents/openApp'
@@ -11,10 +17,11 @@ import { Tray } from './Tray'
 import { WorkspacePips } from './WorkspacePips'
 import { TaskbarContextMenu } from './TaskbarContextMenu'
 
-export const TASKBAR_HEIGHT = 44
+// Field separator for the task-button projection; cannot occur in a uuid, slug,
+// or realistic window title. Title goes last and is rejoined so a stray one is harmless.
+const SEP = '␟'
 
 export function Taskbar() {
-  const windows = useWindowStore((s) => s.windows)
   const showWindow = useWindowStore((s) => s.showWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
   const focusWindow = useWindowStore((s) => s.focusWindow)
@@ -27,23 +34,38 @@ export function Taskbar() {
   const startBtnRef = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
 
+  // Project only what a task button renders (id/appId/visibility/workspace/title)
+  // — NOT position or size — so a drag/resize does not re-render the whole
+  // taskbar every frame. `useShallow` caches the array while those strings are
+  // unchanged; projecting to objects would defeat it (never shallow-equal).
+  const allTasks = useWindowStore(
+    useShallow((s) =>
+      s.windows.map(
+        (w) =>
+          `${w.id}${SEP}${w.appId}${SEP}${w.isVisible ? 1 : 0}${SEP}${w.workspaceId}${SEP}${w.title}`
+      )
+    )
+  ).map((k) => {
+    const [id, appId, isVisible, workspaceId, ...titleParts] = k.split(SEP)
+    return {
+      id,
+      appId,
+      isVisible: isVisible === '1',
+      workspaceId: Number(workspaceId) as WorkspaceId,
+      title: titleParts.join(SEP),
+    }
+  })
+
   // Only the current workspace's windows get a button — that is what a taskbar
-  // per virtual desktop means. The others are reachable through their pip.
-  const visibleWindows = useMemo(
-    () => windows.filter((w) => w.workspaceId === activeWorkspace),
-    [windows, activeWorkspace]
-  )
+  // per virtual desktop means (brief 85). The others are reachable via their pip.
+  const visibleWindows = allTasks.filter((w) => w.workspaceId === activeWorkspace)
 
-  // The focused window is the topmost visible one ON THIS WORKSPACE. Computed
-  // from the filtered list, or a window on another desktop would keep the focus
-  // ring here while being nowhere on screen.
-  const focusedId = useMemo(() => {
-    const visible = visibleWindows.filter((w) => w.isVisible)
-    if (visible.length === 0) return null
-    return visible.reduce((top, w) => (w.zIndex > top.zIndex ? w : top)).id
-  }, [visibleWindows])
+  // Focus from the shared, workspace-scoped helper (topmost visible window on the
+  // active desktop). Selecting the derived id keeps this re-rendering only when
+  // focus changes, not on every drag frame.
+  const focusedId = useWindowStore(() => topVisibleWindowId())
 
-  const menuWindow = menu ? windows.find((w) => w.id === menu.id) : undefined
+  const menuWindow = menu ? allTasks.find((w) => w.id === menu.id) : undefined
 
   /**
    * Start-menu launch, through the shared `openApp`.
@@ -57,12 +79,12 @@ export function Taskbar() {
   }
 
   function handleTaskClick(id: string) {
-    const win = windows.find((w) => w.id === id)
+    const win = useWindowStore.getState().windows.find((w) => w.id === id)
     if (!win) return
     if (!win.isVisible) {
       showWindow(id)
       focusWindow(id)
-    } else if (win.id === focusedId) {
+    } else if (win.id === topVisibleWindowId()) {
       hideWindow(id) // minimize the focused window
     } else {
       focusWindow(id)

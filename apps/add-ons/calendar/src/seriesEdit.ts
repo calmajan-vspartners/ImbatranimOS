@@ -88,7 +88,9 @@ export function planEdit(
         ...edited,
         start: newStart,
         end: newStart + duration,
-        recurrence: edited.recurrence ?? event.recurrence,
+        // `undefined` means the dialog did not touch the rule (keep the series');
+        // `null` means the user chose "Does not repeat" and must clear it (T1-6).
+        recurrence: edited.recurrence !== undefined ? edited.recurrence : event.recurrence,
       },
     }
   }
@@ -108,7 +110,10 @@ export function planEdit(
   }
 
   const cut = occurrence.occurrenceDate
-  const rule = edited.recurrence ?? event.recurrence
+  // `undefined` means the rule was left untouched; `null` means the user cleared
+  // it ("Does not repeat") and the tail must not repeat either (T1-6).
+  const ruleWasEdited = edited.recurrence !== undefined
+  const rule = ruleWasEdited ? edited.recurrence : event.recurrence
   // A `count` cannot survive a split as-is: the head now ends on a date, and the
   // tail carries however many occurrences were left. Anything else changes how
   // many times the event happens, which the user did not ask for.
@@ -125,7 +130,15 @@ export function planEdit(
     },
     create: {
       ...edited,
-      recurrence: rule ? { ...rule, until: event.recurrence.until, count: remainingCount } : null,
+      recurrence: rule
+        ? {
+            ...rule,
+            // Carry the ORIGINAL series' end onto the tail only when the rule was
+            // left untouched; when the user set a new `until`, honour it (M6).
+            until: ruleWasEdited ? rule.until : event.recurrence.until,
+            count: remainingCount,
+          }
+        : null,
       exceptions: event.exceptions.filter((date) => date >= cut),
     },
   }

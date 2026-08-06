@@ -108,6 +108,23 @@ Binary files a/img.png and b/img.png differ
     expect(file.hunks).toEqual([])
   })
 
+  it('keeps a binary file whose path contains a space', () => {
+    // A binary diff has no `---`/`+++` body to recover the name from, so if the
+    // `diff --git` line is misparsed the file ends up nameless and is dropped.
+    // Git writes the space unquoted: `diff --git a/my file.bin b/my file.bin`.
+    const [file] = parseDiff(
+      `diff --git a/my file.bin b/my file.bin
+index 1111111..2222222 100644
+Binary files a/my file.bin and b/my file.bin differ
+`
+    )
+    expect(file).toBeDefined()
+    expect(file.path).toBe('my file.bin')
+    expect(file.oldPath).toBe('my file.bin')
+    expect(file.newPath).toBe('my file.bin')
+    expect(file.binary).toBe(true)
+  })
+
   it('parses several files at once', () => {
     const files = parseDiff(TWO_HUNKS + TWO_HUNKS.replace(/f\.txt/g, 'g.txt'))
     expect(files.map((f) => f.path)).toEqual(['f.txt', 'g.txt'])

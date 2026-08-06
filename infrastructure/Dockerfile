@@ -24,6 +24,10 @@ COPY apps/core/package.json ./apps/core/
 # links every workspace core/src/manifest.ts imports. Globbed so newly-added
 # add-ons are picked up automatically — no per-add-on COPY line to keep in sync.
 COPY --parents apps/add-ons/*/package.json ./
+# Shared workspace packages (e.g. @pdfcore/engine, a dep of add-ons/norpdf that
+# core's manifest pulls in). Without these manifests npm ci never links the
+# packages/* workspaces and the desktop's turbo build fails on the dangling dep.
+COPY --parents packages/*/package.json ./
 RUN npm ci
 
 # ---------------------------------------------------------------------------
@@ -32,6 +36,7 @@ RUN npm ci
 # ---------------------------------------------------------------------------
 FROM deps AS builder
 COPY apps ./apps
+COPY packages ./packages
 # Sub-path build args. Default to root / same-origin (the standalone container
 # reached at its own port). A Caddy sub-path deploy passes
 # VITE_BASE=/imbatranim-os/ + VITE_API_URL=/imbatranim-os/api so the desktop's
@@ -53,6 +58,8 @@ COPY apps/backend/package.json ./apps/backend/
 COPY apps/core/package.json ./apps/core/
 # All add-on manifests (see the deps stage) so the workspace tree resolves.
 COPY --parents apps/add-ons/*/package.json ./
+# Shared workspace packages' manifests too (see the deps stage rationale).
+COPY --parents packages/*/package.json ./
 # Backend runtime deps only — the desktop is prebuilt to static files, so
 # none of its packages (react etc.) may reach the prod image.
 RUN npm ci --omit=dev --workspace=backend
@@ -60,10 +67,26 @@ RUN npm ci --omit=dev --workspace=backend
 # object files, gyp obj.target dirs, and the C sources for node-pty +
 # better-sqlite3 (~60MB). The runtime only needs build/Release/*.node.
 # Hoisting puts everything in /app/node_modules.
+# Also drop:
+#   - typescript: backend's devDep leaks in via the workspace tree (~23MB) even
+#     with --omit=dev; the runtime never needs the compiler. rm -rf is a no-op
+#     when it is absent, so this is self-guarding.
+#   - foreign-arch node-pty prebuilds (win32-*, darwin-*): ~58MB of dead weight
+#     on Linux/musl. Keep only linux-x64 (the musl build lives there too). This
+#     mirrors iso/scripts/build-payload.sh so both pipelines strip identically.
 RUN cd node_modules \
  && find . -name '*.o' -delete \
  && find . -type d -name obj.target -prune -exec rm -rf {} + \
  && rm -rf better-sqlite3/deps better-sqlite3/src node-pty/src node-pty/deps \
+ && rm -rf typescript \
+ && find . -type d -name prebuilds | while read -r pb; do \
+      for d in "$pb"/*; do \
+        case "$(basename "$d")" in \
+          linux-x64|linux-x64-musl) : ;; \
+          *) rm -rf "$d" ;; \
+        esac; \
+      done; \
+    done \
  && mkdir -p /app/apps/backend/node_modules
 
 # ---------------------------------------------------------------------------
@@ -81,16 +104,21 @@ RUN deluser node 2>/dev/null || true; delgroup node 2>/dev/null || true; \
     addgroup -g 1000 imbatranim && adduser -D -u 1000 -G imbatranim imbatranim
 WORKDIR /app
 # Hoisted runtime deps + any backend-nested overrides (may be empty).
-COPY --from=proddeps /app/node_modules ./node_modules
-COPY --from=proddeps /app/apps/backend/node_modules ./apps/backend/node_modules
-COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
-COPY --from=builder /app/apps/core/dist ./public
-COPY package.json ./
-COPY apps/backend/package.json ./apps/backend/
+# --chown sets ownership as the files land, so there is no second `chown -R`
+# pass rewriting the whole ~250MB payload into a fresh layer. /app is read-only
+# application code at runtime, so it does not strictly need the runtime user's
+# ownership — but writing it as imbatranim here is free (single layer) and keeps
+# the tree tidy.
+COPY --chown=imbatranim:imbatranim --from=proddeps /app/node_modules ./node_modules
+COPY --chown=imbatranim:imbatranim --from=proddeps /app/apps/backend/node_modules ./apps/backend/node_modules
+COPY --chown=imbatranim:imbatranim --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY --chown=imbatranim:imbatranim --from=builder /app/apps/core/dist ./public
+COPY --chown=imbatranim:imbatranim package.json ./
+COPY --chown=imbatranim:imbatranim apps/backend/package.json ./apps/backend/
 COPY infrastructure/entrypoint.sh /entrypoint.sh
 RUN chmod 0755 /entrypoint.sh \
  && mkdir -p /home/imbatranim \
- && chown -R imbatranim:imbatranim /home/imbatranim /app
+ && chown -R imbatranim:imbatranim /home/imbatranim
 USER imbatranim
 ENV NODE_ENV=production \
     PORT=8080 \
@@ -102,6 +130,12 @@ ENV NODE_ENV=production \
     IMAGE_VERSION=1.0.0
 VOLUME /home/imbatranim
 EXPOSE 8080
+# Liveness against the backend's purpose-built /health endpoint. busybox wget
+# ships in node:alpine, so no extra package is needed. --start-period covers
+# first-boot init (entrypoint mkdir + Nest listen); a non-2xx or connect
+# failure makes wget exit non-zero and marks the container unhealthy.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "apps/backend/dist/main"]
 

@@ -12,4 +12,10 @@ export interface Outline {
 
   /** Named destinations resolved to 0-based page indices where possible. */
   destinations(): Promise<NamedDestination[]>;
+
+  /**
+   * Release the underlying pdf.js document (and its worker-side memory).
+   * Idempotent; the adapter re-parses lazily if used again after disposal.
+   */
+  dispose(): void;
 }

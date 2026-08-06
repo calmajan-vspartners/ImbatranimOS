@@ -41,11 +41,24 @@ export interface SearchState {
 }
 
 /**
+ * Where a write-back Save lands: the `{root, path}` of the OS file this document
+ * was opened from. `null` for a document with no OS home (a dragged-in `File`),
+ * where Save can only export a downloaded copy.
+ */
+export interface SaveTarget {
+  root: string
+  path: string
+}
+
+/**
  * The reader controller — the single object Part A and Part B both consume via
  * {@link ReaderContext}. Everything the editor tools need to read state, drive
  * navigation, and re-sync after a mutating edit lives here.
  */
 export interface ReaderController {
+  /** The OS window this reader lives in — used to scope window-global keys. */
+  windowId: string
+
   /* ── Document ─────────────────────────────────────────────────────────── */
   doc: PdfDoc | null
   docName: string
@@ -57,12 +70,27 @@ export interface ReaderController {
   reportPageDim: (index0: number, w: number, h: number) => void
 
   /* ── File I/O ─────────────────────────────────────────────────────────── */
-  /** Open from a File (manual picker / drag-drop). */
+  /** Open from a File (manual picker / drag-drop) — no OS home, so no write-back. */
   openFile: (file: File) => Promise<void>
-  /** Open from raw bytes (the OS open-intent path). */
-  openBytes: (bytes: Uint8Array, name: string) => Promise<void>
-  /** Serialize the current (possibly edited) document and trigger a download. */
-  save: () => Promise<void>
+  /**
+   * Open from raw bytes. `target` is the OS `{root, path}` a write-back Save
+   * lands on; omit it (the drag-drop / File path) to open without a save home.
+   */
+  openBytes: (bytes: Uint8Array, name: string, target?: SaveTarget | null) => Promise<void>
+  /**
+   * Export the current (possibly edited) document as a downloaded copy. The
+   * SECONDARY action — the primary Save writes back to {@link saveTarget} (see
+   * the editor controller's `saveToDisk`).
+   */
+  exportCopy: () => Promise<void>
+  /** The OS file a write-back Save lands on, or null for a dragged-in document. */
+  saveTarget: SaveTarget | null
+  /** True when the document has edits not yet written to {@link saveTarget}. */
+  dirty: boolean
+  /** Mark the document changed since its last save (arms the unsaved-close guard). */
+  markDirty: () => void
+  /** Mark the document saved (clears dirty). */
+  markSaved: () => void
   loading: boolean
   error: string | null
 

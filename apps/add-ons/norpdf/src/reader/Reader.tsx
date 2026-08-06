@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { Rect, TextHit } from '@pdfcore/engine'
+import { useTopWindowKeydown } from '@imbatranim/core'
 import { useReader } from '../app/context'
 import { PageView } from './PageView'
 
@@ -25,6 +26,7 @@ const CURRENT_LINE = 0.38 // fraction of viewport height marking "current page"
 
 export function Reader(): JSX.Element {
   const {
+    windowId,
     doc,
     pageCount,
     pageDims,
@@ -136,65 +138,59 @@ export function Reader(): JSX.Element {
   }, [scrollRequest, layout])
 
   /* ── Keyboard navigation ───────────────────────────────────────────────── */
-  useEffect(() => {
-    const isTyping = (t: EventTarget | null): boolean => {
-      const el = t as HTMLElement | null
-      if (!el) return false
-      const tag = el.tagName
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+  // Transport keys (arrows / PageUp-Down / Space / Home / End / +/-/0) via the
+  // core seam: they fire ONLY while this is the top-most window and never while
+  // the user is typing (the default `ignoreTextEntry`), so a background reader
+  // no longer scrolls and Space no longer steals from another app's text field.
+  useTopWindowKeydown(windowId, (e) => {
+    const el = scrollRef.current
+    if (!el) return
+    const page = el.clientHeight * 0.92
+    switch (e.key) {
+      case 'ArrowDown':
+        el.scrollBy({ top: 90 })
+        e.preventDefault()
+        break
+      case 'ArrowUp':
+        el.scrollBy({ top: -90 })
+        e.preventDefault()
+        break
+      case 'PageDown':
+        el.scrollBy({ top: page })
+        e.preventDefault()
+        break
+      case 'PageUp':
+        el.scrollBy({ top: -page })
+        e.preventDefault()
+        break
+      case ' ':
+        el.scrollBy({ top: e.shiftKey ? -page : page })
+        e.preventDefault()
+        break
+      case 'Home':
+        el.scrollTo({ top: 0 })
+        e.preventDefault()
+        break
+      case 'End':
+        el.scrollTo({ top: el.scrollHeight })
+        e.preventDefault()
+        break
+      case '+':
+      case '=':
+        zoomIn()
+        e.preventDefault()
+        break
+      case '-':
+        zoomOut()
+        e.preventDefault()
+        break
+      case '0':
+        setFitMode('actual')
+        e.preventDefault()
+        break
+      default:
     }
-    const onKey = (e: KeyboardEvent) => {
-      const el = scrollRef.current
-      if (!el || isTyping(e.target)) return
-      const page = el.clientHeight * 0.92
-      switch (e.key) {
-        case 'ArrowDown':
-          el.scrollBy({ top: 90 })
-          e.preventDefault()
-          break
-        case 'ArrowUp':
-          el.scrollBy({ top: -90 })
-          e.preventDefault()
-          break
-        case 'PageDown':
-          el.scrollBy({ top: page })
-          e.preventDefault()
-          break
-        case 'PageUp':
-          el.scrollBy({ top: -page })
-          e.preventDefault()
-          break
-        case ' ':
-          el.scrollBy({ top: e.shiftKey ? -page : page })
-          e.preventDefault()
-          break
-        case 'Home':
-          el.scrollTo({ top: 0 })
-          e.preventDefault()
-          break
-        case 'End':
-          el.scrollTo({ top: el.scrollHeight })
-          e.preventDefault()
-          break
-        case '+':
-        case '=':
-          zoomIn()
-          e.preventDefault()
-          break
-        case '-':
-          zoomOut()
-          e.preventDefault()
-          break
-        case '0':
-          setFitMode('actual')
-          e.preventDefault()
-          break
-        default:
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [zoomIn, zoomOut, setFitMode])
+  })
 
   /* ── Search hit indexing per page ──────────────────────────────────────── */
   const hitsByPage = useMemo(() => {
