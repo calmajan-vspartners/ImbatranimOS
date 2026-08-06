@@ -2519,3 +2519,20 @@ Tests: frontend vitest **916 → 1022** (106 new in a package that had zero), ba
 baseline was carried over from brief 74 rather than brief 75; the true figures are
 886 → 916, corrected in place. The "30 new" count was right, and no other number in
 that entry was affected.)*
+
+## [2026-08-06] todo | Brief 93 — code-health sweep filed from a six-lane audit
+
+Deep exploration at commit aaa128b: six parallel audit lanes (backend, core
+shell, heavy add-ons, light add-ons, @pdfcore/engine, infra/build) with all
+gates green at baseline. ~75 verified findings filed as
+[brief 93](briefs/todo/93-code-health-sweep-2026-08-06.md), ranked in tiers.
+Headlines: the prod Docker image cannot build (packages/ never COPYed — proven
+by npm-install simulation); pdf-lib's stale page cache makes delete→reorder
+resurrect a deleted page (proven by executed repro); Sheets converts every
+Excel date cell to ISO text on save; the backend's default 100 KB JSON body
+cap silently breaks Notepad/REST-client/git-apply; norPDF never writes back to
+the opened file and has no unsaved guard; calendar recurrence dies after 750
+occurrences from series start and "does not repeat" doesn't (both proven by
+repro tests); turbo can serve stale desktop bundles (core declares no add-on
+deps — hash-proven). Audit lanes also recorded what came up clean so it is not
+re-audited. All items are ungrilled proposals; grill before building.

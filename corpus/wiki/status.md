@@ -1,6 +1,6 @@
 ---
 summary: Dated snapshot — web-OS era; briefs 08–14 + 16–46 DONE. The 2026-07-18 full-auto daily-driver backlog (34–46) is COMPLETE: CORE notification center (34), Wave C's six light apps (35–40), Wave D's four heavy/backend apps (41–44: Monaco code-editor + git-gui + REST client + archive-manager, the backend three authed+jailed, adversarially security-reviewed + hardened), and Wave E's two CORE platform surfaces (45 global search launcher, 46 add-on manager). Desktop = 23 apps; 135 backend tests. Only human-gated items remain before v1.0: SEC-9 CSP + SEC-10 kiosk sandbox (browser/ISO-gated), brief 15's v1-release remainder, and per-brief human walkthroughs.
-updated: 2026-07-19
+updated: 2026-08-06
 ---
 
 > **2026-07-19 — first human walkthrough.** Fixed from real QA: Media Player
@@ -13,6 +13,8 @@ updated: 2026-07-19
 > scratchpad); 6 non-exploitable moderate `uuid` audit findings await a
 > decision (npm `overrides` is ignored in this workspace). Full detail in
 > [../log.md](../log.md) 2026-07-19 + [decisions.md](decisions.md) 2026-07-19.
+
+> **2026-08-06:** code-health audit filed as [brief 93](../briefs/todo/93-code-health-sweep-2026-08-06.md) — ~75 tiered ungrilled findings; ship-blockers: unbuildable prod image, @pdfcore page-delete corruption, Sheets date corruption, 100 KB body cap.
 
 # Status — 2026-07-17
 
@@ -193,9 +195,8 @@ Two briefs from a research+grill session ("add a web navigator"). Both **todo**.
   via **Scramjet** (prebuilt dist, AGPL, no Rust); OS-capability housing
   (backend Wisp module + core SW/`<ProxyView>` + thin add-on); **auth-gate +
   SSRF filter** (blocks private ranges — the stricter opposite of brief 43);
-  OS-level encrypted profile sync; thin MVP (prove Google + YouTube, reuse
-  Bookmarks via `openApp`); DRM out of scope. Forces scoped CSP additions
-  (intersects SEC-9). Depends on 51. Security-reviewed before commit.
+  OS-level encrypted profile sync; thin MVP (Google + YouTube, reuse Bookmarks);
+  DRM out. Scoped CSP additions (SEC-9). Depends on 51. Security-review gated.
 - **Brief 51 — containerized dev pipeline + Dockerfile de-stale: todo.** MEDIUM.
   `npm run dev` → `docker compose --profile dev watch` (sync `apps/**`, ignore
   node_modules); de-stale the `deps`/`proddeps` manifest lists (7-of-24 rot —
