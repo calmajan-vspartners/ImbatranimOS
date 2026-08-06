@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog, api } from '@imbatranim/core'
+import { Dialog, useSystem } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
 
 type DirSize = {
@@ -60,6 +60,7 @@ export function PropertiesDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { http } = useSystem()
   const isDir = entry?.type === 'directory'
   const path = entry?.path
 
@@ -78,7 +79,7 @@ export function PropertiesDialog({
   useEffect(() => {
     if (!open || !isDir || !path) return
     let cancelled = false
-    api
+    http
       .get<DirSize>('/files/size', { params: { root, path } })
       .then((r) => {
         if (!cancelled) setMeasured({ path, size: r.data })
@@ -89,7 +90,7 @@ export function PropertiesDialog({
     return () => {
       cancelled = true
     }
-  }, [open, isDir, path, root])
+  }, [open, isDir, path, root, http])
 
   if (!entry) return null
 

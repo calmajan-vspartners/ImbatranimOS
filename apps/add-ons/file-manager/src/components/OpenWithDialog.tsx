@@ -1,14 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  allOpenerCandidates,
-  associationKey,
-  candidatesFor,
-  cn,
-  useAssociationStore,
-} from '@imbatranim/core'
+import { Button, Checkbox, Dialog, cn, useSystem } from '@imbatranim/ui'
 
 /**
  * "Open with…" — the chooser, and the place a default gets set (brief 81).
@@ -33,18 +24,19 @@ export function OpenWithDialog({
   onPick: (appId: string) => void
   onClose: () => void
 }) {
-  const claimants = useMemo(() => candidatesFor(fileName), [fileName])
-  const everything = useMemo(() => allOpenerCandidates(), [])
+  const { associations } = useSystem().intents
+  const claimants = useMemo(() => associations.candidatesFor(fileName), [associations, fileName])
+  const everything = useMemo(() => associations.allCandidates(), [associations])
   const [showAll, setShowAll] = useState(claimants.length === 0)
   const [remember, setRemember] = useState(false)
   const [picked, setPicked] = useState<string>(claimants[0]?.appId ?? '')
 
-  const key = associationKey(fileName)
+  const key = associations.keyFor(fileName)
   const options = showAll ? everything : claimants.length > 0 ? claimants : everything
 
   function confirm() {
     if (picked === '') return
-    if (remember) useAssociationStore.getState().setDefault(key, picked)
+    if (remember) associations.setDefault(key, picked)
     onPick(picked)
     onClose()
   }

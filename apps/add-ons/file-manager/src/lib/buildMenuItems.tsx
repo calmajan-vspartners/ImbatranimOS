@@ -21,13 +21,15 @@ import {
 } from 'lucide-react'
 import type { ContextMenuItem } from '../components/ContextMenu'
 import type { FsEntry } from '../types'
-import { resolveOpenApp, openAppLabel } from './openWith'
+import { resolveOpenApp, openAppLabel, type Associations } from './openWith'
 import type { NewFileKind } from './newFileTemplates'
 
 export type BuildMenuItemsCtx = {
   /** The right-clicked entry, or null for the empty-background menu. */
   entry: FsEntry | null
   root: string
+  /** The handle's association registry — menus resolve labels against it. */
+  assoc: Associations
   /** Whether the clipboard holds something (gates the Paste item). */
   hasClipboard: boolean
   onOpen: (entry: FsEntry) => void
@@ -140,7 +142,10 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
 
   return [
     {
-      label: entry.type === 'directory' ? 'Open' : openAppLabel(resolveOpenApp(root, entry.name)),
+      label:
+        entry.type === 'directory'
+          ? 'Open'
+          : openAppLabel(ctx.assoc, resolveOpenApp(ctx.assoc, root, entry.name)),
       icon: <FolderOpen size={13} />,
       onSelect: () => onOpen(entry),
       // Never disabled for a file any more (brief 81): resolution always ends

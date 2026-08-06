@@ -1,6 +1,6 @@
 import { Folder } from 'lucide-react'
-import { cn } from '@imbatranim/core'
-import type { VirtualList } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
+import type { VirtualList } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
 import { TILE_HEIGHT, TILE_WIDTH } from '../lib/fileSort'
 import { getFileIcon } from '../lib/entryPresentation'

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSystem } from '@imbatranim/ui'
 import {
   copyEntry,
   createDirectory,
@@ -25,9 +26,10 @@ function dirOf(p: string): string {
 }
 
 export function useDirectoryQuery(root: string, path: string) {
+  const { http } = useSystem()
   return useQuery({
     queryKey: fsListKey(root, path),
-    queryFn: () => listDirectory(root, path),
+    queryFn: () => listDirectory(http, root, path),
   })
 }
 
@@ -42,20 +44,22 @@ export function fsPreviewContentKey(root: string, path: string) {
  * overwriting what's on screen.
  */
 export function usePreviewContentQuery(root: string, path: string | null, enabled: boolean) {
+  const { http } = useSystem()
   return useQuery({
     queryKey: fsPreviewContentKey(root, path ?? ''),
-    queryFn: () => readContent(root, path as string),
+    queryFn: () => readContent(http, root, path as string),
     enabled: enabled && path !== null,
     staleTime: 30_000,
   })
 }
 
 export function useCreateDirectoryMutation(root: string, path: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (folderName: string) => {
       const fullPath = path ? `${path}/${folderName}` : folderName
-      return createDirectory(root, fullPath)
+      return createDirectory(http, root, fullPath)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, path) })
@@ -64,10 +68,11 @@ export function useCreateDirectoryMutation(root: string, path: string) {
 }
 
 export function useDeleteEntryMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ path, toTrash }: { path: string; toTrash: boolean }) =>
-      deleteEntry(root, path, toTrash),
+      deleteEntry(http, root, path, toTrash),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
       qc.invalidateQueries({ queryKey: ['trash'] })
@@ -78,13 +83,15 @@ export function useDeleteEntryMutation(root: string, currentPath: string) {
 export const trashKey = ['trash'] as const
 
 export function useTrashQuery(enabled: boolean) {
-  return useQuery({ queryKey: trashKey, queryFn: listTrash, enabled })
+  const { http } = useSystem()
+  return useQuery({ queryKey: trashKey, queryFn: () => listTrash(http), enabled })
 }
 
 export function useRestoreTrashMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => restoreFromTrash(id),
+    mutationFn: (id: string) => restoreFromTrash(http, id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: trashKey })
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
@@ -93,25 +100,28 @@ export function useRestoreTrashMutation(root: string, currentPath: string) {
 }
 
 export function useDeleteFromTrashMutation() {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => deleteFromTrash(id),
+    mutationFn: (id: string) => deleteFromTrash(http, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: trashKey }),
   })
 }
 
 export function useEmptyTrashMutation() {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => emptyTrash(),
+    mutationFn: () => emptyTrash(http),
     onSuccess: () => qc.invalidateQueries({ queryKey: trashKey }),
   })
 }
 
 export function useMoveEntryMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ from, to }: { from: string; to: string }) => moveEntry(root, from, to),
+    mutationFn: ({ from, to }: { from: string; to: string }) => moveEntry(http, root, from, to),
     onSuccess: (_data, { from, to }) => {
       // A move touches TWO directories: the source loses the entry and the
       // destination gains it. Invalidating only the current dir left the SOURCE
@@ -125,9 +135,10 @@ export function useMoveEntryMutation(root: string, currentPath: string) {
 }
 
 export function useCopyEntryMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ from, to }: { from: string; to: string }) => copyEntry(root, from, to),
+    mutationFn: ({ from, to }: { from: string; to: string }) => copyEntry(http, root, from, to),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
     },
@@ -135,10 +146,11 @@ export function useCopyEntryMutation(root: string, currentPath: string) {
 }
 
 export function useWriteContentMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ path, content }: { path: string; content: string }) =>
-      writeContent(root, path, content),
+      writeContent(http, root, path, content),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
     },
@@ -146,9 +158,11 @@ export function useWriteContentMutation(root: string, currentPath: string) {
 }
 
 export function useUploadFileMutation(root: string, currentPath: string) {
+  const { http } = useSystem()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ path, file }: { path: string; file: File }) => uploadFile(root, path, file),
+    mutationFn: ({ path, file }: { path: string; file: File }) =>
+      uploadFile(http, root, path, file),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
     },

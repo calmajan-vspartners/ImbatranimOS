@@ -1,4 +1,5 @@
 import { useWindowStore } from '../store/windowStore'
+import { recordRecentFile } from '../../lib/recentFiles'
 import { useIntentStore } from '../store/intentStore'
 import { APP_REGISTRY } from '../registry/registry'
 import { NON_DISABLEABLE } from '../registry/enabledApps'
@@ -23,6 +24,20 @@ export function openApp(appId: string, payload?: unknown): string {
   const appConfig = APP_REGISTRY.find((app) => app.id === appId)
   if (!appConfig) {
     throw new Error(`App "${appId}" not found in registry`)
+  }
+
+  // The OS records "file X opened with app Y" here, at the one choke point
+  // every launcher funnels through (brief 48). File Manager used to make this
+  // call itself, per target app — but attributing a recent to another app is
+  // exactly what a scoped capability must forbid, so the shell owns it.
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    typeof (payload as { openPath?: unknown }).openPath === 'string' &&
+    typeof (payload as { root?: unknown }).root === 'string'
+  ) {
+    const p = payload as { openPath: string; root: string }
+    recordRecentFile(p.root, p.openPath, appId)
   }
 
   const windowStore = useWindowStore.getState()

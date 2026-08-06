@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { File, Folder, FileImage, FileAudio, FileVideo, FileText, Files } from 'lucide-react'
-import { cn } from '@imbatranim/core'
-import { downloadUrl } from '@imbatranim/core'
+import { cn, useSystem } from '@imbatranim/ui'
 import dayjs from 'dayjs'
 import type { FsEntry } from '../types'
 import { usePreviewContentQuery } from '../queries/filesQueries'
@@ -66,6 +65,7 @@ type SinglePreviewProps = {
 // Keyed by entry.path at the call site below, so a fresh selection always
 // mounts a fresh instance — mediaFailed resets naturally without an effect.
 function SinglePreview({ root, entry }: SinglePreviewProps) {
+  const { fs } = useSystem()
   const [mediaFailed, setMediaFailed] = useState(false)
 
   if (entry.type === 'directory') {
@@ -73,7 +73,7 @@ function SinglePreview({ root, entry }: SinglePreviewProps) {
   }
 
   const kind = getPreviewKind(entry.name)
-  const src = downloadUrl(root, entry.path)
+  const src = fs.downloadUrl(root, entry.path)
 
   if (mediaFailed && (kind === 'image' || kind === 'audio' || kind === 'video')) {
     // Native element failed to load — fall back to the metadata card rather

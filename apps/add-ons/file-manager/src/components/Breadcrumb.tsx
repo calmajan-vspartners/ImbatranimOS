@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 
 type BreadcrumbProps = {
   root: string

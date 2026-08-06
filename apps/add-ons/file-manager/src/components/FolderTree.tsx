@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight, Folder, FolderOpen, HardDrive } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { useDirectoryQuery } from '../queries/filesQueries'
 import type { FsEntry } from '../types'
 

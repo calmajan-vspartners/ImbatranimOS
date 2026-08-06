@@ -1,9 +1,8 @@
 import { Folder, Download, Pencil, Copy, Scissors, Trash2, ArrowDown, ArrowUp } from 'lucide-react'
-import { cn } from '@imbatranim/core'
-import { Tooltip } from '@imbatranim/core'
-import { Button } from '@imbatranim/core'
-import { downloadUrl } from '@imbatranim/core'
-import type { VirtualList } from '@imbatranim/core'
+import { cn, useSystem } from '@imbatranim/ui'
+import { Tooltip } from '@imbatranim/ui'
+import { Button } from '@imbatranim/ui'
+import type { VirtualList } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
 import { ariaSort, SORT_LABELS, type SortDir, type SortKey } from '../lib/fileSort'
 import { formatSize, getFileIcon } from '../lib/entryPresentation'
@@ -57,6 +56,7 @@ export function FileList({
   onRenameCommit,
   onRenameCancel,
 }: FileListProps) {
+  const { fs } = useSystem()
   const sorted = entries
 
   // Virtual window over `sorted`. Only these rows are mounted; the gap above
@@ -197,7 +197,7 @@ export function FileList({
                   {entry.type === 'file' && (
                     <Tooltip content="Download">
                       <a
-                        href={downloadUrl(root, entry.path)}
+                        href={fs.downloadUrl(root, entry.path)}
                         download={entry.name}
                         className="text-on-surface hover:border-outline-variant hover:bg-surface-container inline-flex h-5 w-5 cursor-pointer items-center justify-center border border-transparent"
                       >

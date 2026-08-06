@@ -1,5 +1,59 @@
 import { describe, expect, it } from 'vitest'
-import { openAppLabel, resolveOpenApp } from './openWith'
+import { openAppLabel, resolveOpenApp, type Associations } from './openWith'
+
+/**
+ * Since brief 48 this adapter resolves against the HANDLE's association slice,
+ * not core's registry — an app test cannot reach the OS, which is the seam
+ * working as designed. The registry's real table (pdf → norpdf, the office
+ * formats, the text fallback) is pinned in core's associations.test.ts; what
+ * this file owns is the ADAPTER's contract: null for a refused resolution, the
+ * label shapes the menu shows. The fake below implements the protocol slice
+ * with the registry's real shape.
+ */
+const NAMES: Record<string, string> = {
+  norpdf: 'norPDF',
+  'pdf-viewer': 'PDF Viewer',
+  docs: 'Docs',
+  sheets: 'Sheets',
+  slides: 'Slides',
+  'code-editor': 'Code Editor',
+  notepad: 'Notepad',
+  'markdown-editor': 'Markdown Editor',
+  'image-viewer': 'Image Viewer',
+  'media-player': 'Media Player',
+}
+const TABLE: Record<string, string> = {
+  pdf: 'norpdf',
+  docx: 'docs',
+  xlsx: 'sheets',
+  csv: 'sheets',
+  pptx: 'slides',
+  ts: 'code-editor',
+  txt: 'notepad',
+  log: 'notepad',
+  md: 'markdown-editor',
+  png: 'image-viewer',
+  mp3: 'media-player',
+  mp4: 'media-player',
+  conf: 'code-editor',
+  makefile: 'code-editor',
+  '.env': 'code-editor',
+}
+const assoc: Associations = {
+  resolveOpener: (fileName) => {
+    const ext = fileName.includes('.')
+      ? fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+      : fileName.toLowerCase()
+    const key = fileName.startsWith('.') ? fileName.toLowerCase() : ext
+    const appId = TABLE[key] ?? ''
+    return { appId, reason: appId === '' ? 'none' : 'declared' }
+  },
+  candidatesFor: () => [],
+  allCandidates: () => [],
+  keyFor: (fileName) => fileName,
+  openerName: (appId) => NAMES[appId] ?? null,
+  setDefault: () => undefined,
+}
 
 /**
  * The routing table had no tests, which is how `.pdf` came to point at the
@@ -15,19 +69,19 @@ describe('resolveOpenApp', () => {
   it('sends .pdf to norPDF, not the light viewer (brief 65)', () => {
     // The default has to be the capable app. PDF Viewer stays in the tree as a
     // deliberate lightweight option, chosen explicitly.
-    expect(resolveOpenApp('home', 'report.pdf')).toBe('norpdf')
+    expect(resolveOpenApp(assoc, 'home', 'report.pdf')).toBe('norpdf')
   })
 
   it('routes the office formats to their editors', () => {
-    expect(resolveOpenApp('home', 'a.docx')).toBe('docs')
-    expect(resolveOpenApp('home', 'a.xlsx')).toBe('sheets')
-    expect(resolveOpenApp('home', 'a.csv')).toBe('sheets')
-    expect(resolveOpenApp('home', 'a.pptx')).toBe('slides')
+    expect(resolveOpenApp(assoc, 'home', 'a.docx')).toBe('docs')
+    expect(resolveOpenApp(assoc, 'home', 'a.xlsx')).toBe('sheets')
+    expect(resolveOpenApp(assoc, 'home', 'a.csv')).toBe('sheets')
+    expect(resolveOpenApp(assoc, 'home', 'a.pptx')).toBe('slides')
   })
 
   it('sends code to the Code Editor from any root', () => {
-    expect(resolveOpenApp('home', 'main.ts')).toBe('code-editor')
-    expect(resolveOpenApp('notes', 'main.ts')).toBe('code-editor')
+    expect(resolveOpenApp(assoc, 'home', 'main.ts')).toBe('code-editor')
+    expect(resolveOpenApp(assoc, 'notes', 'main.ts')).toBe('code-editor')
   })
 
   it('opens .txt and .log in Notepad from ANY root', () => {
@@ -35,14 +89,14 @@ describe('resolveOpenApp', () => {
     // resolved to null — double-clicking a text file in your own home directory
     // opened nothing at all, because Notepad could only read the `notes` root.
     // Notepad is root-aware now, so the `onlyRoots` gate is gone.
-    expect(resolveOpenApp('notes', 'notes.txt')).toBe('notepad')
-    expect(resolveOpenApp('home', 'notes.txt')).toBe('notepad')
-    expect(resolveOpenApp('home', 'server.log')).toBe('notepad')
+    expect(resolveOpenApp(assoc, 'notes', 'notes.txt')).toBe('notepad')
+    expect(resolveOpenApp(assoc, 'home', 'notes.txt')).toBe('notepad')
+    expect(resolveOpenApp(assoc, 'home', 'server.log')).toBe('notepad')
   })
 
   it('is case-insensitive about the extension', () => {
-    expect(resolveOpenApp('home', 'REPORT.PDF')).toBe('norpdf')
-    expect(resolveOpenApp('home', 'Book.XLSX')).toBe('sheets')
+    expect(resolveOpenApp(assoc, 'home', 'REPORT.PDF')).toBe('norpdf')
+    expect(resolveOpenApp(assoc, 'home', 'Book.XLSX')).toBe('sheets')
   })
 
   it('FLIPPED by brief 81: a text-ish unmapped file no longer dead-ends', () => {
@@ -50,26 +104,26 @@ describe('resolveOpenApp', () => {
     // nothing at all — double-clicking a `Makefile` was a dead click, which is
     // the single most "broken OS" thing the file manager did. Text-ish files now
     // fall back to the code editor.
-    expect(resolveOpenApp('home', 'Makefile')).toBe('code-editor')
-    expect(resolveOpenApp('home', 'nginx.conf')).toBe('code-editor')
-    expect(resolveOpenApp('home', '.env')).toBe('code-editor')
+    expect(resolveOpenApp(assoc, 'home', 'Makefile')).toBe('code-editor')
+    expect(resolveOpenApp(assoc, 'home', 'nginx.conf')).toBe('code-editor')
+    expect(resolveOpenApp(assoc, 'home', '.env')).toBe('code-editor')
   })
 
   it('still returns null for an unknown BINARY, which is the honest answer', () => {
     // …and the caller now opens the "Open with" chooser rather than swallowing
     // the click. Guessing an app that cannot read the bytes is worse than asking.
-    expect(resolveOpenApp('home', 'archive.dmg')).toBeNull()
-    expect(resolveOpenApp('home', 'firmware.bin')).toBeNull()
+    expect(resolveOpenApp(assoc, 'home', 'archive.dmg')).toBeNull()
+    expect(resolveOpenApp(assoc, 'home', 'firmware.bin')).toBeNull()
   })
 })
 
 describe('openAppLabel', () => {
   it('names norPDF, so the menu matches the app that will actually open', () => {
-    expect(openAppLabel('norpdf')).toBe('Open in norPDF')
+    expect(openAppLabel(assoc, 'norpdf')).toBe('Open in norPDF')
   })
 
   it('still names PDF Viewer, which remains available', () => {
-    expect(openAppLabel('pdf-viewer')).toBe('Open in PDF Viewer')
+    expect(openAppLabel(assoc, 'pdf-viewer')).toBe('Open in PDF Viewer')
   })
 
   it('has a label for every app the map can resolve to', () => {
@@ -92,9 +146,9 @@ describe('openAppLabel', () => {
       ['home', 'a.mp4'],
     ]
     for (const [root, name] of samples) {
-      const appId = resolveOpenApp(root, name)
+      const appId = resolveOpenApp(assoc, root, name)
       expect(appId, name).not.toBeNull()
-      const label = openAppLabel(appId)
+      const label = openAppLabel(assoc, appId)
       expect(label, `${name} -> ${appId}`).toMatch(/^Open in .+/)
       expect(label).not.toMatch(/undefined/)
     }

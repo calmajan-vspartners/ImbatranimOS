@@ -1,4 +1,4 @@
-import { Button, Dialog, ScrollArea, useConfirm } from '@imbatranim/core'
+import { Button, Dialog, ScrollArea, useConfirm } from '@imbatranim/ui'
 import { Folder, FileText, RotateCcw, Trash2 } from 'lucide-react'
 import {
   useDeleteFromTrashMutation,

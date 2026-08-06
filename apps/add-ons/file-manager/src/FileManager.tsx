@@ -13,17 +13,16 @@ import {
   LayoutGrid,
   List,
 } from 'lucide-react'
-import { Button, ConfirmDialog, notify, useConfirm, usePrompt } from '@imbatranim/core'
+import { Button, ConfirmDialog, useConfirm, usePrompt, useSystem } from '@imbatranim/ui'
 import { TrashDialog } from './components/TrashDialog'
 import { PropertiesDialog } from './components/PropertiesDialog'
-import { Input } from '@imbatranim/core'
-import { Dialog } from '@imbatranim/core'
-import { ScrollArea } from '@imbatranim/core'
-import { Tooltip } from '@imbatranim/core'
-import { cn } from '@imbatranim/core'
-import { downloadUrl } from '@imbatranim/core'
-import { useVirtualList } from '@imbatranim/core'
-import { useElementSize } from '@imbatranim/core'
+import { Input } from '@imbatranim/ui'
+import { Dialog } from '@imbatranim/ui'
+import { ScrollArea } from '@imbatranim/ui'
+import { Tooltip } from '@imbatranim/ui'
+import { cn } from '@imbatranim/ui'
+import { useVirtualList } from '@imbatranim/ui'
+import { useElementSize } from '@imbatranim/ui'
 import { Breadcrumb } from './components/Breadcrumb'
 import { FileList } from './components/FileList'
 import { FileGrid } from './components/FileGrid'
@@ -66,8 +65,6 @@ import {
   useWriteContentMutation,
   useUploadFileMutation,
 } from './queries/filesQueries'
-import { openApp, recordRecentFile } from '@imbatranim/core'
-import { useIntentStore } from '@imbatranim/core'
 
 type MenuState = {
   x: number
@@ -75,16 +72,17 @@ type MenuState = {
   entry: FsEntry | null
 }
 
-function triggerDownload(root: string, entry: FsEntry) {
+function triggerDownload(url: string, name: string) {
   const a = document.createElement('a')
-  a.href = downloadUrl(root, entry.path)
-  a.download = entry.name
+  a.href = url
+  a.download = name
   document.body.appendChild(a)
   a.click()
   a.remove()
 }
 
-export function FileManager({ windowId }: { windowId: string }) {
+export function FileManager({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const [root, setRoot] = useState(FS_ROOTS[0].id)
   const rootCfg = FS_ROOTS.find((r) => r.id === root) ?? FS_ROOTS[0]
   const [path, setPath] = useState('')
@@ -98,9 +96,7 @@ export function FileManager({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (navConsumedRef.current) return
     navConsumedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as
-      | { navigatePath?: string; root?: string }
-      | undefined
+    const intent = system.intents.consume<{ navigatePath?: string; root?: string }>()
     if (intent?.navigatePath !== undefined && intent.root) {
       // Draining a one-shot open-intent on mount is the intended "sync from an
       // external system" use of an effect; it runs at most once (ref-guarded).
@@ -109,7 +105,7 @@ export function FileManager({ windowId }: { windowId: string }) {
       setPath(intent.navigatePath)
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [windowId])
+  }, [system])
 
   // Rename state
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -146,10 +142,13 @@ export function FileManager({ windowId }: { windowId: string }) {
    * readable while the user fixes it. One function so the two cannot drift, the
    * same reason `reportFileFailure` exists in core.
    */
-  const failAction = useCallback((message: string) => {
-    setActionError(message)
-    notify({ title: 'File Manager', body: message, level: 'error', appId: 'file-manager' })
-  }, [])
+  const failAction = useCallback(
+    (message: string) => {
+      setActionError(message)
+      system.notify({ title: 'File Manager', body: message, level: 'error' })
+    },
+    [system]
+  )
 
   // Sort key/direction, hidden-file visibility and view mode — persisted.
   const view = useFileViewSettings()
@@ -179,11 +178,10 @@ export function FileManager({ windowId }: { windowId: string }) {
     // Only the home root has a Trash; notes is a separate tree.
     trashEnabled: root === 'home',
     onTrashed: (label, count) =>
-      notify({
+      system.notify({
         title: count === 1 ? 'Moved to Trash' : `Moved ${count} items to Trash`,
         body: count === 1 ? label : undefined,
         level: 'info',
-        appId: 'file-manager',
       }),
   })
 
@@ -204,13 +202,13 @@ export function FileManager({ windowId }: { windowId: string }) {
       navigate(entry.path)
       return
     }
-    // Routing goes through core's association registry (brief 81): the user's
-    // choice, then whichever app declares the type, then a text fallback.
-    const appId = resolveOpenApp(root, entry.name)
+    // Routing goes through the handle's association registry (brief 81): the
+    // user's choice, then whichever app declares the type, then a text fallback.
+    const appId = resolveOpenApp(system.intents.associations, root, entry.name)
     if (appId) {
-      openApp(appId, { openPath: entry.path, root })
-      // OS-wide recents (brief 94): double-click/Enter is the main choke point.
-      recordRecentFile(root, entry.path, appId)
+      // openApp records the OS-wide recent (brief 94) at the choke point — an
+      // app cannot attribute a recent to another app any more, so the shell does.
+      system.intents.openApp(appId, { openPath: entry.path, root })
       return
     }
     // Nothing claims it and it is not text — an unknown binary. Ask, rather
@@ -222,8 +220,7 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   /** Open one file with a specific app, and remember the choice if asked. */
   function openEntryWith(entry: FsEntry, appId: string) {
-    openApp(appId, { openPath: entry.path, root })
-    recordRecentFile(root, entry.path, appId)
+    system.intents.openApp(appId, { openPath: entry.path, root })
   }
 
   function handleRename(entry: FsEntry) {
@@ -314,8 +311,7 @@ export function FileManager({ windowId }: { windowId: string }) {
       { path: filePath, file },
       {
         onSuccess: () => {
-          openApp(editorAppId(kind), { openPath: filePath, root })
-          recordRecentFile(root, filePath, editorAppId(kind))
+          system.intents.openApp(editorAppId(kind), { openPath: filePath, root })
         },
       }
     )
@@ -387,10 +383,11 @@ export function FileManager({ windowId }: { windowId: string }) {
     ? buildMenuItems({
         entry: menu.entry,
         root,
+        assoc: system.intents.associations,
         hasClipboard: !!clipboard.clipboard,
         onOpen: handleOpen,
         onOpenWith: (entry: FsEntry) => setOpenWithFor(entry),
-        onDownload: (entry) => triggerDownload(root, entry),
+        onDownload: (entry) => triggerDownload(system.fs.downloadUrl(root, entry.path), entry.name),
         onRename: handleRename,
         onCopy: clipboard.copy,
         onCut: clipboard.cut,
@@ -403,10 +400,9 @@ export function FileManager({ windowId }: { windowId: string }) {
         onPaste: clipboard.paste,
         onRefresh: () => dirQuery.refetch(),
         onExtract: (entry) =>
-          openApp('archive-manager', { action: 'extract', root, path: entry.path }),
+          system.intents.openApp('archive-manager', { action: 'extract', root, path: entry.path }),
         onEditInPaint: (entry) => {
-          openApp('paint', { openPath: entry.path, root })
-          recordRecentFile(root, entry.path, 'paint')
+          system.intents.openApp('paint', { openPath: entry.path, root })
         },
         onCompare: (() => {
           // Exactly two files selected, the clicked entry one of them — the
@@ -418,7 +414,7 @@ export function FileManager({ windowId }: { windowId: string }) {
           )
           if (files.length !== 2) return null
           return () =>
-            openApp('diff', {
+            system.intents.openApp('diff', {
               leftRoot: root,
               leftPath: files[0].path,
               rightRoot: root,
@@ -431,7 +427,7 @@ export function FileManager({ windowId }: { windowId: string }) {
               ? orderedEntries.filter((e) => selected.has(e.path)).map((e) => e.path)
               : [entry.path]
           const base = paths.length > 1 ? 'archive' : entry.name
-          openApp('archive-manager', {
+          system.intents.openApp('archive-manager', {
             action: 'compress',
             root,
             paths,
@@ -908,11 +904,10 @@ export function FileManager({ windowId }: { windowId: string }) {
         root={root}
         currentPath={path}
         onRestored={(p) =>
-          notify({
+          system.notify({
             title: 'Restored from Trash',
             body: p,
             level: 'success',
-            appId: 'file-manager',
           })
         }
         onError={failAction}
