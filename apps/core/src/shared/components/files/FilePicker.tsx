@@ -4,6 +4,7 @@ import { api } from '../../../lib/axios'
 import { useRecentFilesQuery } from '../../../lib/recentFiles'
 import { Button } from '../ui/Button'
 import { ScrollArea } from '../ui/ScrollArea'
+import { useConfirm } from '../ui/ConfirmDialog'
 import { cn } from '../../../lib/cn'
 
 export type PickerEntry = {
@@ -58,6 +59,8 @@ export function FilePicker({
     if (!extensions || extensions.length === 0 || showAll) return all
     return all.filter((f) => extensions.includes(f.path.split('.').pop()?.toLowerCase() ?? ''))
   }, [recentFiles, extensions, showAll])
+  // Save-mode overwrite confirmation (T1-3).
+  const { confirm, confirmDialog } = useConfirm()
 
   // One piece of state tagged with the location it belongs to, rather than
   // separate entries/loading/error flags. `loading` is then derived, so the
@@ -104,6 +107,28 @@ export function FilePicker({
   }, [entries, extensions, showAll, mode])
 
   const goUp = () => setDir((d) => d.split('/').slice(0, -1).join('/'))
+
+  // Save mode: guard an overwrite. Without this, saving over an existing file
+  // (and the click-to-fill that pre-populates an existing name) silently clobbered it.
+  async function handleSave() {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const clash = entries.some((e) => e.type === 'file' && e.name === trimmed)
+    if (clash) {
+      const ok = await confirm({
+        title: 'Replace file?',
+        message: (
+          <>
+            A file named <strong>{trimmed}</strong> already exists in this folder. Replace it?
+          </>
+        ),
+        confirmLabel: 'Replace',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    onPick({ root, path: dir ? `${dir}/${trimmed}` : trimmed })
+  }
 
   return (
     <div className="flex h-[340px] w-[520px] flex-col">
@@ -258,17 +283,13 @@ export function FilePicker({
               aria-label="File name"
               onChange={(ev) => setName(ev.target.value)}
             />
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={!name.trim()}
-              onClick={() => onPick({ root, path: dir ? `${dir}/${name.trim()}` : name.trim() })}
-            >
+            <Button size="sm" variant="primary" disabled={!name.trim()} onClick={handleSave}>
               Save
             </Button>
           </>
         )}
       </div>
+      {confirmDialog}
     </div>
   )
 }

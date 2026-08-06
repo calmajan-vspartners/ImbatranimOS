@@ -32,7 +32,7 @@ import type {
 const PRODID = '-//ImbatranimOS//Calendar//EN'
 
 /** RFC 5545 caps a content line at 75 octets and continues with a leading space. */
-const FOLD_AT = 73
+const FOLD_OCTETS = 75
 
 const COLORS: EventColor[] = ['blue', 'green', 'amber', 'red', 'purple', 'slate']
 
@@ -63,16 +63,43 @@ function escapeText(value: string): string {
     .replace(/\r?\n/g, '\\n')
 }
 
+/** UTF-8 octet length of a single code point. */
+function octetLen(codePoint: string): number {
+  const c = codePoint.codePointAt(0) ?? 0
+  if (c <= 0x7f) return 1
+  if (c <= 0x7ff) return 2
+  if (c <= 0xffff) return 3
+  return 4
+}
+
+/**
+ * Fold a content line at RFC 5545's 75-**octet** cap.
+ *
+ * Breaks only at code-point boundaries — `Array.from` iterates code points, so a
+ * surrogate pair (an emoji) is never split, and a multi-byte character is never
+ * severed mid-sequence. The leading space on a continuation line counts toward
+ * that line's 75 octets. Slicing by UTF-16 units (the old `.slice(0, 73)`) both
+ * overshoots the octet limit for non-ASCII text and can split a surrogate pair
+ * into two lone halves.
+ */
 function fold(line: string): string {
-  if (line.length <= FOLD_AT) return line
-  const parts: string[] = [line.slice(0, FOLD_AT)]
-  let rest = line.slice(FOLD_AT)
-  while (rest.length > FOLD_AT - 1) {
-    parts.push(' ' + rest.slice(0, FOLD_AT - 1))
-    rest = rest.slice(FOLD_AT - 1)
+  const out: string[] = []
+  let current = ''
+  let octets = 0
+  for (const cp of Array.from(line)) {
+    const len = octetLen(cp)
+    if (octets + len > FOLD_OCTETS) {
+      out.push(current)
+      // A continuation line spends its first octet on the leading space.
+      current = ' ' + cp
+      octets = 1 + len
+    } else {
+      current += cp
+      octets += len
+    }
   }
-  if (rest.length > 0) parts.push(' ' + rest)
-  return parts.join('\r\n')
+  out.push(current)
+  return out.join('\r\n')
 }
 
 /** Floating local date-time, `20260706T090000`. */

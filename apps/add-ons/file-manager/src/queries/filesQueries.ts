@@ -18,6 +18,12 @@ export function fsListKey(root: string, path: string) {
   return ['fs-list', root, path] as const
 }
 
+/** The directory portion of a path — '' for a top-level entry. */
+function dirOf(p: string): string {
+  const i = p.lastIndexOf('/')
+  return i === -1 ? '' : p.slice(0, i)
+}
+
 export function useDirectoryQuery(root: string, path: string) {
   return useQuery({
     queryKey: fsListKey(root, path),
@@ -106,8 +112,14 @@ export function useMoveEntryMutation(root: string, currentPath: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) => moveEntry(root, from, to),
-    onSuccess: () => {
+    onSuccess: (_data, { from, to }) => {
+      // A move touches TWO directories: the source loses the entry and the
+      // destination gains it. Invalidating only the current dir left the SOURCE
+      // listing stale for its whole cache lifetime after a cut/paste across dirs
+      // (M3), so invalidate both endpoints' dirs as well.
       qc.invalidateQueries({ queryKey: fsListKey(root, currentPath) })
+      qc.invalidateQueries({ queryKey: fsListKey(root, dirOf(from)) })
+      qc.invalidateQueries({ queryKey: fsListKey(root, dirOf(to)) })
     },
   })
 }

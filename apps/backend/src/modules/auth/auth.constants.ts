@@ -28,7 +28,15 @@ export function parseCookieHeader(
     const key = part.slice(0, eq).trim();
     if (!key) continue;
     const val = part.slice(eq + 1).trim();
-    out[key] = decodeURIComponent(val);
+    // A malformed percent-escape (e.g. a stray `%` from another cookie on the
+    // domain) makes decodeURIComponent throw URIError. Unguarded, that bubbled
+    // out of the guard and 500'd every response — including the public
+    // /api/auth/status. Fall back to the raw value instead.
+    try {
+      out[key] = decodeURIComponent(val);
+    } catch {
+      out[key] = val;
+    }
   }
   return out;
 }

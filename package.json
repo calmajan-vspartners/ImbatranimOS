@@ -32,6 +32,7 @@
     "argon2": true,
     "better-sqlite3": true,
     "esbuild": true,
+    "fsevents": true,
     "node-pty": true,
     "protobufjs": true,
     "sharp": true,

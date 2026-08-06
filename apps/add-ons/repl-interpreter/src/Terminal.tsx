@@ -200,7 +200,7 @@ export function Terminal(_props: { windowId: string }) {
         title: 'Paste blocked',
         body: 'The browser would not grant clipboard access. Use the keyboard shortcut for your platform, or allow clipboard permission for this site.',
         level: 'warning',
-        appId: 'repl-interpreter',
+        appId: 'terminal',
       })
     }
   }, [sendInput])
@@ -215,7 +215,7 @@ export function Terminal(_props: { windowId: string }) {
         title: 'Copy blocked',
         body: 'The browser would not grant clipboard access.',
         level: 'warning',
-        appId: 'repl-interpreter',
+        appId: 'terminal',
       })
     }
   }, [])

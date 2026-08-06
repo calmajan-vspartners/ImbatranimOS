@@ -74,4 +74,14 @@ describe('describeLossy', () => {
     // Terminal's xterm DOM renderer serialises fine today and would not with a webgl addon.
     expect(describeLossy({ total: 1, byKind: { canvas: 1 } })).toMatch(/may not appear/)
   })
+
+  it('adds a scroll-specific caveat for a scrolled area', () => {
+    const text = describeLossy({ total: 1, byKind: { scrolled: 1 } })
+    expect(text).toContain('1 scrolled area')
+    expect(text).toMatch(/re-rendered from its top/)
+  })
+
+  it('does not add the scroll caveat when nothing was scrolled', () => {
+    expect(describeLossy({ total: 1, byKind: { canvas: 1 } })).not.toMatch(/from its top/)
+  })
 })

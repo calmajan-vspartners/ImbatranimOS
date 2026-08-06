@@ -2971,6 +2971,46 @@ one-shot occurrence more than 90s stale refuses to late-fire by design.
 In-app creation invalidates the cache immediately, so normal use is
 unaffected. Recorded here rather than fixed: tightening it means either a
 faster poll (chatty) or server push (the killed daemon's shape).
+## [2026-08-06] todo | Brief 100 — code-health sweep filed from a six-lane audit
+
+Deep exploration at commit aaa128b: six parallel audit lanes (backend, core
+shell, heavy add-ons, light add-ons, @pdfcore/engine, infra/build) with all
+gates green at baseline. ~75 verified findings filed as
+[brief 100](briefs/done/100-code-health-sweep-2026-08-06.md), ranked in tiers.
+Headlines: the prod Docker image cannot build (packages/ never COPYed — proven
+by npm-install simulation); pdf-lib's stale page cache makes delete→reorder
+resurrect a deleted page (proven by executed repro); Sheets converts every
+Excel date cell to ISO text on save; the backend's default 100 KB JSON body
+cap silently breaks Notepad/REST-client/git-apply; norPDF never writes back to
+the opened file and has no unsaved guard; calendar recurrence dies after 750
+occurrences from series start and "does not repeat" doesn't (both proven by
+repro tests); turbo can serve stale desktop bundles (core declares no add-on
+deps — hash-proven). Audit lanes also recorded what came up clean so it is not
+re-audited. All items are ungrilled proposals; grill before building.
+
+## [2026-08-06] done | Brief 100 — code-health sweep implemented (10 commits, 75/75 gate)
+
+Worked the full brief 100 backlog end to end on `claude/code-exploration-improvements-0epjig`.
+Structure: a foundation commit (T3-1 turbo stale-cache fix via a core-scoped
+`inputs` override — a topological `dependsOn` is impossible, core↔add-on is a
+package cycle — plus the `useTopWindowKeydown`/`isTopWindow` seam), then six
+package-disjoint lanes run as parallel subagents in two waves (wave 1: backend,
+core, pdfcore-engine, infra — none read each other's source mid-edit; wave 2:
+heavy + light add-ons, against the committed core), each verified per-package
+and committed as a unit, then a final cross-cutting config pass.
+
+Every Tier 0–2 finding shipped. **T2-10 (pdf.js dispose) was missed in the
+initial dispatch and caught in a self-audit** — engine + norPDF now release
+worker-side documents. **T3-7 (strict) was free**: strict across all add-ons +
+core and backend `noImplicitAny` produced 0 errors (config lagged, not code).
+**T3-8's backend TS6/eslint10 half is deferred** (a real migration; see
+[decisions.md](wiki/decisions.md) 2026-08-06) — its dev-compose half shipped.
+
+Verification: forced `turbo typecheck lint test` = **75/75** after each wave and
+the final pass. New regression tests in every lane. Prod-image unbuildability
+(T0-1) reproduced then fixed; Docker/ISO not built here (no daemon). Brief moved
+to [done/](briefs/done/100-code-health-sweep-2026-08-06.md) with a full outcome
+note; wiki folded below.
 
 ## 2026-08-06 — Brief 49: the session becomes per-tab, the config becomes an account
 

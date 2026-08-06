@@ -61,41 +61,89 @@ export function boxToRect(b: Box): Rect {
 
 /* ───────────────────────────────────────────────────────── points ─────── */
 
-/** Screen point (top-left origin, px) → PDF point (bottom-left origin, pt). */
+/**
+ * Screen point (top-left origin, px) → PDF point (bottom-left origin, pt).
+ *
+ * Honours {@link ViewTransform.rotation}: the screen axes are those of the
+ * page *as drawn* (pdf.js rotates the canvas clockwise by `rotation`), so the
+ * inverse mapping un-rotates before the y-flip. At rotation 0 this reduces to a
+ * pure y-flip + scale.
+ */
 export function screenToPdfPoint(p: Point, t: ViewTransform): Point {
-  return {
-    x: p.x / t.scale,
-    y: t.page.height - p.y / t.scale,
-  };
+  const { width: w, height: h } = t.page;
+  const sx = p.x / t.scale;
+  const sy = p.y / t.scale;
+  switch (t.rotation ?? 0) {
+    case 90:
+      return { x: sy, y: sx };
+    case 180:
+      return { x: w - sx, y: sy };
+    case 270:
+      return { x: w - sy, y: h - sx };
+    default:
+      return { x: sx, y: h - sy };
+  }
 }
 
-/** PDF point (bottom-left origin, pt) → screen point (top-left origin, px). */
+/**
+ * PDF point (bottom-left origin, pt) → screen point (top-left origin, px).
+ * Inverse of {@link screenToPdfPoint}; rotation-aware (see there).
+ */
 export function pdfToScreenPoint(p: Point, t: ViewTransform): Point {
-  return {
-    x: p.x * t.scale,
-    y: (t.page.height - p.y) * t.scale,
-  };
+  const { width: w, height: h } = t.page;
+  let x: number;
+  let y: number;
+  switch (t.rotation ?? 0) {
+    case 90:
+      x = p.y;
+      y = p.x;
+      break;
+    case 180:
+      x = w - p.x;
+      y = p.y;
+      break;
+    case 270:
+      x = h - p.y;
+      y = w - p.x;
+      break;
+    default:
+      x = p.x;
+      y = h - p.y;
+      break;
+  }
+  return { x: x * t.scale, y: y * t.scale };
 }
 
 /* ───────────────────────────────────────────────────────── boxes ──────── */
 
-/** Screen box (top-left origin, px) → PDF box (bottom-left origin, pt). */
+/**
+ * Screen box (top-left origin, px) → PDF box (bottom-left origin, pt).
+ *
+ * Rotation-aware: the two diagonal corners are mapped through
+ * {@link screenToPdfPoint} and re-bounded, so a 90/270 rotation correctly swaps
+ * width and height. At rotation 0 this reduces to the y-flip + scale.
+ */
 export function screenBoxToPdf(b: Box, t: ViewTransform): Box {
-  const w = b.w / t.scale;
-  const h = b.h / t.scale;
-  const x = b.x / t.scale;
-  // Screen y is the box's TOP edge; the PDF bottom-left y is the screen BOTTOM.
-  const y = t.page.height - (b.y + b.h) / t.scale;
-  return { x, y, w, h };
+  const p1 = screenToPdfPoint({ x: b.x, y: b.y }, t);
+  const p2 = screenToPdfPoint({ x: b.x + b.w, y: b.y + b.h }, t);
+  return {
+    x: Math.min(p1.x, p2.x),
+    y: Math.min(p1.y, p2.y),
+    w: Math.abs(p2.x - p1.x),
+    h: Math.abs(p2.y - p1.y),
+  };
 }
 
-/** PDF box (bottom-left origin, pt) → screen box (top-left origin, px). Inverse of {@link screenBoxToPdf}. */
+/** PDF box (bottom-left origin, pt) → screen box (top-left origin, px). Inverse of {@link screenBoxToPdf}; rotation-aware. */
 export function pdfBoxToScreen(b: Box, t: ViewTransform): Box {
-  const w = b.w * t.scale;
-  const h = b.h * t.scale;
-  const x = b.x * t.scale;
-  const y = (t.page.height - (b.y + b.h)) * t.scale;
-  return { x, y, w, h };
+  const p1 = pdfToScreenPoint({ x: b.x, y: b.y }, t);
+  const p2 = pdfToScreenPoint({ x: b.x + b.w, y: b.y + b.h }, t);
+  return {
+    x: Math.min(p1.x, p2.x),
+    y: Math.min(p1.y, p2.y),
+    w: Math.abs(p2.x - p1.x),
+    h: Math.abs(p2.y - p1.y),
+  };
 }
 
 /** Screen box → PDF `[x1,y1,x2,y2]` rect. */

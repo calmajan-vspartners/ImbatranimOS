@@ -20,6 +20,8 @@ import { diskStorage } from 'multer';
 import type { Request, Response } from 'express';
 import { basename } from 'path';
 import { tmpdir } from 'os';
+import { pipeline } from 'node:stream';
+import * as fs from 'fs/promises';
 import { FilesService } from './files.service';
 import { TrashService } from './trash.service';
 import { MulterExceptionFilter } from './multer-exception.filter';
@@ -117,12 +119,21 @@ export class FilesController {
         `bytes ${range.start}-${range.end}/${size}`,
       );
       res.setHeader('Content-Length', range.end - range.start + 1);
-      this.filesService.openRange(abs, range.start, range.end).pipe(res);
+      // stream.pipeline (not bare .pipe): a source 'error' with no listener
+      // would otherwise throw and crash the process, and a client abort would
+      // leak the file descriptor. pipeline destroys both ends on any error.
+      pipeline(
+        this.filesService.openRange(abs, range.start, range.end),
+        res,
+        noop,
+      );
       return;
     }
 
     res.setHeader('Content-Length', size);
-    (await this.filesService.readFileStream(q.root, q.path)).pipe(res);
+    // Open the whole file straight from the already-jailed absolute path — no
+    // redundant re-resolve + re-stat — and pipe through stream.pipeline.
+    pipeline(this.filesService.openFile(abs), res, noop);
   }
 
   /** POST /api/files/upload  multipart: root, path, file → Entry */
@@ -136,12 +147,17 @@ export class FilesController {
       limits: { fileSize: MAX_UPLOAD_BYTES },
     }),
   )
-  upload(
+  async upload(
     @UploadedFile() file: { path: string; originalname: string },
     @Body('root') root: string,
     @Body('path') path: string,
   ) {
-    if (!root || !file) throw new BadRequestException('root and file required');
+    if (!root || !file) {
+      // The early throw skips uploadFile's finally cleanup, so multer's temp
+      // file would be orphaned. Remove it here before rejecting.
+      if (file) await fs.rm(file.path, { force: true });
+      throw new BadRequestException('root and file required');
+    }
     const virtualPath = path || file.originalname;
     return this.filesService.uploadFile(root, virtualPath, file.path);
   }
@@ -196,6 +212,16 @@ export class FilesController {
  * unrestricted UTF-8 name still travels in the `filename*=` parameter, which
  * modern browsers prefer.
  */
+/**
+ * stream.pipeline completion callback for the download route. Headers are
+ * already sent by the time a stream can error (a client abort surfaces as
+ * ERR_STREAM_PREMATURE_CLOSE), so there is nothing to respond with — pipeline
+ * has already destroyed both ends. Swallow it rather than rethrow.
+ */
+function noop(): void {
+  // intentionally empty
+}
+
 function sanitizeHeaderFilename(name: string): string {
   // eslint-disable-next-line no-control-regex
   return name.replace(/["\\\x00-\x1f]/g, '_');

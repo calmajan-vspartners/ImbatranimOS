@@ -1,44 +1,66 @@
-import { Suspense, useCallback, useMemo, useState } from 'react'
-import { useWindowStore } from '../../store/windowStore'
+import { Suspense, memo, useCallback, useState } from 'react'
+import { useShallow } from 'zustand/shallow'
+import { topVisibleWindowId, useWindowStore } from '../../store/windowStore'
 import { Window } from './Window'
 import { APP_REGISTRY, type AppConfig } from '../../registry/registry'
 import { AppErrorBoundary } from './AppErrorBoundary'
 import { AppErrorFallback } from './AppErrorFallback'
 
-export function WindowContainer() {
-  // Subscribe to the raw windows array — a reference that only changes when the
-  // store actually updates. We must NOT project into a fresh array of objects
-  // inside the selector: `useShallow` compares only one level deep, so an array
-  // of freshly-built objects is never seen as equal. That makes the
-  // useSyncExternalStore snapshot change on every call ("getSnapshot should be
-  // cached" → infinite render loop the moment a window is open). The projection
-  // is done below in useMemo instead, keyed off the stable array reference.
-  const windows = useWindowStore((s) => s.windows)
+// Field separator for the per-window projection key. `␟` (SYMBOL FOR UNIT
+// SEPARATOR) cannot occur in a uuid or an app-id slug, so splitting is safe.
+const SEP = '␟'
 
-  const activeWorkspace = useWindowStore((s) => s.activeWorkspace)
-
-  const orderedWindows = useMemo(
-    () =>
-      windows
-        .map((w) => ({
-          id: w.id,
-          appId: w.appId,
-          zIndex: w.zIndex,
-          isVisible: w.isVisible,
-          workspaceId: w.workspaceId,
-        }))
-        .sort((a, b) => a.zIndex - b.zIndex),
-    [windows]
+/**
+ * Subscribe to a projection that deliberately omits `position`/`size`, so the
+ * ~60fps geometry churn of a drag/resize does NOT re-render this container —
+ * only a change to identity, stacking order (zIndex), visibility or workspace
+ * does. `useShallow` caches the array while the projected strings are unchanged;
+ * projecting to *objects* would defeat it (freshly-built objects are never
+ * shallow-equal), the trap the old raw-`windows` subscription fell into.
+ */
+function useOrderedWindows(): {
+  id: string
+  appId: string
+  zIndex: number
+  isVisible: boolean
+  workspaceId: number
+}[] {
+  const keys = useWindowStore(
+    useShallow((s) =>
+      s.windows.map(
+        (w) =>
+          `${w.id}${SEP}${w.appId}${SEP}${w.zIndex}${SEP}${w.isVisible ? 1 : 0}${SEP}${w.workspaceId}`
+      )
+    )
   )
-  // Focus is per-workspace: the top window of the workspace you are looking at,
-  // not the top window overall. Otherwise switching to workspace 2 would leave
-  // its frontmost window unfocused because something on workspace 1 outranks it.
-  const maxZIndex = windows
-    .filter((w) => w.workspaceId === activeWorkspace)
-    .reduce((acc, w) => Math.max(acc, w.zIndex), 0)
+  return keys
+    .map((k) => {
+      const [id, appId, zIndex, isVisible, workspaceId] = k.split(SEP)
+      return {
+        id,
+        appId,
+        zIndex: Number(zIndex),
+        isVisible: isVisible === '1',
+        workspaceId: Number(workspaceId),
+      }
+    })
+    .sort((a, b) => a.zIndex - b.zIndex)
+}
+
+export function WindowContainer() {
+  const orderedWindows = useOrderedWindows()
+  const activeWorkspace = useWindowStore((s) => s.activeWorkspace)
+  // The one shared definition of "focused", now workspace-scoped (brief 85):
+  // the taskbar highlight, window chrome and every window-scoped hotkey read
+  // this same helper so they can never disagree.
+  const focusedId = topVisibleWindowId()
 
   return (
-    <>
+    // Own stacking context: window zIndex grows unboundedly (persisted, bumped
+    // on every focus), so left in the root context it would climb past portaled
+    // overlays and swallow dialogs/selects/tooltips. `isolation:isolate` confines
+    // the whole window band to this wrapper; overlays sit in a higher band above it.
+    <div style={{ isolation: 'isolate' }}>
       {/*
         EVERY window is rendered, on every workspace — a window on an inactive
         workspace is hidden with `display:none`, exactly as a minimised one is,
@@ -54,11 +76,11 @@ export function WindowContainer() {
           windowId={w.id}
           app={APP_REGISTRY.find((a) => a.id === w.appId)}
           appId={w.appId}
-          isFocused={w.zIndex === maxZIndex && w.isVisible && w.workspaceId === activeWorkspace}
+          isFocused={w.id === focusedId}
           onActiveWorkspace={w.workspaceId === activeWorkspace}
         />
       ))}
-    </>
+    </div>
   )
 }
 
@@ -67,7 +89,9 @@ export function WindowContainer() {
  *
  * Extracted from the map so each window can own a remount counter — the "Reload"
  * a crashed app offers (brief 47) is a key change, and a key needs state, which a
- * map callback cannot hold.
+ * map callback cannot hold. Memoised so that when the container re-renders (a
+ * zIndex bump, a visibility or workspace change), only the windows whose props
+ * actually changed re-render.
  *
  * The layering is the point: `Window` renders the chrome and takes the app as
  * children, so the boundary sits **inside** the frame. A crashed app therefore
@@ -75,7 +99,7 @@ export function WindowContainer() {
  * button that works — putting the chrome inside the boundary would take away the
  * exact controls the user needs to deal with the crash.
  */
-function WindowSlot({
+const WindowSlot = memo(function WindowSlot({
   windowId,
   app,
   appId,
@@ -135,4 +159,4 @@ function WindowSlot({
       )}
     </Window>
   )
-}
+})

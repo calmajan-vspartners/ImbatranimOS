@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useIntentStore } from '../store/intentStore'
 import { createOpenedFileStore, type OpenedFile } from '../store/createOpenedFileStore'
 
@@ -29,17 +29,33 @@ export function setOpenedFile(windowId: string, file: OpenedFile): void {
   useOpenedFileStore.getState().setFile(windowId, file)
 }
 
+/** Read the latched file for a window without subscribing (close cleanup / tests). */
+export function getOpenedFile(windowId: string): OpenedFile | null {
+  return useOpenedFileStore.getState().fileMap[windowId] ?? null
+}
+
+/** Drop a window's latched file so the per-window entry does not leak on close. */
+export function clearOpenedFile(windowId: string): void {
+  useOpenedFileStore.getState().clearFile(windowId)
+}
+
 export function useOpenIntent(windowId: string): OpenedFile | null {
   const source = useOpenedFileStore((s) => s.fileMap[windowId]) ?? null
   const setFile = useOpenedFileStore((s) => s.setFile)
-  const consumedRef = useRef(false)
+  // Subscribe to the intent reactively: a re-delivered payload to an already-open
+  // window (extract A, then extract B) mints a NEW payload object, so the effect
+  // below — keyed on that value — fires again and latches the new file. The old
+  // ref-guard consumed exactly once and silently dropped every later payload.
+  const intent = useIntentStore((s) => s.intents.get(windowId)) as OpenPayload | undefined
   useEffect(() => {
-    if (consumedRef.current) return
-    consumedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as OpenPayload | undefined
     if (intent?.openPath && intent?.root) {
+      // Drain first, then latch. StrictMode double-invokes this effect: the second
+      // pass sees the intent already gone (consumeIntent is a no-op) and re-latches
+      // the same file (setFile is idempotent), so the drain stays exactly-once in
+      // effect even though the effect body runs twice.
+      useIntentStore.getState().consumeIntent(windowId)
       setFile(windowId, { root: intent.root, path: intent.openPath })
     }
-  }, [windowId, setFile])
+  }, [windowId, intent, setFile])
   return source
 }

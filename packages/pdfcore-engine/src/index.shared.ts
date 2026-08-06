@@ -14,6 +14,9 @@ export {
   PdfEngineError,
   NotImplemented,
   UnsupportedPlatform,
+  EncryptedDocument,
+  PdfEngineWarning,
+  SignatureInvalidationWarning,
 } from "./api/errors.js";
 export type {
   PdfBytes,

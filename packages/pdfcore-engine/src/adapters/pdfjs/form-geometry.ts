@@ -1,5 +1,5 @@
 import type { PdfBytes, Rect } from "../../api/types.js";
-import { loadPdfjsDocument } from "./document.js";
+import { withPdfjsDoc } from "./document.js";
 
 /**
  * The geometry of a single form-field widget: the 1-based page it sits on and
@@ -33,7 +33,7 @@ export interface WidgetGeometry {
 export async function readFormGeometry(
   bytes: PdfBytes,
 ): Promise<Map<string, WidgetGeometry[]>> {
-  const doc = await loadPdfjsDocument(bytes);
+  return withPdfjsDoc(bytes, async (doc) => {
   const byField = new Map<string, WidgetGeometry[]>();
 
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
@@ -57,6 +57,7 @@ export async function readFormGeometry(
   }
 
   return byField;
+  });
 }
 
 /** Coerce a pdf.js `rect` ([x1,y1,x2,y2]) into a canonical lower-left→upper-right {@link Rect}. */

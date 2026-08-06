@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { nextWorkspace, useWindowStore } from '../store/windowStore'
+import { nextWorkspace, topVisibleWindowId, useWindowStore } from '../store/windowStore'
 import { useRegisteredHotkeys } from './useRegisteredHotkeys'
 
 /**
@@ -38,32 +38,25 @@ export function useWindowHotkeys(): void {
       cycle: () => {
         const visible = getCandidates()
         if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
+        const focusedId = topVisibleWindowId()
         const sorted = [...visible].sort((a, b) => a.zIndex - b.zIndex)
-        if (!focused) {
+        if (!focusedId) {
           focusWindow(sorted[sorted.length - 1].id)
           return
         }
-        const idx = sorted.findIndex((w) => w.id === focused.id)
+        const idx = sorted.findIndex((w) => w.id === focusedId)
         const next = sorted[(idx + 1) % sorted.length]
         focusWindow(next.id)
       },
 
       close: () => {
-        const visible = getCandidates()
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
-        if (focused) closeWindow(focused.id)
+        const focusedId = topVisibleWindowId()
+        if (focusedId) closeWindow(focusedId)
       },
 
       minimise: () => {
-        const visible = getCandidates()
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
-        if (focused) hideWindow(focused.id)
+        const focusedId = topVisibleWindowId()
+        if (focusedId) hideWindow(focusedId)
       },
 
       // Workspace switching, wrapping at both ends — ← from 1 lands on 4, which
@@ -80,10 +73,9 @@ export function useWindowHotkeys(): void {
       },
 
       maximise: () => {
-        const visible = getCandidates()
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
+        const focusedId = topVisibleWindowId()
+        if (!focusedId) return
+        const focused = getCandidates().find((w) => w.id === focusedId)
         if (!focused) return
         if (focused.isMaximized) {
           restoreWindow(focused.id)

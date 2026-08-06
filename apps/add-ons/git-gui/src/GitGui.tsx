@@ -90,7 +90,7 @@ export function GitGui({ windowId }: { windowId: string }) {
 
   useEffect(loadRecents, [loadRecents])
 
-  const reload = useCallback(async (r: string, p: string) => {
+  const reload = useCallback(async (r: string, p: string): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
@@ -105,12 +105,14 @@ export function GitGui({ windowId }: { windowId: string }) {
       setBranches(branchState)
       setStashes(stashState.stashes)
       setChecked(new Set())
+      return true
     } catch (err) {
       setError(errorMessage(err, 'Could not open repository'))
       setEntries([])
       setCommits([])
       setBranches(null)
       setStashes([])
+      return false
     } finally {
       setBusy(false)
     }
@@ -123,12 +125,14 @@ export function GitGui({ windowId }: { windowId: string }) {
       setPathInput(p)
       setSelection(null)
       setDiff('')
-      void reload(r, p).then(() =>
-        // Only remember a repo that actually opened; the backend re-validates it.
-        rememberRepo(r, p)
+      void reload(r, p).then((ok) => {
+        // Only remember a repo that actually opened; a failed open leaves the
+        // recents list clean instead of accumulating dead entries.
+        if (!ok) return
+        return rememberRepo(r, p)
           .then(loadRecents)
           .catch(() => undefined)
-      )
+      })
     },
     [reload, loadRecents]
   )

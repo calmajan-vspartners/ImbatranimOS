@@ -18,12 +18,16 @@ pkgrel=0
 pkgdesc="ImbatranimOS kiosk payload (backend + desktop + cage/chromium session)"
 url="https://github.com/gandolh/ImbatranimOS"
 arch="x86_64"
-license="UNLICENSED"
+license="AGPL-3.0-only"
 # Runtime graph: node to run the app, the wayland kiosk stack, GPU/input,
 # fonts, wget (used by the launcher to wait for the backend), and git (the
 # Git app's backend spawns it — see modules/git/git.service.ts).
+# nodejs-current (Node 24 series on v3.22, from the community repo) matches the
+# engines floor in root package.json (node >=24.14.1) and the ABI the native
+# addons were compiled against in the toolbox. Alpine's main `nodejs` is 22.x,
+# below the floor, so it is deliberately NOT used.
 depends="
-	nodejs
+	nodejs-current
 	git
 	chromium
 	cage

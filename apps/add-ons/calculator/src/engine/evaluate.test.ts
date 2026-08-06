@@ -60,6 +60,19 @@ describe('parentheses', () => {
     expect(() => evaluate('(2+3')).toThrow(/Unbalanced/)
     expect(() => evaluate('2+3)')).toThrow(/Unbalanced/)
   })
+
+  it('negates a parenthesised group instead of throwing (L9)', () => {
+    // Both used to throw "Expected a number": unary minus was only accepted as the
+    // sign of a numeric literal, never in front of a group.
+    expect(evaluate('-(2+3)')).toBe(-5)
+    expect(evaluate('2*-(4)')).toBe(-8)
+    // At the start, after an operator, and doubled — and binding tighter than the
+    // binary operators around it.
+    expect(evaluate('10--(2+3)')).toBe(15)
+    expect(evaluate('-(2+3)*2')).toBe(-10)
+    // A negated group as an exponent matches the folded-literal case (`2^-3`).
+    near('2^-(3)', 0.125)
+  })
 })
 
 describe('power and factorial', () => {

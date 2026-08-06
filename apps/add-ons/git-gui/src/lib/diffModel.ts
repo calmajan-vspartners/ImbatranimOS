@@ -61,6 +61,49 @@ function cleanPath(raw: string): string {
 }
 
 /**
+ * Extract the `a/` and `b/` sides from a `diff --git` line.
+ *
+ * `\S+ \S+` breaks the instant a path contains a space: git writes
+ * `diff --git a/my file b/my file` (unquoted, space and all) or
+ * `diff --git "a/my file" "b/my file"` (C-quoted, when the path has characters
+ * that force quoting). A binary file with a space in its name has no `---`/`+++`
+ * body to recover the name from, so a miss here drops the file from the diff.
+ */
+function parseDiffGitLine(line: string): { a: string; b: string } | null {
+  const rest = line.slice('diff --git '.length)
+  // Quoted form: git C-quotes either side when the path needs it. Strip the
+  // enclosing quotes — enough to keep the file visible and named.
+  if (rest.startsWith('"')) {
+    const close = rest.indexOf('" ', 1)
+    if (close !== -1) {
+      const a = rest.slice(1, close)
+      let b = rest.slice(close + 2)
+      if (b.startsWith('"') && b.endsWith('"')) b = b.slice(1, -1)
+      return { a, b }
+    }
+  }
+  // Fast path: neither side has a space.
+  const simple = /^(\S+) (\S+)$/.exec(rest)
+  if (simple) return { a: simple[1], b: simple[2] }
+  // Spaces present, no rename: `a/<p> b/<p>` with identical <p>. The two sides
+  // are equal length, so the ` b/` separator sits exactly at the midpoint — the
+  // one boundary where an equal-length a-side ends and the b-side begins.
+  if (rest.startsWith('a/')) {
+    const p = rest.slice(2)
+    // p = <path> + " b/" + <path>, so length is 2·len + 3 (always odd).
+    if (p.length % 2 === 1) {
+      const len = (p.length - 3) / 2
+      if (p[len] === ' ' && p.slice(len + 1, len + 3) === 'b/') {
+        const aPath = p.slice(0, len)
+        const bPath = p.slice(len + 3)
+        if (aPath === bPath) return { a: `a/${aPath}`, b: `b/${bPath}` }
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Parse `git diff` output into files and hunks.
  *
  * Tolerant on purpose: a diff arrives from a real repository and may contain
@@ -93,10 +136,10 @@ export function parseDiff(text: string): FileDiff[] {
       // Take the paths from this line too, not only from `---`/`+++`: a binary
       // file's diff has no `---` header at all, and without this it would end up
       // nameless and be dropped as an empty parse.
-      const pair = /^diff --git (\S+) (\S+)$/.exec(line)
+      const pair = parseDiffGitLine(line)
       if (pair) {
-        file.oldPath = cleanPath(pair[1])
-        file.newPath = cleanPath(pair[2])
+        file.oldPath = cleanPath(pair.a)
+        file.newPath = cleanPath(pair.b)
       }
       continue
     }

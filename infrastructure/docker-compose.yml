@@ -24,12 +24,18 @@ services:
     volumes:
       - imbatranim-home:/home/imbatranim
     restart: unless-stopped
-    # Fronted by a Caddy reverse proxy (plain HTTP, no domain yet), so trust its
-    # X-Forwarded-* headers → login rate-limiting keys on the real client IP.
-    # COOKIE_SECURE stays false (there is no HTTPS yet); flip it to true once a
-    # TLS front-end exists.
-    environment:
-      - TRUST_PROXY=true
+    # Mirrors the Dockerfile HEALTHCHECK (the image already carries one); stated
+    # here too so `docker compose ps` reports health and the interval is tunable.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+    # This service publishes 8080 directly (no reverse proxy in front), so
+    # TRUST_PROXY MUST stay at its safe default (false). With it on, a direct
+    # client could forge X-Forwarded-For and defeat IP-based login
+    # rate-limiting. Only enable it behind a trusted TLS proxy that overwrites
+    # X-Forwarded-* — see the commented block below.
     # Auth defaults are plain-HTTP-safe (LAN/localhost works as-is). When a
     # TLS reverse proxy (see Caddyfile.example / README.md) fronts this, enable
     # secure cookies and proxy trust so the session cookie sticks over HTTPS
@@ -53,14 +59,34 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:3001/api
+    # The ../apps bind mount shadows every workspace's image-installed
+    # node_modules, so each needs an anonymous volume to keep the container's
+    # own deps (per-package TS/eslint live here). This list must cover ALL
+    # add-ons — a partial list silently ran the hoisted toolchain for the rest.
     volumes:
       - ../apps:/app/apps
       - /app/apps/backend/node_modules
       - /app/apps/core/node_modules
+      - /app/apps/add-ons/archive-manager/node_modules
       - /app/apps/add-ons/bookmarks/node_modules
+      - /app/apps/add-ons/calculator/node_modules
+      - /app/apps/add-ons/calendar/node_modules
+      - /app/apps/add-ons/clock/node_modules
+      - /app/apps/add-ons/code-editor/node_modules
+      - /app/apps/add-ons/docs/node_modules
       - /app/apps/add-ons/file-manager/node_modules
+      - /app/apps/add-ons/git-gui/node_modules
+      - /app/apps/add-ons/image-viewer/node_modules
+      - /app/apps/add-ons/markdown-editor/node_modules
+      - /app/apps/add-ons/media-player/node_modules
+      - /app/apps/add-ons/norpdf/node_modules
       - /app/apps/add-ons/notepad/node_modules
+      - /app/apps/add-ons/pdf-viewer/node_modules
       - /app/apps/add-ons/repl-interpreter/node_modules
+      - /app/apps/add-ons/rest-api-client/node_modules
+      - /app/apps/add-ons/sheets/node_modules
+      - /app/apps/add-ons/slides/node_modules
+      - /app/apps/add-ons/snipping-tool/node_modules
       - /app/apps/add-ons/sticky-notes/node_modules
       - /app/apps/add-ons/system-monitor/node_modules
       - /app/apps/add-ons/todo/node_modules

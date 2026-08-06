@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFDocumentLoadingTask } from "pdfjs-dist";
 import type { TextItem as PdfJsTextItem } from "pdfjs-dist/types/src/display/api.js";
 import type { Text } from "../../capabilities/Text.js";
 import type {
@@ -7,7 +7,7 @@ import type {
   TextItem,
   TextSearchOptions,
 } from "../../api/types.js";
-import { loadPdfjsDocument } from "./document.js";
+import { loadPdfjsTask } from "./document.js";
 import { searchDocument } from "./search.js";
 
 /**
@@ -22,7 +22,7 @@ import { searchDocument } from "./search.js";
  */
 export class PdfjsText implements Text {
   readonly #bytes: Uint8Array;
-  #doc: PDFDocumentProxy | undefined;
+  #task: PDFDocumentLoadingTask | undefined;
 
   constructor(bytes: Uint8Array) {
     this.#bytes = bytes;
@@ -77,10 +77,16 @@ export class PdfjsText implements Text {
     return searchDocument(doc, query, opts);
   }
 
+  /** Release the pdf.js document + its worker-side memory. Idempotent. */
+  dispose(): void {
+    void this.#task?.destroy();
+    this.#task = undefined;
+  }
+
   async #document(): Promise<PDFDocumentProxy> {
-    if (this.#doc) return this.#doc;
-    this.#doc = await loadPdfjsDocument(this.#bytes);
-    return this.#doc;
+    if (this.#task) return this.#task.promise;
+    this.#task = await loadPdfjsTask(this.#bytes);
+    return this.#task.promise;
   }
 }
 

@@ -40,6 +40,13 @@ export type Token =
   | { type: 'function'; value: FunctionName }
   /** Postfix `!`, which applies to whatever operand precedes it. */
   | { type: 'postfix'; value: '!' }
+  /**
+   * Prefix unary minus applied to a *group*, function or constant — `-(2+3)`,
+   * `-sin(0)`, `-π`. A minus that precedes a plain number literal is still folded
+   * into the literal by `readNumber`; this token covers only the operands that
+   * are not literals, and binds tighter than any binary operator.
+   */
+  | { type: 'unary'; value: '-' }
   | { type: 'lparen' }
   | { type: 'rparen' }
 
@@ -166,15 +173,27 @@ export function tokenize(expr: string): Token[] {
     const atExpressionStart = tokens.length === 0
     const afterOperator = previous?.type === 'operator'
     const afterLparen = previous?.type === 'lparen'
+    const afterUnary = previous?.type === 'unary'
+    const unaryPosition = atExpressionStart || afterOperator || afterLparen || afterUnary
 
-    if (
-      isDigit(ch) ||
-      ch === '.' ||
-      (isMinusLike(ch) && (atExpressionStart || afterOperator || afterLparen))
-    ) {
+    // A minus directly in front of a number literal is its sign, folded into the
+    // literal so `2^-3` stays `2 ^ (-3)`.
+    const signedNumber =
+      isMinusLike(ch) && unaryPosition && (isDigit(expr[i + 1]) || expr[i + 1] === '.')
+
+    if (isDigit(ch) || ch === '.' || signedNumber) {
       const { value, end } = readNumber(expr, i)
       tokens.push({ type: 'number', value })
       i = end
+      continue
+    }
+
+    // A minus in front of a group, function or constant (`-(2+3)`, `-sin(0)`,
+    // `-π`) is a prefix negation, not a sign. It used to reach `readNumber`, which
+    // threw "Expected a number" (L9).
+    if (isMinusLike(ch) && unaryPosition) {
+      tokens.push({ type: 'unary', value: '-' })
+      i++
       continue
     }
 
@@ -269,8 +288,22 @@ export function toRPN(tokens: Token[]): Token[] {
       continue
     }
 
+    // Prefix unary minus applies to what FOLLOWS it, so it is pushed without
+    // displacing anything already on the stack — and it binds tighter than any
+    // binary operator (see the pop below), so `2^-(3)` is `2 ^ (-3)`.
+    if (token.type === 'unary') {
+      stack.push(token)
+      continue
+    }
+
     while (stack.length > 0) {
       const top = stack[stack.length - 1]
+      // A pending unary negation binds tighter than any binary operator, so it is
+      // applied before this one is stacked.
+      if (top.type === 'unary') {
+        output.push(stack.pop() as Token)
+        continue
+      }
       if (top.type !== 'operator') break
       const higher = PRECEDENCE[top.value] > PRECEDENCE[token.value]
       const equalAndLeft =
@@ -344,6 +377,12 @@ export function evaluateRPN(rpn: Token[], angleMode: AngleMode = 'rad'): number 
       const x = stack.pop()
       if (x === undefined) throw new Error('Nothing to take the factorial of')
       stack.push(factorial(x))
+      continue
+    }
+    if (token.type === 'unary') {
+      const x = stack.pop()
+      if (x === undefined) throw new Error('Malformed expression')
+      stack.push(-x)
       continue
     }
     if (token.type !== 'operator') throw new Error('Malformed expression')

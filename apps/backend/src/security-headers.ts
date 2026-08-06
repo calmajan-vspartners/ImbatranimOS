@@ -7,12 +7,14 @@ import type { Request, Response, NextFunction } from 'express';
  *  - script-src 'self'         — the Vite prod build emits only external module
  *                                scripts (no inline <script>), so no
  *                                'unsafe-inline' is needed here.
- *  - style-src  'unsafe-inline'+ the desktop positions windows / sticky notes
- *                                with inline style={{...}} attributes, and the
- *                                Google Fonts CSS is pulled in via an @import in
- *                                the bundled stylesheet, so fonts.googleapis.com
- *                                must be an allowed style source.
- *  - font-src   fonts.gstatic.com — where Google Fonts serves the woff2 files.
+ *  - style-src  'unsafe-inline' — the desktop positions windows / sticky notes
+ *                                with inline style={{...}} attributes. Fonts are
+ *                                vendored and served from 'self' (see
+ *                                core/src/index.css), so no Google Fonts origin
+ *                                is whitelisted — the policy stays 'self'-only,
+ *                                and the offline kiosk / air-gapped LAN renders
+ *                                its real fonts with no external fetch or IP leak.
+ *  - font-src   'self' data:   — the vendored woff2 files, same origin.
  *  - connect-src 'self'        — same-origin API (XHR) plus the terminal
  *                                WebSocket (/api/pty). Per CSP3, 'self' covers
  *                                ws://wss:// on the page's own origin, so the
@@ -33,8 +35,8 @@ const CSP = [
   "frame-ancestors 'none'",
   "form-action 'self'",
   "img-src 'self' data: blob:",
-  "font-src 'self' https://fonts.gstatic.com data:",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
   "script-src 'self'",
   "connect-src 'self'",
 ].join('; ');

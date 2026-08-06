@@ -36,4 +36,10 @@ export interface Render {
    * @param page 1-based page index.
    */
   viewport(page: number, opts?: RenderOptions): Promise<PageViewport>;
+
+  /**
+   * Release the underlying pdf.js document (and its worker-side memory).
+   * Idempotent; the adapter re-parses lazily if used again after disposal.
+   */
+  dispose(): void;
 }

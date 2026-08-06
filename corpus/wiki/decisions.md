@@ -157,3 +157,24 @@ adds are locked here rather than re-derived per brief.
 - **Rejected here, unchanged:** merge-conflict resolution UI (large, subtle; Terminal
   + Code Editor covers it) and a history graph with topology (substantial work for a
   single-user local browser).
+
+## 2026-08-06 — code-health sweep (brief 93)
+
+- **Frontend `strict` is ON and stays on.** All 23 add-ons (`apps/add-ons/tsconfig.base.json`)
+  and core (`tsconfig.app.json`) now compile under `strict`; the backend runs
+  `noImplicitAny`. Enabling them was a zero-error no-op — the code was already
+  compliant. Do not weaken these back; a green typecheck is now a real signal.
+- **Backend stays on TS 5.7 / eslint 9 for now (T3-8 deferred, not rejected).** A
+  bump to TS 6 / eslint 10 is a genuine migration (strictPropertyInitialization,
+  jest global resolution, ts-jest `rootDir`), not a version change — it earns its
+  own brief. The frontend was already unified on TS 6 / eslint 10.
+- **turbo: core consumes add-on sources via `inputs`, not `dependsOn`.** core's
+  manifest imports every add-on while add-ons import core — a package cycle a
+  topological `^` cannot sort. A core-scoped `apps/core/turbo.json` lists
+  `../add-ons/*/src/**` + `../../packages/*/src/**` as build/typecheck/test inputs
+  so core's hash tracks add-on edits (was silently stale). Don't add core→add-on
+  package deps to "fix" this — it recreates the cycle.
+- **Fonts are self-hosted; the CSP is `'self'`-only for font/style.** Space Grotesk +
+  Inter are vendored (latin variable woff2 in `apps/core/src/assets/fonts`); the
+  Google Fonts `@import` and its `fonts.googleapis.com`/`gstatic.com` CSP entries
+  are gone. Don't re-add a font CDN — it breaks the offline kiosk and leaks visitor IPs.

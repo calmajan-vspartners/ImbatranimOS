@@ -9,11 +9,14 @@ export const systemStatsKey = ['system-monitor', 'stats'] as const
 export const systemProcessesKey = ['system-monitor', 'processes'] as const
 export const systemAboutKey = ['system-monitor', 'about'] as const
 
-export function useSystemStats() {
+export function useSystemStats(enabled = true) {
   return useQuery({
     queryKey: systemStatsKey,
     queryFn: fetchStats,
-    refetchInterval: POLL_MS,
+    // Don't poll while the window is minimized (display:none but still
+    // mounted) — otherwise stats refetch every POLL_MS behind a hidden window.
+    refetchInterval: enabled ? POLL_MS : false,
+    enabled,
   })
 }
 
@@ -21,8 +24,9 @@ export function useSystemProcesses(enabled = true) {
   return useQuery({
     queryKey: systemProcessesKey,
     queryFn: fetchProcesses,
-    // Only poll while the processes tab is visible; otherwise the backend
-    // spawns a `ps` child process every POLL_MS for a list nobody's viewing.
+    // Only poll while the processes tab is visible AND the window is on screen;
+    // otherwise the backend spawns a `ps`/proc walk every POLL_MS for a list
+    // nobody's viewing.
     refetchInterval: enabled ? POLL_MS : false,
     enabled,
   })

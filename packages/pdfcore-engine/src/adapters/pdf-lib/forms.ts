@@ -65,18 +65,18 @@ export class PdfLibForms implements Forms {
   }
 
   list(): FieldInfo[] {
-    return this.#form()
-      .getFields()
-      .map((field) => this.#toFieldInfo(field));
+    const form = this.#readForm();
+    if (!form) return [];
+    return form.getFields().map((field) => this.#toFieldInfo(field));
   }
 
   get(name: string): FieldInfo | undefined {
-    const field = this.#form().getFieldMaybe(name);
+    const field = this.#readForm()?.getFieldMaybe(name);
     return field ? this.#toFieldInfo(field) : undefined;
   }
 
   set(name: string, value: FieldValue): void {
-    const field = this.#form().getFieldMaybe(name);
+    const field = this.#readForm()?.getFieldMaybe(name);
     if (!field) {
       throw new PdfEngineError(`Forms.set: unknown field "${name}".`);
     }
@@ -109,18 +109,39 @@ export class PdfLibForms implements Forms {
    * genuine no-op.
    */
   async commit(): Promise<void> {
+    // Nothing staged ⇒ genuine no-op. Crucially, do NOT call getForm() here: on
+    // a formless PDF it would create an empty /AcroForm and mutate a document
+    // the caller only read from.
+    if (!this.model.hasWork()) return;
     const form = this.#form();
 
     // 1. Apply staged values. Fields validated at set() time; skip any that
     //    vanished (e.g. removed by a prior flatten commit).
+    const staged: PDFField[] = [];
     for (const [name, value] of this.model.entries()) {
       const field = form.getFieldMaybe(name);
-      if (field) applyValue(field, value);
+      if (field) {
+        applyValue(field, value);
+        staged.push(field);
+      }
     }
 
-    // 2. Regenerate appearance streams so the new values are visible on
-    //    reload/print (pdf-lib bakes them with the default font).
-    form.updateFieldAppearances();
+    // 2. Regenerate appearance streams ONLY for the fields we actually staged,
+    //    so the new values are visible on reload/print. pdf-lib's own
+    //    form.updateFieldAppearances() (and the default save() path) regenerate
+    //    EVERY field and throw on the first non-WinAnsi value, failing the
+    //    whole save; save() is called with { updateFieldAppearances: false } to
+    //    suppress that second pass (see PdfLibDocument.save()).
+    const font = form.getDefaultFont();
+    for (const field of staged) {
+      try {
+        field.defaultUpdateAppearances(font);
+      } catch (err) {
+        throw new PdfEngineError(
+          `Forms.commit: could not render appearance for field "${field.getName()}" with the default font (value may contain characters outside WinAnsi) — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // 3. Flatten. flatten() (all) is pdf-lib native; a named subset is baked
     //    field-by-field so the rest stay interactive.
@@ -136,8 +157,20 @@ export class PdfLibForms implements Forms {
 
   /* ─────────────────────────────── internals ──────────────────────────── */
 
+  /** Creating form handle for the write/commit path. */
   #form(): PDFForm {
     return this.doc.pdfLibDocument.getForm();
+  }
+
+  /**
+   * Non-creating form handle for reads. Returns `undefined` when the document
+   * has no `/AcroForm`, so `list()`/`get()` never synthesise one (getForm()
+   * calls getOrCreateAcroForm(), which mutates a formless document).
+   */
+  #readForm(): PDFForm | undefined {
+    const doc = this.doc.pdfLibDocument;
+    if (!doc.catalog.AcroForm()) return undefined;
+    return doc.getForm();
   }
 
   #toFieldInfo(field: PDFField): FieldInfo {

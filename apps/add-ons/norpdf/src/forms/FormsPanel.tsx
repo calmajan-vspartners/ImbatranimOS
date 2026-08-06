@@ -14,13 +14,15 @@
 import { useCallback, useState } from 'react'
 import type { JSX } from 'react'
 import type { FieldInfo, FieldValue } from '@pdfcore/engine'
-import { Button, Checkbox, Input, Select } from '@imbatranim/core'
+import { Button, Checkbox, Input, Select, notify } from '@imbatranim/core'
 import { Check, Layers, Signature } from 'lucide-react'
 import { useReader } from '../app/context'
 import { useEditor } from '../editor/context'
 
+const msgOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
 export function FormsPanel(): JSX.Element {
-  const { doc, goToPage, renderEpoch } = useReader()
+  const { doc, goToPage, renderEpoch, markDirty } = useReader()
   const { syncRaster, openSignDialogForField, busy } = useEditor()
   const [tick, setTick] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -51,17 +53,32 @@ export function FormsPanel(): JSX.Element {
   const setValue = (name: string, value: FieldValue) => {
     try {
       doc.forms.set(name, value)
+      // A form value changed but is not yet written to disk — mark unsaved so
+      // the close guard and Save button reflect it.
+      markDirty()
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(msgOf(err))
     }
     bump()
   }
 
+  // "Apply to page" — bake the current values into the raster. `syncRaster` can
+  // reject; surface it instead of leaving an unhandled rejection with no feedback (M6).
+  const applyToPage = () => {
+    void syncRaster().catch((err) =>
+      notify({ appId: 'norpdf', level: 'error', title: 'Apply failed', body: msgOf(err) })
+    )
+  }
+
   const flattenAll = async () => {
-    doc.forms.flatten()
-    await syncRaster()
-    bump()
+    try {
+      doc.forms.flatten()
+      await syncRaster()
+      bump()
+    } catch (err) {
+      notify({ appId: 'norpdf', level: 'error', title: 'Flatten failed', body: msgOf(err) })
+    }
   }
 
   const editable = fields.filter((f) => f.type !== 'signature' && !f.readonly)
@@ -117,7 +134,7 @@ export function FormsPanel(): JSX.Element {
           size="sm"
           className="flex flex-1 items-center justify-center gap-1"
           disabled={busy || !editable.length}
-          onClick={() => void syncRaster()}
+          onClick={applyToPage}
           title="Render the current values onto the page canvas"
         >
           <Check size={14} />

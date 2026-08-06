@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Copy } from 'lucide-react'
 import { Button, Dialog, notify } from '@imbatranim/core'
 import { CurlParseError, describeIgnored, parseCurl, toCurl } from '../lib/curl'
-import type { HeaderRow, HttpMethod } from '../types'
+import type { BodyMode, FormField, HeaderRow, HttpMethod } from '../types'
 import { newId } from '../lib/ui'
 
 /**
@@ -26,6 +26,8 @@ export function CurlDialog({
     url: string
     headers: HeaderRow[]
     body: string
+    bodyMode: BodyMode
+    form: FormField[]
   }) => void
   onClose: () => void
 }) {
@@ -63,12 +65,21 @@ export function CurlDialog({
 
   const apply = () => {
     if (parsed?.kind !== 'ok') return
-    const { method, url, headers, body, ignored } = parsed.value
+    const { method, url, headers, body, form, ignored } = parsed.value
+    const hasForm = form.length > 0
     onImport({
       method,
       url,
       headers: headers.map((h) => ({ id: newId(), name: h.name, value: h.value, enabled: true })),
-      body,
+      body: hasForm ? '' : body,
+      bodyMode: hasForm ? 'form' : 'text',
+      form: form.map((f) => ({
+        id: newId(),
+        name: f.name,
+        value: f.value,
+        filePath: f.filePath,
+        enabled: true,
+      })),
     })
     const note = describeIgnored(ignored)
     notify({
@@ -117,6 +128,16 @@ export function CurlDialog({
               <div className="text-on-surface-variant mt-1 font-mono break-all">
                 body: {parsed.value.body.slice(0, 200)}
                 {parsed.value.body.length > 200 ? '…' : ''}
+              </div>
+            )}
+            {parsed.value.form.length > 0 && (
+              <div className="text-on-surface-variant mt-1 font-mono">
+                <span className="text-on-surface-variant">form (multipart):</span>
+                {parsed.value.form.map((f, i) => (
+                  <div key={i} className="break-all">
+                    {f.name} = {f.filePath ? `@${f.filePath}` : f.value}
+                  </div>
+                ))}
               </div>
             )}
             {describeIgnored(parsed.value.ignored) && (

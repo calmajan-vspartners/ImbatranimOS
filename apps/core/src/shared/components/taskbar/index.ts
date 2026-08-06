@@ -1,1 +1,1 @@
-export { Taskbar, TASKBAR_HEIGHT } from './Taskbar'
+export { Taskbar } from './Taskbar'

@@ -11,6 +11,11 @@ type DesktopIconProps = {
   dragConstraints: React.RefObject<HTMLDivElement | null>
 }
 
+// Icon footprint, used to keep a dropped icon fully inside the desktop. Width is
+// the fixed `w-[64px]`; height is the icon box + gap + a two-line label.
+const ICON_WIDTH = 64
+const ICON_HEIGHT = 80
+
 export function DesktopIcon({
   app,
   onOpen,
@@ -42,18 +47,37 @@ export function DesktopIcon({
       dragMomentum={false}
       dragElastic={0}
       onDragEnd={(_, info) => {
-        onPositionChange({
-          x: position.x + info.offset.x,
-          y: position.y + info.offset.y,
-        })
+        // Persist the CLAMPED point, not the raw pointer delta. `dragConstraints`
+        // only limits what is drawn during the drag; `info.offset` is the full
+        // pointer movement, so a flick past the edge would otherwise be stored
+        // (and pinned) out of bounds and redraw off-screen, unrecoverable.
+        const el = dragConstraints.current
+        let x = position.x + info.offset.x
+        let y = position.y + info.offset.y
+        if (el) {
+          x = Math.max(0, Math.min(x, el.clientWidth - ICON_WIDTH))
+          y = Math.max(0, Math.min(y, el.clientHeight - ICON_HEIGHT))
+        }
+        onPositionChange({ x, y })
       }}
       initial={false}
       animate={{ x: position.x, y: position.y }}
       whileDrag={{ scale: 1.05, zIndex: 10 }}
-      className="absolute top-0 left-0 flex w-[64px] cursor-default flex-col items-center gap-1 outline-none select-none"
+      className={cn(
+        'absolute top-0 left-0 flex w-[64px] cursor-default flex-col items-center gap-1 select-none',
+        'focus-visible:ring-primary outline-none focus-visible:ring-2'
+      )}
+      role="button"
+      aria-label={app.name}
       tabIndex={0}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleDoubleClick()
+        }
+      }}
       onBlur={handleBlur}
     >
       {/* Icon box */}

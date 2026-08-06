@@ -9,6 +9,7 @@ import type { Sign } from "../capabilities/Sign.js";
 import type { Generate } from "../capabilities/Generate.js";
 import type { Platform } from "../platform/types.js";
 import { getPlatform, requirePlatform } from "../platform/registry.js";
+import { EncryptedDocument, type PdfEngineWarning } from "./errors.js";
 
 import type { DocumentMetadata, PageSize, PdfBytes } from "./types.js";
 
@@ -83,7 +84,18 @@ export class PdfDoc {
    * explicitly. Only `render` requires a platform; the rest are isomorphic.
    */
   static async load(bytes: PdfBytes, platform?: Platform): Promise<PdfDoc> {
-    const document = await PdfLibDocument.load(bytes);
+    let document: PdfLibDocument;
+    try {
+      document = await PdfLibDocument.load(bytes);
+    } catch (err) {
+      // The pdf-lib write-parse throws its own error types (e.g.
+      // EncryptedPDFError). Per errors.ts no backend error is re-thrown
+      // directly, so map the encrypted case to a typed engine error.
+      if (isEncryptedPdfError(err)) {
+        throw new EncryptedDocument(err instanceof Error ? err.message : undefined);
+      }
+      throw err;
+    }
     return new PdfDoc(bytes, document, platform ?? getPlatform());
   }
 
@@ -120,6 +132,14 @@ export class PdfDoc {
   }
 
   /**
+   * Non-fatal warnings raised while loading — e.g. the document carries a
+   * digital signature that a `save()` will invalidate. Empty for a clean load.
+   */
+  warnings(): readonly PdfEngineWarning[] {
+    return this.#document.warnings();
+  }
+
+  /**
    * Serialise the working document to bytes and adopt them as current state.
    * Commits the in-memory edit models to real PDF objects (briefs 13/14 wire
    * the commit) and drops read caches so `render`/`text`/`outline` re-parse.
@@ -132,10 +152,32 @@ export class PdfDoc {
     if (this.#annotate) await this.#annotate.commit();
     if (this.#forms) await this.#forms.commit();
     this.#bytes = await this.#document.save();
+    // Destroy the old pdf.js documents (worker-side memory) before dropping the
+    // references — a bare `= undefined` orphaned them, so a long annotate→save
+    // session grew the worker unbounded. They re-parse lazily on next use.
+    this.#disposeReadCaches();
+    return this.#bytes;
+  }
+
+  /** Destroy + drop the pdf.js-backed read caches (render/text/outline). */
+  #disposeReadCaches(): void {
+    this.#render?.dispose();
+    this.#text?.dispose();
+    this.#outline?.dispose();
     this.#render = undefined;
     this.#text = undefined;
     this.#outline = undefined;
-    return this.#bytes;
+  }
+
+  /**
+   * Release every pdf.js document this handle owns. Call when the document is
+   * closed or replaced (e.g. the viewer window unmounts or opens another file)
+   * so the worker doesn't retain the parse. Idempotent; the handle is unusable
+   * for reads afterward only until a capability is accessed again (it re-parses
+   * from the current bytes).
+   */
+  dispose(): void {
+    this.#disposeReadCaches();
   }
 
   /* ───────────────────────────── Read & navigate ───────────────────────── */
@@ -191,4 +233,18 @@ export class PdfDoc {
   get generate(): Generate {
     return (this.#generate ??= new PdfLibGenerate(this.#document));
   }
+}
+
+/**
+ * Recognise pdf-lib's `EncryptedPDFError` without importing it, so we never
+ * re-throw a backend error type through the public surface. pdf-lib does not
+ * set `.name` on it (it stays "Error"), so match on the constructor name, with
+ * the message as a fallback.
+ */
+function isEncryptedPdfError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.constructor?.name === "EncryptedPDFError" ||
+    /is encrypted/i.test(err.message)
+  );
 }

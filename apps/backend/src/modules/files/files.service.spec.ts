@@ -49,6 +49,30 @@ describe('FilesService (jail + real filesystem)', () => {
       expect(listing.map((e) => e.name).sort()).toEqual(['readme.txt']);
     });
 
+    it('addresses a real file whose name contains a percent-escape literal', async () => {
+      // `a%2Bb.txt` and `report%20v2.txt` are LITERAL names. The old decoder
+      // unwrapped them to `a+b.txt` / `report v2.txt`, making the real files
+      // unaddressable. They must round-trip verbatim.
+      await service.createFile('home', 'a%2Bb.txt', 'plus');
+      await service.createFile('home', 'report%20v2.txt', 'space');
+
+      expect(await fs.readFile(join(jail, 'a%2Bb.txt'), 'utf-8')).toBe('plus');
+      expect(await fs.readFile(join(jail, 'report%20v2.txt'), 'utf-8')).toBe(
+        'space',
+      );
+
+      expect((await service.readFile('home', 'a%2Bb.txt')).content).toBe(
+        'plus',
+      );
+      expect((await service.readFile('home', 'report%20v2.txt')).content).toBe(
+        'space',
+      );
+
+      const names = (await service.list('home')).map((e) => e.name);
+      expect(names).toContain('a%2Bb.txt');
+      expect(names).toContain('report%20v2.txt');
+    });
+
     it('a file created directly on disk shows up via list (and vice versa)', async () => {
       await fs.writeFile(join(jail, 'external.txt'), 'made outside the api');
       const listing = await service.list('home');
@@ -109,17 +133,29 @@ describe('FilesService (jail + real filesystem)', () => {
       expect(abs).toBe(join(jail, 'etc/passwd'));
     });
 
-    it('refuses percent-encoded traversal (%2e%2e) including double-encoding', async () => {
+    it('refuses percent-encoded traversal (%2e%2e)', async () => {
+      // Single-encoded traversal still unwraps all the way to `..` and is
+      // rejected by the jail — whether the separators are literal or encoded.
       await expect(
         service.resolveSafe('home', '%2e%2e/%2e%2e/etc/passwd'),
       ).rejects.toThrow(/traversal/i);
       await expect(
         service.resolveSafe('home', '%2e%2e%2f%2e%2e%2fetc%2fpasswd'),
       ).rejects.toThrow(/traversal/i);
-      // Double-encoded: %252e decodes to %2e decodes to '.'
-      await expect(
-        service.resolveSafe('home', '%252e%252e/%252e%252e/etc'),
-      ).rejects.toThrow(/traversal/i);
+    });
+
+    it('treats double-encoded %252e as a safe in-jail literal (no over-decode)', async () => {
+      // The decoder stops unwrapping once a pass reveals no new separator/`..`,
+      // so `%252e%252e` stays a literal directory name rather than being
+      // decoded twice into `..`. That is SAFE: it resolves INSIDE the jail and
+      // never becomes traversal. Over-decoding it was the same bug that made a
+      // real file named `a%2Bb.txt` unaddressable.
+      const { abs } = await service.resolveSafe(
+        'home',
+        '%252e%252e/%252e%252e/etc',
+      );
+      expect(abs.startsWith(jail + '/')).toBe(true);
+      expect(abs).toBe(join(jail, '%252e%252e/%252e%252e/etc'));
     });
 
     it('refuses NUL byte injection', async () => {
@@ -182,6 +218,55 @@ describe('FilesService (jail + real filesystem)', () => {
     it('strips a leading backslash run so it cannot re-root', async () => {
       const { abs } = await service.resolveSafe('home', '\\\\etc\\passwd');
       expect(abs.startsWith(jail)).toBe(true);
+    });
+  });
+
+  describe('delete acts on the link itself (never the target)', () => {
+    it('removes a BROKEN symlink instead of 404ing', async () => {
+      // resolveSafe followed the link → the missing target read as "not found",
+      // so the UI could never clear a dangling link.
+      await fs.symlink('does-not-exist', join(jail, 'broken'));
+      await expect(service.delete('home', 'broken')).resolves.toBeUndefined();
+      await expect(fs.lstat(join(jail, 'broken'))).rejects.toThrow();
+    });
+
+    it('removes an OUT-OF-JAIL symlink without touching its target', async () => {
+      // resolveSafe realpathed the leaf out of the jail → 400, so the UI could
+      // never remove such a link. Delete must unlink the link and leave the
+      // outside target intact.
+      await fs.writeFile(join(outside, 'secret.txt'), 'top secret');
+      await fs.symlink(join(outside, 'secret.txt'), join(jail, 'escape'));
+
+      await expect(service.delete('home', 'escape')).resolves.toBeUndefined();
+      await expect(fs.lstat(join(jail, 'escape'))).rejects.toThrow();
+      // The target outside the jail is untouched.
+      expect(await fs.readFile(join(outside, 'secret.txt'), 'utf-8')).toBe(
+        'top secret',
+      );
+    });
+
+    it('still 404s a path that simply does not exist', async () => {
+      await expect(service.delete('home', 'nope.txt')).rejects.toThrow(
+        /not found/i,
+      );
+    });
+  });
+
+  describe('move/copy reject nesting a folder into itself (400, not 500)', () => {
+    beforeEach(async () => {
+      await service.createDirectory('home', 'a');
+    });
+
+    it('move a → a/b is a 400', async () => {
+      await expect(service.move('home', 'a', 'a/b')).rejects.toThrow(
+        /into itself/i,
+      );
+    });
+
+    it('copy a → a/b is a 400', async () => {
+      await expect(service.copy('home', 'a', 'a/b')).rejects.toThrow(
+        /into itself/i,
+      );
     });
   });
 

@@ -9,6 +9,20 @@ import { subsetToBytes } from "./util.js";
 const DEFAULT_PAGE_SIZE: readonly [number, number] = [612, 792];
 
 /**
+ * Invalidate pdf-lib's internal `pageCache` after a `removePage`.
+ *
+ * `PDFDocument.removePage` mutates the catalog but — unlike `insertPage` —
+ * never invalidates the `Cache` behind `getPages()`. A stale cache resurrects
+ * deleted pages (and drops kept ones) on the next `getPages()`/`getPageCount()`
+ * and corrupts anything keyed off page order (reorder, annotate, pageSizes).
+ * We reach the cache the same way `insertPage` does internally; the public
+ * types hide it, so cast through `unknown`.
+ */
+function invalidatePageCache(pdfDoc: PDFDocument): void {
+  (pdfDoc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate();
+}
+
+/**
  * `pdf-lib`-backed Pages adapter — page-level document surgery (rotate /
  * delete / reorder / insert / extract). Operates directly on the shared
  * {@link PdfLibDocument}'s underlying `PDFDocument` so subsequent Render/Text
@@ -49,6 +63,7 @@ export class PdfLibPages implements Pages {
     // Remove highest-index-first so earlier removals don't shift later indices.
     const sorted = [...indices].sort((a, b) => b - a);
     for (const idx of sorted) pdfDoc.removePage(idx);
+    invalidatePageCache(pdfDoc);
   }
 
   reorder(fromIndex: number, toIndex: number): void {
@@ -71,6 +86,11 @@ export class PdfLibPages implements Pages {
     // the time of the call — this matches Array#splice(from,1)+splice(to,0,x)
     // semantics exactly (toIndex is the final position in the shortened array).
     pdfDoc.removePage(fromIndex);
+    // pdf-lib's removePage does NOT invalidate the internal pageCache (only
+    // insertPage does). Invalidate here so getPages()/getPageCount() (and every
+    // sibling adapter that reads them) see the shortened array before we insert;
+    // insertPage below then invalidates again on its own.
+    invalidatePageCache(pdfDoc);
     pdfDoc.insertPage(toIndex, page);
   }
 

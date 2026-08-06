@@ -1,6 +1,10 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import type { Document } from "../../capabilities/Document.js";
-import { PdfEngineError } from "../../api/errors.js";
+import {
+  PdfEngineError,
+  PdfEngineWarning,
+  SignatureInvalidationWarning,
+} from "../../api/errors.js";
 import type { DocumentMetadata, PageSize, PdfBytes } from "../../api/types.js";
 
 /**
@@ -13,16 +17,32 @@ import type { DocumentMetadata, PageSize, PdfBytes } from "../../api/types.js";
  */
 export class PdfLibDocument implements Document {
   readonly #doc: PDFDocument;
+  readonly #warnings: readonly PdfEngineWarning[];
 
-  private constructor(doc: PDFDocument) {
+  private constructor(doc: PDFDocument, warnings: readonly PdfEngineWarning[]) {
     this.#doc = doc;
+    this.#warnings = warnings;
   }
 
   /** Load a Document adapter from existing PDF bytes. */
   static async load(bytes: PdfBytes): Promise<PdfLibDocument> {
     // pdf-lib mutates its input view; copy so callers keep their buffer.
-    const doc = await PDFDocument.load(new Uint8Array(bytes));
-    return new PdfLibDocument(doc);
+    // `updateMetadata: false` — pdf-lib's default (true) overwrites /Producer
+    // and /ModDate on every open, silently rewriting the user's metadata.
+    const doc = await PDFDocument.load(new Uint8Array(bytes), {
+      updateMetadata: false,
+    });
+    const warnings: PdfEngineWarning[] = [];
+    // Our save() is a full rewrite, which invalidates any existing digital
+    // signature. Detect one at load and surface a typed warning so the caller
+    // is told before saving over a signed file (rather than failing silently).
+    if (hasSignature(doc)) warnings.push(new SignatureInvalidationWarning());
+    return new PdfLibDocument(doc, warnings);
+  }
+
+  /** Non-fatal warnings raised while loading (e.g. an existing signature). */
+  warnings(): readonly PdfEngineWarning[] {
+    return this.#warnings;
   }
 
   /** The underlying pdf-lib document — used by sibling adapters (briefs 11-15). */
@@ -69,6 +89,23 @@ export class PdfLibDocument implements Document {
   }
 
   async save(): Promise<PdfBytes> {
-    return this.#doc.save();
+    // `updateFieldAppearances: false` — the Forms adapter's commit() already
+    // regenerated appearances for the fields it staged; pdf-lib's default would
+    // re-run it over EVERY field (throwing on any non-WinAnsi value and failing
+    // the whole save). See PdfLibForms.commit().
+    return this.#doc.save({ updateFieldAppearances: false });
   }
+}
+
+/**
+ * True if the document carries a digital signature. The definitive marker is a
+ * `/ByteRange` entry in the signature value dictionary, so scan the indirect
+ * objects for any dict that has one.
+ */
+function hasSignature(doc: PDFDocument): boolean {
+  const byteRange = PDFName.of("ByteRange");
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (obj instanceof PDFDict && obj.get(byteRange)) return true;
+  }
+  return false;
 }

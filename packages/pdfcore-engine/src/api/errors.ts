@@ -43,3 +43,46 @@ export class UnsupportedPlatform extends PdfEngineError {
     this.name = "UnsupportedPlatform";
   }
 }
+
+/**
+ * Thrown when a document cannot be opened for editing because it is encrypted.
+ * The pdf-lib write-parse throws its own `EncryptedPDFError`; per this module's
+ * contract no backend error is ever re-thrown directly, so {@link PdfDoc.load}
+ * catches it and raises this typed engine error instead.
+ */
+export class EncryptedDocument extends PdfEngineError {
+  constructor(detail?: string) {
+    super(
+      `Document is encrypted and cannot be opened for editing${detail ? ` — ${detail}` : ""}.`,
+    );
+    this.name = "EncryptedDocument";
+  }
+}
+
+/**
+ * Base class for non-fatal warnings surfaced by the engine. A warning does not
+ * abort the operation; it is collected and exposed via `PdfDoc.warnings()` so a
+ * caller can react (e.g. tell the user their signature will break) without the
+ * load/save failing.
+ */
+export class PdfEngineWarning extends PdfEngineError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PdfEngineWarning";
+  }
+}
+
+/**
+ * Raised (as a warning, not thrown) when a document carrying an existing
+ * digital signature is loaded: the engine's `save()` is a full rewrite, which
+ * necessarily invalidates any `/ByteRange` signature. Surfaced at load so the
+ * caller is warned before it saves over a signed file.
+ */
+export class SignatureInvalidationWarning extends PdfEngineWarning {
+  constructor(detail?: string) {
+    super(
+      `Document contains a digital signature that a save will invalidate (the engine rewrites the whole file)${detail ? ` — ${detail}` : ""}.`,
+    );
+    this.name = "SignatureInvalidationWarning";
+  }
+}

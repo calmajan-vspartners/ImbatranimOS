@@ -109,8 +109,19 @@ export type Annotation = AnnotationSpec & {
   id: string;
 };
 
-/** A partial update applied to an existing annotation via {@link Annotate.update}. */
-export type AnnotationPatch = Partial<Omit<AnnotationSpec, "type">>;
+/**
+ * A partial update applied to an existing annotation via {@link Annotate.update}.
+ *
+ * The `Omit` is distributed over the {@link AnnotationSpec} union so subtype-
+ * specific keys (`rect`, `start`/`end`, `text`, `paths`, …) survive — a plain
+ * `Partial<Omit<AnnotationSpec, "type">>` would collapse to only the keys common
+ * to every member, making geometry and text unpatchable.
+ */
+export type AnnotationPatch = AnnotationSpec extends infer S
+  ? S extends AnnotationSpec
+    ? Partial<Omit<S, "type">>
+    : never
+  : never;
 
 /**
  * Annotate — CRUD of **real PDF annotation objects** (DEC-39): highlight /

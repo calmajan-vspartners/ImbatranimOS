@@ -19,6 +19,7 @@ import {
   caretPosition,
   findMatches,
   matchIndexFrom,
+  minimalEdit,
   replaceAll,
   replaceRange,
   textStats,
@@ -145,23 +146,52 @@ export function NoteEditor({
     [matches, current, matchIndex, caret, select]
   )
 
+  /**
+   * Apply a whole-text rewrite through the browser's own editing pipeline rather
+   * than a `value` assignment, so the native undo stack survives (L8) — the same
+   * spine markdown-editor uses. `insertText` fires an `input` event that reaches
+   * the textarea's `onChange`, so `content` still updates. If the command is
+   * unavailable (older engines, tests) the state path is the fallback: worse
+   * undo, identical text.
+   */
+  const applyEdit = useCallback((nextText: string, caretTo: number) => {
+    const el = textRef.current
+    if (!el) {
+      setContent(nextText)
+      setCaret(caretTo)
+      return
+    }
+    const edit = minimalEdit(el.value, nextText)
+    el.focus()
+    el.setSelectionRange(edit.start, edit.end)
+    const handled = (() => {
+      try {
+        return edit.insert === ''
+          ? document.execCommand('delete')
+          : document.execCommand('insertText', false, edit.insert)
+      } catch {
+        return false
+      }
+    })()
+    if (!handled) setContent(nextText)
+    requestAnimationFrame(() => {
+      el.setSelectionRange(caretTo, caretTo)
+      setCaret(caretTo)
+    })
+  }, [])
+
   const doReplaceOne = useCallback(() => {
     if (!current) return
     const out = replaceRange(content, current, replacement)
-    setContent(out.text)
+    applyEdit(out.text, out.caret)
     // Clamp: the replacement may have removed later matches.
     setMatchIndex(0)
-    requestAnimationFrame(() => {
-      const el = textRef.current
-      if (el) el.setSelectionRange(out.caret, out.caret)
-      setCaret(out.caret)
-    })
-  }, [current, content, replacement])
+  }, [current, content, replacement, applyEdit])
 
   const doReplaceAll = useCallback(() => {
     const out = replaceAll(content, query, replacement, caseSensitive)
     if (out.count === 0) return
-    setContent(out.text)
+    applyEdit(out.text, Math.min(caret, out.text.length))
     setMatchIndex(0)
     // Reported, because "replace all" giving no feedback is indistinguishable from
     // it having done nothing.
@@ -171,7 +201,7 @@ export function NoteEditor({
       level: 'info',
       appId: 'notepad',
     })
-  }, [content, query, replacement, caseSensitive])
+  }, [content, query, replacement, caseSensitive, caret, applyEdit])
 
   const openFind = useCallback((withReplace: boolean) => {
     setFindOpen(true)
@@ -213,7 +243,11 @@ export function NoteEditor({
       </div>
     )
   }
-  if (isError) {
+  // A brand-new file has nothing on disk yet, so its read misses — that is the
+  // expected state, not a failure. Fall through to an empty draft; the file is
+  // created on the first save. Only a read error on a file that was supposed to
+  // exist is the dead-end worth showing (T1-9).
+  if (isError && !doc.isNew) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <span className="text-error font-content text-[12px]">Could not open this file.</span>
