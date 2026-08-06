@@ -2669,3 +2669,70 @@ behind.
 
 Tests: backend unit **319 → 356** (37 new). Frontend vitest unchanged at 1022, e2e
 unchanged at 138. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 47: a faulty app can no longer take down the OS
+
+Pulled forward out of order because brief 84 lists it as a prerequisite — a caught
+app crash needs somewhere to land. It is small, grilled and standalone, so doing it
+first was the cheap correct order rather than a detour.
+
+Every windowed app renders into core's shared React tree, so one uncaught `throw`
+unmounted **the whole desktop**. Apps here are first-party and built in, so the
+threat is a buggy app rather than a malicious one, which a boundary addresses
+completely at no API cost.
+
+**Reload had to be a key change, not a state reset.** The obvious error boundary
+exposes `reset()` — clear the error, render the children again. That ships a Reload
+button that visibly does nothing: the same child re-renders in the same state that
+just threw, throws again, and the panel comes straight back. Recovery therefore
+belongs to the caller — `WindowSlot` owns a remount counter and Reload bumps the
+boundary's `key`, so the app genuinely remounts. The prop is `fallback(error)`, with
+no `reset` to misuse. That is also why the container's map became a component: a key
+needs state, and a map callback cannot hold a hook.
+
+**The boundary is inside the chrome, and that is load-bearing.** A crashed app keeps
+a title bar that drags, a taskbar button that focuses it, and a close button that
+works — wrapping the chrome would remove the exact controls needed to deal with the
+crash. Verified by dragging a crashed window 137px. `Suspense` sits inside the
+boundary too: a lazy chunk that fails to load throws, and that deserves the same
+handling as any other crash.
+
+Crash toasts are deduped per app, because a render loop turns the notification centre
+into a denial of service against itself. The guard started as a module-scoped `Map`
+inside the boundary file and **eslint's `react-refresh/only-export-components`
+rejected it** — the same rule that caught a real defect in brief 83. Moving it to its
+own module fixed fast refresh and made the policy testable without mounting anything,
+which is the only reason the window-expiry case has a test.
+
+**A DOM test, and still no new dependency.** `vitest.config.ts` had said component
+tests "would need jsdom plus @testing-library/react; add those the day a brief
+actually requires them". This brief required the DOM; jsdom was already there, so
+`.test.tsx` is now included with a per-file `// @vitest-environment jsdom`. RTL was
+**not** added — `react-dom/client` plus React 19's `act` covers the whole surface in
+a dozen lines.
+
+Two React 19 behaviours had to be understood rather than papered over, and both had
+already made my first draft of the spec **pass vacuously**. Dev mode re-invokes a
+component after it throws to build a better stack, so a "throw once" test app
+succeeds on the retry and the boundary never latches; the broken state is now the
+test's to control. And a *caught* error is re-reported to `window.onerror`, which
+vitest counts as an unhandled failure — `onCaughtError` is the supported way to say
+the boundary handled it. A third came from the spec itself: rendering two boundaries
+one after another into the same root does not test per-app dedupe, because the same
+element type in the same position means React reuses the instance, which is already
+latched and never catches again.
+
+Verified with a real deliberate crash — a temporary `throw` in Calculator, a
+production build, the real backend — and the blast radius held: both windows alive,
+the taskbar intact, the desktop root at 364 elements, one notification rather than a
+storm, Reload recovering the app, and Close closing that window and no other. Two
+compositor-internal test hooks fell out of writing the probe (`data-window-id` /
+`data-app-id` on the window root, `data-testid` on the taskbar); every UI probe so
+far has had to find a window by its text.
+
+The documented limit stands and is not half-solved: this catches throws, not hangs.
+An app in an infinite loop still freezes the tab. That needs brief 48's transport
+swap, and a watchdog here would be a worse version of it.
+
+Tests: frontend vitest **1022 → 1032** (10 new). Backend unchanged at 356 unit, 138
+e2e. All 103 turbo tasks green. Zero new dependencies.

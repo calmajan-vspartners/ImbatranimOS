@@ -49,6 +49,7 @@ export function Taskbar() {
 
   return (
     <div
+      data-testid="taskbar"
       className="border-outline-variant bg-surface-container-low font-ui fixed inset-x-0 bottom-0 z-[9000] flex items-stretch border-t"
       style={{ height: TASKBAR_HEIGHT }}
     >
