@@ -29,6 +29,23 @@ export default defineConfig([
       ],
       // Add-ons may import ONLY core's public surface — no deep paths into
       // core internals, no reaching into sibling add-ons.
+      // The seam (brief 48): add-ons take capabilities from the injected
+      // `system` handle and UI from '@imbatranim/ui'. The ONLY thing left to
+      // import from core is its types (AddonManifest in the manifest), which
+      // are erased at build time and cannot couple the bundle to the OS.
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@imbatranim/core',
+              message:
+                'Value imports from the OS are forbidden (brief 48): capabilities come from the injected `system` handle, the UI kit from @imbatranim/ui. Type-only imports are allowed.',
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
       'no-restricted-imports': [
         'error',
         {

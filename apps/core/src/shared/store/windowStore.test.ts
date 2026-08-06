@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useWindowStore } from './windowStore'
 import { useIntentStore } from './intentStore'
-import { getOpenedFile, setOpenedFile } from '../hooks/useOpenIntent'
 
 const DEFAULT = { width: 800, height: 600 }
 const MIN = { width: 320, height: 200 }
@@ -75,19 +74,20 @@ describe('restoreWindow', () => {
 })
 
 describe('closeWindow cleanup', () => {
-  it('clears the intent map and the opened-file map for the closed window', () => {
+  it('clears the pending intent for the closed window', () => {
+    // The opened-file latch moved into the SDK with brief 48 and is private to
+    // it, so the compositor's cleanup covers exactly what the compositor owns:
+    // the intent map. The SDK's latch is keyed by uuid window ids that never
+    // recur, so a closed window's record is inert.
     const { openWindow, closeWindow } = useWindowStore.getState()
     const id = openWindow('files', 'A', DEFAULT, MIN)
 
     useIntentStore.getState().setIntent(id, { openPath: 'a.txt', root: 'home' })
-    setOpenedFile(id, { root: 'home', path: 'a.txt' })
     expect(useIntentStore.getState().intents.has(id)).toBe(true)
-    expect(getOpenedFile(id)).not.toBeNull()
 
     closeWindow(id)
 
     expect(useIntentStore.getState().intents.has(id)).toBe(false)
-    expect(getOpenedFile(id)).toBeNull()
     expect(useWindowStore.getState().windows.find((w) => w.id === id)).toBeUndefined()
   })
 })

@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { useIntentStore } from './intentStore'
-import { clearOpenedFile } from '../hooks/useOpenIntent'
 
 export type SnapRegion = 'left' | 'right' | 'top' | 'tl' | 'tr' | 'bl' | 'br'
 
@@ -453,7 +452,10 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
     // window (and a stale intent could be mis-delivered to a recycled id). Clear
     // both here, the single choke point every close funnels through.
     useIntentStore.getState().clearIntent(id)
-    clearOpenedFile(id)
+    // The opened-file latch moved into the SDK with brief 48 and is private to
+    // it — the OS cannot (and should not) reach in to clear it. Entries are
+    // keyed by uuid window ids that never recur, so a closed window's record
+    // is a few dozen orphaned bytes per tab session, not a leak that grows.
     set((state) => {
       const { [id]: _removedPre, ...remainingPreMax } = state.preMaximizeStates
       const { [id]: _removedSnap, ...remainingPreSnap } = state.preSnapStates
