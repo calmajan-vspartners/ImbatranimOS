@@ -281,3 +281,27 @@ describe("forms — reads never mutate; save never re-encodes every field", () =
     await expect(doc.save()).rejects.toBeInstanceOf(PdfEngineError);
   });
 });
+
+describe("T2-10 — pdf.js read caches are disposable", () => {
+  it("dispose() is idempotent and the doc re-parses on next use", async () => {
+    const bytes = await makeSizedPages([{ size: [200, 200], text: "HELLO" }]);
+    const doc = await loadPdf(bytes);
+    const before = await doc.text.plain();
+    expect(before).toContain("HELLO");
+    // Two disposes in a row must not throw (idempotent), and a read afterward
+    // must still work (the adapter re-parses lazily from the current bytes).
+    doc.dispose();
+    doc.dispose();
+    const after = await doc.text.plain();
+    expect(after).toContain("HELLO");
+  });
+
+  it("save() disposes the stale read caches without breaking later reads", async () => {
+    const bytes = await makeSizedPages([{ size: [200, 200], text: "WORLD" }]);
+    const doc = await loadPdf(bytes);
+    await doc.text.plain();
+    await doc.save();
+    const after = await doc.text.plain();
+    expect(after).toContain("WORLD");
+  });
+});

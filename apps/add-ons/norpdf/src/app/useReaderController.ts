@@ -72,6 +72,17 @@ export function useReaderController(windowId: string): ReaderController {
   // still the latest when its `PdfDoc.load` resolves (L2).
   const openIdRef = useRef(0)
 
+  // The live document, so the unmount cleanup can dispose its pdf.js parse
+  // (worker-side memory) when the window closes (T2-10).
+  const docRef = useRef<PdfDoc | null>(null)
+  useEffect(
+    () => () => {
+      docRef.current?.dispose()
+      docRef.current = null
+    },
+    []
+  )
+
   // Latest search state, read outside the `setSearch` updater in
   // `reloadDocument` — running a search inside an updater double-fires under
   // StrictMode (L7).
@@ -89,7 +100,13 @@ export function useReaderController(windowId: string): ReaderController {
 
   /* ── Load a document from an engine PdfDoc ─────────────────────────────── */
   const adopt = useCallback((loaded: PdfDoc, name: string, target: SaveTarget | null) => {
-    setDoc(loaded)
+    // Replacing the open document: release the previous one's pdf.js parse
+    // (worker-side memory) so re-opening files doesn't accumulate documents.
+    setDoc((prev) => {
+      if (prev && prev !== loaded) prev.dispose()
+      return loaded
+    })
+    docRef.current = loaded
     setDocName(name)
     setSaveTarget(target)
     setDirty(false)
@@ -125,7 +142,11 @@ export function useReaderController(windowId: string): ReaderController {
         adopt(loaded, name, target)
       } catch (err) {
         if (openId !== openIdRef.current) return
-        setDoc(null)
+        setDoc((prev) => {
+          prev?.dispose()
+          return null
+        })
+        docRef.current = null
         setPageCount(0)
         setSaveTarget(null)
         setError(`Could not open “${name}”: ${err instanceof Error ? err.message : String(err)}`)

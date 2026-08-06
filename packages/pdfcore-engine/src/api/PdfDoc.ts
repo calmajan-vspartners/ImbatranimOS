@@ -152,10 +152,32 @@ export class PdfDoc {
     if (this.#annotate) await this.#annotate.commit();
     if (this.#forms) await this.#forms.commit();
     this.#bytes = await this.#document.save();
+    // Destroy the old pdf.js documents (worker-side memory) before dropping the
+    // references — a bare `= undefined` orphaned them, so a long annotate→save
+    // session grew the worker unbounded. They re-parse lazily on next use.
+    this.#disposeReadCaches();
+    return this.#bytes;
+  }
+
+  /** Destroy + drop the pdf.js-backed read caches (render/text/outline). */
+  #disposeReadCaches(): void {
+    this.#render?.dispose();
+    this.#text?.dispose();
+    this.#outline?.dispose();
     this.#render = undefined;
     this.#text = undefined;
     this.#outline = undefined;
-    return this.#bytes;
+  }
+
+  /**
+   * Release every pdf.js document this handle owns. Call when the document is
+   * closed or replaced (e.g. the viewer window unmounts or opens another file)
+   * so the worker doesn't retain the parse. Idempotent; the handle is unusable
+   * for reads afterward only until a capability is accessed again (it re-parses
+   * from the current bytes).
+   */
+  dispose(): void {
+    this.#disposeReadCaches();
   }
 
   /* ───────────────────────────── Read & navigate ───────────────────────── */

@@ -1,11 +1,11 @@
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFDocumentLoadingTask } from "pdfjs-dist";
 import type { Outline } from "../../capabilities/Outline.js";
 import type {
   NamedDestination,
   OutlineNode,
   PdfBytes,
 } from "../../api/types.js";
-import { loadPdfjsDocument } from "./document.js";
+import { loadPdfjsTask } from "./document.js";
 
 /** A raw pdf.js outline item (subset of the fields we use). */
 interface RawOutlineItem {
@@ -21,7 +21,7 @@ interface RawOutlineItem {
  */
 export class PdfjsOutline implements Outline {
   readonly #bytes: PdfBytes;
-  #doc: PDFDocumentProxy | undefined;
+  #task: PDFDocumentLoadingTask | undefined;
 
   constructor(bytes: PdfBytes) {
     this.#bytes = bytes;
@@ -88,9 +88,15 @@ export class PdfjsOutline implements Outline {
     }
   }
 
+  /** Release the pdf.js document + its worker-side memory. Idempotent. */
+  dispose(): void {
+    void this.#task?.destroy();
+    this.#task = undefined;
+  }
+
   async #document(): Promise<PDFDocumentProxy> {
-    if (this.#doc) return this.#doc;
-    this.#doc = await loadPdfjsDocument(this.#bytes);
-    return this.#doc;
+    if (this.#task) return this.#task.promise;
+    this.#task = await loadPdfjsTask(this.#bytes);
+    return this.#task.promise;
   }
 }
