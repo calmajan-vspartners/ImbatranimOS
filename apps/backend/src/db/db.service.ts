@@ -117,6 +117,19 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_calendar_events_start
         ON calendar_events(start_ms);
 
+      -- Git repos the user has opened (Brief 76). A table of its own rather than
+      -- reusing recent_files: that one is Notes' (a bare path, no root), and
+      -- folding two meanings into one table is the shapeless-blob-store pattern
+      -- this repo has refused since brief 71. UNIQUE(root, path) makes "open it
+      -- again" an upsert of the timestamp rather than a duplicate row.
+      CREATE TABLE IF NOT EXISTS git_recent_repos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        root TEXT NOT NULL,
+        path TEXT NOT NULL,
+        last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(root, path)
+      );
+
       CREATE TABLE IF NOT EXISTS recent_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT NOT NULL UNIQUE,

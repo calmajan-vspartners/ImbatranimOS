@@ -34,3 +34,21 @@ export const GIT_ROOTS: GitRoot[] = [
   { id: 'home', label: 'Home' },
   { id: 'notes', label: 'Notes' },
 ]
+
+// ---------------------------------------------------------------------------
+// Brief 76
+// ---------------------------------------------------------------------------
+
+export type BranchesResponse = {
+  branches: { name: string; current: boolean }[]
+  /** null when HEAD is detached. */
+  current: string | null
+  detached: boolean
+  /** Whether tracked files have changes — what the switch warning is built on. */
+  dirty: boolean
+}
+
+export type StashEntry = { index: number; label: string }
+export type StashListResponse = { stashes: StashEntry[] }
+export type RecentRepo = { root: string; path: string }
+export type RecentsResponse = { repos: RecentRepo[] }

@@ -14,6 +14,20 @@ jest.mock('execa', () => ({
 
 import { GitService } from './git.service';
 import { FilesService } from '../files/files.service';
+import { DbService } from '../../db/db.service';
+
+/**
+ * A real in-memory DbService for the recent-repos table (brief 76). GitService
+ * takes one now; a stub would let the recents SQL rot untested, and an in-memory
+ * database costs nothing.
+ */
+function testDb(): DbService {
+  const db = new DbService({
+    get: () => ':memory:',
+  } as unknown as ConstructorParameters<typeof DbService>[0]);
+  db.onModuleInit();
+  return db;
+}
 
 /** The shape of the execa options object the service passes. */
 type ExecaOpts = {
@@ -44,7 +58,7 @@ describe('GitService.exec (execa contract — no shell, array args)', () => {
       const stdout = args.includes('--show-toplevel') ? jail : 'true';
       return Promise.resolve({ stdout, stderr: '', exitCode: 0 });
     });
-    service = new GitService(new FilesService());
+    service = new GitService(new FilesService(), testDb());
   });
 
   afterEach(async () => {

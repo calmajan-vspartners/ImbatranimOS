@@ -2393,3 +2393,68 @@ visible. Kit `Button`s, real rows, one `reportFailure()` per mutation.
 Tests: frontend vitest **828 → 886** (58 new in a package that had zero), backend e2e
 **115 → 138** (23 new), unit unchanged at 208. All 101 turbo tasks green. Zero new
 dependencies.
+
+## 2026-08-05 — Brief 76: the Git allowlist grows, without loosening
+
+The git backend was already the most carefully built thing in the repo — one `execa`
+seam, array args, never a shell, a `--` pathspec guard, `GIT_LITERAL_PATHSPECS=1`, a
+jailed cwd, and an adversarial security review behind it. Brief 76 is the **first
+extension of its subcommand allowlist since that review**, from 7 to 12, so the point
+was to add capability without adding surface. Grepped afterwards to be sure: still
+exactly one `execa(` call site, still one `shell: false`.
+
+**The crux is that a ref is not a pathspec.** `--` separates options from *pathspecs*;
+there is no equivalent for `git switch <name>`, so a branch name beginning with `-`
+would simply be read as a flag. `assertRefName` enforces git's own ref-format rules
+in-process and refuses such input **before it becomes an argument** — 27 hostile names
+are tested, `--upload-pack=/bin/sh` among them. The existing pathspec guard is
+deliberately not reused: it permits `-` and `..` on purpose, which is precisely what
+must not pass for a ref. `stash@{n}` is built from a validated integer for the same
+reason: the client names an item, never a revision expression.
+
+**Per-hunk staging is `git apply --cached` with the patch on stdin**, which is the one
+new capability the seam gained. Stdin is itself the safety choice — a patch is the only
+large structured client-supplied text here, and this way it is never an argument, never
+a temp file, never anything a shell sees. The path safety is git's own default, and it
+was **measured on git 2.43 before the code was written to depend on it**: `../outside`
+is refused with "does not exist in index", `../../etc/x` with "invalid path". So
+`--unsafe-paths` must never be passed, and a test asserts its absence.
+
+**Two considered departures from the brief**, both now locked in `decisions.md`.
+No server-side dirty-tree block on a switch: git already refuses a switch that would
+overwrite local changes and deliberately allows one that carries clean changes across,
+which is a normal safe workflow — blocking it would make the app worse than the
+Terminal it exists to replace, so the warning lives in the UI and git's refusal is
+surfaced verbatim. And discard is tracked-files-only: discarding an untracked file
+means *deleting* it, which is `git clean`, a different and more dangerous verb, so the
+user is told that instead of getting a silent no-op.
+
+**Push/pull/fetch are explicitly out**, with the reason written down rather than left
+as an implied gap: they need a credential living in the container and an outbound path,
+which is a real security design owed its own brief alongside brief 50's SSRF stance.
+
+**Found while probing, in no brief:** the 10 MB output cap **failed silently** — with
+`reject: false` an overrun arrives as a result with empty stdout, indistinguishable
+from "no changes", so a big diff read as "this file has no changes". Fixed with a 413
+carrying a real sentence… and then my own frontend swallowed it, because I put the
+message into the `diff` state where the parser found no files and rendered "0 hunks"
+over an empty body. Found only by actually opening a 16.7 MB diff instead of trusting
+the backend test. Also: a phantom context line in every parsed hunk (a bare `''` from
+`split('\n')` treated as context, when git writes an empty context line as a *space*)
+which corrupted every rebuilt patch's `@@` counts — caught by the parse → patch → parse
+round-trip test before it ever reached git.
+
+Recents got their own `git_recent_repos` table rather than reusing Notes'
+`recent_files`: that one is a bare path with no root, and folding two meanings into one
+table is the pattern this repo has refused since brief 71.
+
+The security review was run through the **real HTTP API**, not only unit tests: every
+case on the brief's list refused, all 13 new routes 401 without a session, and zero of
+8 candidate artefacts created anywhere outside the work tree.
+
+`decisions.md` passed its 200-line cap and was split — the 2026-07-16/17 pivot-era
+decisions moved to `decisions-pivot-era.md`, unchanged and still locked.
+
+Tests: backend unit **208 → 282** (74 new), frontend vitest **828 → 858** (30 new in a
+package that had zero). Backend e2e unchanged at 138. All 102 turbo tasks green. Zero
+new dependencies.

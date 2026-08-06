@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -69,3 +70,66 @@ export class CommitBodyDto extends RepoRefDto {
   @IsNotEmpty()
   message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Brief 76. Note what is NOT here: no DTO accepts a raw ref pattern, an option
+// string, or a remote. A branch name is validated again in the service by
+// `assertRefName` — the DTO is the outer layer, not the only one, because `--`
+// cannot protect a ref the way it protects a pathspec.
+// ---------------------------------------------------------------------------
+
+/** GET /api/git/branches?root=&path= */
+export class BranchesQueryDto extends RepoRefDto {}
+
+/** POST /api/git/branch { root, path?, name } — create; and /switch — switch */
+export class BranchBodyDto extends RepoRefDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name: string;
+}
+
+/** POST /api/git/discard { root, path?, paths[] } */
+export class DiscardBodyDto extends PathsBodyDto {}
+
+/** POST /api/git/stash { root, path?, message? } */
+export class StashPushBodyDto extends RepoRefDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+}
+
+/** POST /api/git/stash/pop { root, path?, index? } */
+export class StashPopBodyDto extends RepoRefDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  index?: number;
+}
+
+/** POST /api/git/amend { root, path?, message } */
+export class AmendBodyDto extends CommitBodyDto {}
+
+/**
+ * POST /api/git/apply { root, path?, patch, reverse? }
+ *
+ * `patch` is the one large free-text field this module accepts. It goes to git on
+ * **stdin**, never as an argument, and `git apply --cached` (without
+ * `--unsafe-paths`) is what keeps it inside the work tree.
+ */
+export class ApplyPatchBodyDto extends RepoRefDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1024 * 1024)
+  patch: string;
+
+  @IsOptional()
+  @IsBoolean()
+  reverse?: boolean;
+}
+
+/** POST /api/git/recents | DELETE — a repo the user opened. */
+export class RecentRepoBodyDto extends RepoRefDto {}
