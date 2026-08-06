@@ -1,8 +1,30 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 /* Add-on packages live outside core's auto-detection root — scan them too. */
 @source '../../add-ons';
+
+/*
+ * Fonts are vendored (latin subset, variable-weight woff2) and served from
+ * our own origin, not fetched from Google. The OS is meant to run offline /
+ * air-gapped (the diskless kiosk, LAN deploys), where a Google Fonts @import
+ * stalls and renders in fallback fonts — and it leaked every visitor's IP to
+ * Google. Self-hosting lets the CSP's font-src/style-src drop to 'self'.
+ * One file per family covers all weights (both are variable on the wght axis).
+ */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/space-grotesk-latin-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('./assets/fonts/inter-latin-var.woff2') format('woff2');
+}
 
 /*
  * ImbatranimOS design tokens — Windows-7-classic layout, modern flat, B&W + ONE accent.
