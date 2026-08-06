@@ -1,4 +1,4 @@
-import { ScrollArea, cn } from '@imbatranim/core'
+import { ScrollArea, cn } from '@imbatranim/ui'
 import { Clock, Folder, Trash2 } from 'lucide-react'
 import type { HistoryEntry, RestClientData, SavedRequest } from '../types'
 import { statusToken } from '../lib/ui'

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PlayCircle } from 'lucide-react'
-import { Button, useFileDialog, useOpenIntent } from '@imbatranim/core'
+import { Button, useFileDialog, useOpenIntent, useSystem } from '@imbatranim/ui'
 import { listFolder, MEDIA_EXTENSIONS, mediaKind } from './api/listDir'
 import { TrackStage } from './components/TrackStage'
 import { Playlist } from './components/Playlist'
@@ -14,7 +14,7 @@ import { useTrackDurations } from './hooks/useTrackDurations'
 /**
  * Native `<audio>`/`<video>` playback with a custom, token-styled transport
  * bar (native `controls` stay off) and a folder playlist/queue built from
- * `@imbatranim/core`'s file listing. `TrackStage` sets the element's own
+ * the OS file listing. `TrackStage` sets the element's own
  * `src` to the authed download URL — playback issues HTTP Range requests
  * itself, so large files stream rather than loading into memory (see brief
  * 38). This component owns navigation (queue order, shuffle/repeat,
@@ -26,16 +26,18 @@ import { useTrackDurations } from './hooks/useTrackDurations'
  * others — only closing it ends the track. A background mini-player is a compositor
  * feature, not something this app should smuggle in (brief 68).
  */
-export function MediaPlayer({ windowId }: { windowId: string }) {
+export function MediaPlayer({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
+
   // One-shot open intent, drained by the shared hook (StrictMode-safe). Fixes
   // this window's root; the active track within that root can still change
   // as the user browses the queue.
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile } = useFileDialog()
   const pickFile = () => void openFile({ extensions: MEDIA_EXTENSIONS })
 
   // `null` until the user picks a track explicitly (queue click, prev/next,
@@ -46,7 +48,7 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
 
   const folderQuery = useQuery({
     queryKey: ['media-player', 'folder', source?.root, source?.path],
-    queryFn: () => listFolder(source!.root, source!.path),
+    queryFn: () => listFolder(system.http, source!.root, source!.path),
     enabled: !!source,
   })
   // Memoised so the `??` fallbacks do not mint a new array on every render and restart the
@@ -156,7 +158,6 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open media
         </Button>
-        {fileDialog}
       </div>
     )
   }
@@ -174,7 +175,6 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
         {kind && activePath ? (
           <TrackStage
             key={activePath}
-            windowId={windowId}
             root={source.root}
             path={activePath}
             kind={kind}

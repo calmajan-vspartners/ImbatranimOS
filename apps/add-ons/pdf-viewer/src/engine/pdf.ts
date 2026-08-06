@@ -4,7 +4,7 @@
  * dynamic import, so the whole engine becomes its own chunk. Nothing here is
  * imported at module top level (the `import type` is erased at build time).
  */
-import { installMapGetOrInsert } from '@imbatranim/core'
+import { installMapGetOrInsert } from '@imbatranim/ui'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 
 // The library + worker are configured exactly once, then cached: repeated opens

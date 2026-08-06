@@ -14,7 +14,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 import type { AnnotationSpec, Color, SignatureMark } from '@pdfcore/engine'
-import { notify, uploadFileBytes } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { useReader } from '../app/context'
 import { EditorContext } from './context'
 import type { AnnotateTool, EditorController } from './types'
@@ -38,6 +38,7 @@ function downloadBytes(bytes: Uint8Array, name: string): void {
 }
 
 export function EditorProvider({ children }: { children: ReactNode }): JSX.Element {
+  const system = useSystem()
   const ctrl = useReader()
   const { doc, docName, saveTarget, reloadDocument, markDirty, markSaved } = ctrl
 
@@ -113,7 +114,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
     try {
       const bytes = await doc.save()
       if (saveTarget) {
-        await uploadFileBytes(saveTarget.root, saveTarget.path, bytes, docName || 'document.pdf')
+        await system.fs.upload(saveTarget.root, saveTarget.path, bytes, docName || 'document.pdf')
       } else {
         downloadBytes(bytes, docName)
       }
@@ -124,8 +125,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       await reloadDocument()
       setAddedIds(new Set())
       markSaved()
-      notify({
-        appId: 'norpdf',
+      system.notify({
         level: 'success',
         title: saveTarget ? 'Saved' : 'Saved a copy',
         body: saveTarget
@@ -135,11 +135,11 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
     } catch (err) {
       // `dirty` is deliberately left armed: the bytes did not land, so the
       // document still differs from disk and the close guard must stay on.
-      notify({ appId: 'norpdf', level: 'error', title: 'Save failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Save failed', body: msgOf(err) })
     } finally {
       setBusy(false)
     }
-  }, [doc, saveTarget, docName, reloadDocument, markSaved])
+  }, [doc, saveTarget, docName, reloadDocument, markSaved, system])
 
   const deleteAnnotation = useCallback(
     async (id: string) => {
@@ -161,11 +161,11 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await syncRaster()
         } catch (err) {
-          notify({ appId: 'norpdf', level: 'error', title: 'Delete failed', body: msgOf(err) })
+          system.notify({ level: 'error', title: 'Delete failed', body: msgOf(err) })
         }
       }
     },
-    [doc, addedIds, syncRaster]
+    [doc, addedIds, syncRaster, system]
   )
 
   const openSignDialog = useCallback(() => {
@@ -186,7 +186,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
         doc.sign.fillSignatureField(signFieldName, mark)
         setSignFieldName(null)
         void syncRaster().catch((err) =>
-          notify({ appId: 'norpdf', level: 'error', title: 'Sign failed', body: msgOf(err) })
+          system.notify({ level: 'error', title: 'Sign failed', body: msgOf(err) })
         )
         return
       }
@@ -194,7 +194,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       setSignMark(mark)
       setTool('sign')
     },
-    [doc, signFieldName, syncRaster, setTool]
+    [doc, signFieldName, syncRaster, setTool, system]
   )
 
   const value = useMemo<EditorController>(

@@ -1,3 +1,6 @@
+import type { SystemHttp } from '@imbatranim/ui'
+import { api } from '../../lib/axios'
+
 /**
  * CommandSourcesRegistry
  *
@@ -17,14 +20,24 @@ export type CommandItem = {
   group: string
 }
 
+/**
+ * Capabilities a source may use while searching (brief 48). Sources are
+ * registered statically from the manifest and run with no mount, so they can
+ * never call `useSystem()` — the palette hands them this context instead.
+ * Grow it deliberately; it is protocol surface like everything apps touch.
+ */
+export type CommandSourceContext = { http: SystemHttp }
+
 export type CommandSource = {
   /** Section header shown in the palette. */
   group: string
   /**
    * Returns matching items for the given query string.
    * May be async — returns a Promise so network sources work the same way.
+   * `ctx` carries the capabilities a headless source is allowed; sources that
+   * need nothing simply declare `search(query)` and ignore it.
    */
-  search(query: string): Promise<CommandItem[]>
+  search(query: string, ctx: CommandSourceContext): Promise<CommandItem[]>
   /** Called when the user activates an item from this source. */
   activate(item: CommandItem): void
 }
@@ -40,7 +53,10 @@ export function registerCommandSource(source: CommandSource): void {
  * Sources that error are silently skipped.
  */
 export async function searchAllSources(query: string): Promise<CommandItem[]> {
-  const results = await Promise.allSettled(COMMAND_SOURCES.map((s) => s.search(query)))
+  // The one context every source shares: the authed client, same object the
+  // handle exposes as system.http. Built here, not imported by sources.
+  const ctx: CommandSourceContext = { http: api as unknown as SystemHttp }
+  const results = await Promise.allSettled(COMMAND_SOURCES.map((s) => s.search(query, ctx)))
 
   return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
 }

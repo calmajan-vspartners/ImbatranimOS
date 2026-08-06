@@ -9,7 +9,11 @@
 
 // Add-on contract
 export type { AppConfig, AddonManifest } from './contract'
-export type { CommandSource, CommandItem } from './shared/commands/CommandSourcesRegistry'
+export type {
+  CommandSource,
+  CommandSourceContext,
+  CommandItem,
+} from './shared/commands/CommandSourcesRegistry'
 
 // HTTP + query plumbing
 export { api } from './lib/axios'

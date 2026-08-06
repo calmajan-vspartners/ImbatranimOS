@@ -1,4 +1,4 @@
-import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 
 // Mirrors apps/backend/src/modules/system/system.service.ts response shapes.
 
@@ -76,22 +76,29 @@ export type KillResult = {
   signaled: boolean
 }
 
-export async function fetchStats(): Promise<SystemStats> {
-  const res = await api.get<SystemStats>('/system/stats')
+// Plain functions, so they take the system handle's http client as their first
+// argument — only hooks may call `useSystem()`, and these are not hooks.
+
+export async function fetchStats(http: SystemHttp): Promise<SystemStats> {
+  const res = await http.get<SystemStats>('/system/stats')
   return res.data
 }
 
-export async function fetchProcesses(): Promise<ProcessInfo[]> {
-  const res = await api.get<ProcessInfo[]>('/system/processes')
+export async function fetchProcesses(http: SystemHttp): Promise<ProcessInfo[]> {
+  const res = await http.get<ProcessInfo[]>('/system/processes')
   return res.data
 }
 
-export async function fetchAbout(): Promise<AboutInfo> {
-  const res = await api.get<AboutInfo>('/system/about')
+export async function fetchAbout(http: SystemHttp): Promise<AboutInfo> {
+  const res = await http.get<AboutInfo>('/system/about')
   return res.data
 }
 
-export async function killProcess(pid: number, signal?: string): Promise<KillResult> {
-  const res = await api.post<KillResult>(`/system/processes/${pid}/kill`, signal ? { signal } : {})
+export async function killProcess(
+  http: SystemHttp,
+  pid: number,
+  signal?: string
+): Promise<KillResult> {
+  const res = await http.post<KillResult>(`/system/processes/${pid}/kill`, signal ? { signal } : {})
   return res.data
 }

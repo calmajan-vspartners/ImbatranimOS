@@ -1,5 +1,5 @@
 import { ListTree } from 'lucide-react'
-import { ScrollArea, cn } from '@imbatranim/core'
+import { ScrollArea, cn } from '@imbatranim/ui'
 import type { Heading } from '../lib/outline'
 
 /**

@@ -5,7 +5,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, Plug, RotateCw, Search, X } from 'lucide-react'
-import { Button, notify, useAppearanceStore } from '@imbatranim/core'
+import { Button, useSystem, useSystemAppearance } from '@imbatranim/ui'
 import { usePtyConnection } from './hooks/usePtyConnection'
 import { buildXtermTheme, documentVarResolver } from './lib/xtermTheme'
 import {
@@ -66,11 +66,12 @@ export function Terminal(_props: { windowId: string }) {
   const [searchTerm, setSearchTerm] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
 
+  const system = useSystem()
+
   // Subscribed, not read once at mount: changing the theme or accent in Settings
   // has to restyle an already-open terminal, which the old read-at-mount accent
   // could not do.
-  const theme = useAppearanceStore((s) => s.theme)
-  const accent = useAppearanceStore((s) => s.accent)
+  const { theme, accent } = useSystemAppearance()
 
   /** Re-fit and tell the pty, so SIGWINCH matches what xterm now shows. */
   const refit = useCallback((send?: (cols: number, rows: number) => void, t?: XTerm | null) => {
@@ -196,14 +197,13 @@ export function Terminal(_props: { windowId: string }) {
       const text = await navigator.clipboard.readText()
       if (text) sendInput(text)
     } catch {
-      notify({
+      system.notify({
         title: 'Paste blocked',
         body: 'The browser would not grant clipboard access. Use the keyboard shortcut for your platform, or allow clipboard permission for this site.',
         level: 'warning',
-        appId: 'terminal',
       })
     }
-  }, [sendInput])
+  }, [sendInput, system])
 
   const copy = useCallback(async () => {
     const selection = termRef.current?.getSelection()
@@ -211,14 +211,13 @@ export function Terminal(_props: { windowId: string }) {
     try {
       await navigator.clipboard.writeText(selection)
     } catch {
-      notify({
+      system.notify({
         title: 'Copy blocked',
         body: 'The browser would not grant clipboard access.',
         level: 'warning',
-        appId: 'terminal',
       })
     }
-  }, [])
+  }, [system])
 
   /**
    * Terminal-wide key handling, registered with xterm rather than on the DOM.

@@ -426,7 +426,7 @@ export function GitGui({ windowId: _windowId }: { windowId: string }) {
           <RecentRepos
             repos={recents}
             onOpen={(r) => openRepo(r.root, r.path)}
-            onForget={(r) => void forgetRepo(r.root, r.path).then(loadRecents)}
+            onForget={(r) => void forgetRepo(system.http, r.root, r.path).then(loadRecents)}
           />
         </div>
       </div>

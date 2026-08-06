@@ -6,12 +6,12 @@ import {
   Button,
   cn,
   fileName,
-  notify,
   reportFileFailure,
   ScrollArea,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { useNoteFileQuery, useUpdateFileMutation } from '../queries/notepadQueries'
 import type { OpenDoc } from '../store/notepadStore'
 import { FindBar } from './FindBar'
@@ -42,7 +42,7 @@ import {
  * with nothing to recover from.
  */
 export function NoteEditor({
-  windowId,
+  windowId: _windowId,
   doc,
   onBack,
 }: {
@@ -50,6 +50,7 @@ export function NoteEditor({
   doc: OpenDoc
   onBack: () => void
 }) {
+  const system = useSystem()
   const { root, path } = doc
   const { data: file, isLoading, isError } = useNoteFileQuery(root, path)
   const updateMutation = useUpdateFileMutation()
@@ -92,7 +93,7 @@ export function NoteEditor({
   const dirty = content !== savedContent
   // The window and taskbar titles carry the filename and the dirty marker, and
   // closing with unsaved changes prompts — the same spine every other editor uses.
-  useUnsavedGuard(windowId, dirty, fileName(path, 'note'))
+  useUnsavedGuard(dirty, fileName(path, 'note'))
 
   const save = useCallback(() => {
     if (!dirty || updateMutation.isPending) return
@@ -106,17 +107,16 @@ export function NoteEditor({
         onSuccess: () => setSavedContent(snapshot),
         onError: (err) =>
           setError(
-            reportFileFailure('save', err, {
-              appId: 'notepad',
+            reportFileFailure(system, 'save', err, {
               noun: 'note',
               name: fileName(path, 'note'),
             })
           ),
       }
     )
-  }, [dirty, updateMutation, content, root, path])
+  }, [dirty, updateMutation, content, root, path, system])
 
-  useSaveHotkey(windowId, save)
+  useSaveHotkey(save)
 
   // ── Find / replace ────────────────────────────────────────────────────────
   const matches = findMatches(content, query, caseSensitive)
@@ -195,13 +195,12 @@ export function NoteEditor({
     setMatchIndex(0)
     // Reported, because "replace all" giving no feedback is indistinguishable from
     // it having done nothing.
-    notify({
+    system.notify({
       title: 'Replaced',
       body: `${out.count} occurrence${out.count === 1 ? '' : 's'} of “${query}”`,
       level: 'info',
-      appId: 'notepad',
     })
-  }, [content, query, replacement, caseSensitive, caret, applyEdit])
+  }, [content, query, replacement, caseSensitive, caret, applyEdit, system])
 
   const openFind = useCallback((withReplace: boolean) => {
     setFindOpen(true)

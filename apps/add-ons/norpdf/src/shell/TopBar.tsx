@@ -1,7 +1,7 @@
 /**
  * The reader console — the top control bar. Identity + document title, file I/O,
  * search, zoom/fit and the panel toggle. Rebuilt in the OS design language
- * (Tailwind tokens + `@imbatranim/core` UI); the AtelierPDF chrome is gone.
+ * (Tailwind tokens + `@imbatranim/ui` components); the AtelierPDF chrome is gone.
  *
  * ── PART B SEAM ────────────────────────────────────────────────────────────
  * `toolbarSlot` renders a second console row. Part B mounts the **annotate
@@ -25,7 +25,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react'
-import { Button, Separator, Tooltip, useSaveHotkey, useTopWindowKeydown } from '@imbatranim/core'
+import { Button, Separator, Tooltip, useSaveHotkey, useTopWindowKeydown } from '@imbatranim/ui'
 import { useReader } from '../app/context'
 import { useEditor } from '../editor/context'
 import { ToolButton } from './ToolButton'
@@ -40,7 +40,6 @@ export interface TopBarProps {
 
 export function TopBar({ onOpenClick, toolbarSlot }: TopBarProps): JSX.Element {
   const {
-    windowId,
     doc,
     docName,
     currentPage,
@@ -83,15 +82,14 @@ export function TopBar({ onOpenClick, toolbarSlot }: TopBarProps): JSX.Element {
   }
 
   // Ctrl/Cmd+S writes the document back to its file (the save spine), and
-  // Ctrl/Cmd+F focuses search — both scoped to the TOP window via the core
+  // Ctrl/Cmd+F focuses search — both scoped to the TOP window via the SDK
   // seams, so a background norPDF window never fires them and they never steal
   // the keystroke from another app. Registered here (inside EditorProvider) so
   // Save can reach the editor's write-back-and-reload path. `ignoreTextEntry:
   // false` on Find so it still works while a field (the search box itself, the
   // page jump) is focused.
-  useSaveHotkey(windowId, () => void saveToDisk())
+  useSaveHotkey(() => void saveToDisk())
   useTopWindowKeydown(
-    windowId,
     (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && doc) {
         e.preventDefault()

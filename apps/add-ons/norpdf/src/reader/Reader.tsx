@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { Rect, TextHit } from '@pdfcore/engine'
-import { useTopWindowKeydown } from '@imbatranim/core'
+import { useTopWindowKeydown } from '@imbatranim/ui'
 import { useReader } from '../app/context'
 import { PageView } from './PageView'
 
@@ -26,7 +26,6 @@ const CURRENT_LINE = 0.38 // fraction of viewport height marking "current page"
 
 export function Reader(): JSX.Element {
   const {
-    windowId,
     doc,
     pageCount,
     pageDims,
@@ -139,10 +138,10 @@ export function Reader(): JSX.Element {
 
   /* ── Keyboard navigation ───────────────────────────────────────────────── */
   // Transport keys (arrows / PageUp-Down / Space / Home / End / +/-/0) via the
-  // core seam: they fire ONLY while this is the top-most window and never while
+  // SDK seam: they fire ONLY while this is the top-most window and never while
   // the user is typing (the default `ignoreTextEntry`), so a background reader
   // no longer scrolls and Space no longer steals from another app's text field.
-  useTopWindowKeydown(windowId, (e) => {
+  useTopWindowKeydown((e) => {
     const el = scrollRef.current
     if (!el) return
     const page = el.clientHeight * 0.92

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, CheckCheck, ListPlus, Plus, Trash2, X } from 'lucide-react'
-import { ScrollArea, cn, notify, useConfirm, usePrompt } from '@imbatranim/core'
+import { ScrollArea, cn, useConfirm, usePrompt, useSystem } from '@imbatranim/ui'
 import { TodoRow } from './TodoRow'
 import { hasHiddenSelection, pruneSelection } from './bulkSelection'
 import { dueAtFromInput, isOverdue } from './due'
@@ -55,6 +55,7 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
   const [selectMode, setSelectMode] = useState(false)
   const addInputRef = useRef<HTMLInputElement>(null)
   const now = useMinuteClock()
+  const system = useSystem()
 
   const { confirm, confirmDialog } = useConfirm()
   const { prompt, promptDialog } = usePrompt()
@@ -151,17 +152,15 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
     clearCompleted.mutate(listId, {
       onSuccess: ({ deleted }) => {
         if (deleted === 0) {
-          notify({
+          system.notify({
             title: 'Nothing to clear',
             body: 'There were no completed tasks here.',
-            appId: 'todo',
             level: 'info',
           })
         } else if (!knowsCompletedCount) {
-          notify({
+          system.notify({
             title: 'Completed tasks cleared',
             body: `${deleted} task${deleted === 1 ? '' : 's'} deleted.`,
-            appId: 'todo',
             level: 'success',
           })
         }
@@ -212,10 +211,9 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
       onSuccess: (result) => {
         setListId(null)
         if (result.unfiled > 0) {
-          notify({
+          system.notify({
             title: 'List deleted',
             body: `${result.unfiled} task${result.unfiled === 1 ? '' : 's'} kept, now unfiled.`,
-            appId: 'todo',
             level: 'info',
           })
         }

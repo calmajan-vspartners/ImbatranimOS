@@ -15,7 +15,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import { cn, openApp } from '@imbatranim/core'
+import { cn, useSystem } from '@imbatranim/ui'
 import type { Annotation, Point, Tool } from '../types'
 import { saveScreenshot, screenshotFilename } from '../api/screenshotApi'
 import { isWorthKeeping, normalizeRect, pixelateBlockSize } from '../lib/annotationGeometry'
@@ -63,6 +63,7 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
+  const system = useSystem()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const ratio = window.devicePixelRatio || 1
   const stroke = Math.max(2, Math.round(3 * ratio))
@@ -287,7 +288,7 @@ export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
   const onSave = () =>
     doExit(async () => {
       const blob = await toBlob(canvasRef.current!)
-      const path = await saveScreenshot(blob)
+      const path = await saveScreenshot(system.fs, blob)
       return `Saved to ~/${path}`
     })
 
@@ -301,7 +302,7 @@ export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
   // Brief 95: the two apps are a pipeline — annotate here, edit properly there.
   const onEditInPaint = () =>
     doExit(() => {
-      openApp('paint', { dataUrl: canvasRef.current!.toDataURL('image/png') })
+      system.intents.openApp('paint', { dataUrl: canvasRef.current!.toDataURL('image/png') })
       return Promise.resolve('Opened in Paint')
     })
 

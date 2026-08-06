@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { notify, useFileDialog, useWindowStore } from '@imbatranim/core'
+import { useFileDialog, useSystem } from '@imbatranim/ui'
 import { CaptureOverlay } from './components/CaptureOverlay'
 import { AnnotationStage } from './components/AnnotationStage'
 import { CaptureLauncher } from './components/CaptureLauncher'
@@ -33,10 +33,8 @@ type Phase = 'launcher' | 'selecting' | 'counting' | 'capturing' | 'annotating'
  * beats a second capture path that undermines the model. (Screen recording stays rejected
  * for the same reason.)
  */
-export function SnippingTool({ windowId }: { windowId: string }) {
-  const hideWindow = useWindowStore((s) => s.hideWindow)
-  const showWindow = useWindowStore((s) => s.showWindow)
-  const closeWindow = useWindowStore((s) => s.closeWindow)
+export function SnippingTool({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
 
   const [phase, setPhase] = useState<Phase>('launcher')
   const [image, setImage] = useState<HTMLCanvasElement | null>(null)
@@ -44,11 +42,11 @@ export function SnippingTool({ windowId }: { windowId: string }) {
   const [remaining, setRemaining] = useState(0)
   const captureStartedRef = useRef(false)
 
-  // The window-scoped picker would latch its choice into the shared opened-file store; this
-  // app reads its own file, so it uses the plain dialog.
-  const { openFile, fileDialog } = useFileDialog()
+  // The dialog latches its choice for `useOpenIntent`, which this app never reads —
+  // reopening a capture is a one-shot load handled right here.
+  const { openFile } = useFileDialog()
 
-  const close = useCallback(() => closeWindow(windowId), [closeWindow, windowId])
+  const close = useCallback(() => system.window.requestClose(), [system])
 
   /** Back to the launcher, with the app's own window visible again. */
   const backToLauncher = useCallback(() => {
@@ -56,8 +54,8 @@ export function SnippingTool({ windowId }: { windowId: string }) {
     setImage(null)
     setLossyNotice(null)
     setPhase('launcher')
-    showWindow(windowId)
-  }, [showWindow, windowId])
+    system.window.show()
+  }, [system])
 
   // Exclude the tool's own chrome from the shot: any overlay we portal in, plus our
   // minimized taskbar button (matched by its title === app name).
@@ -82,16 +80,15 @@ export function SnippingTool({ windowId }: { windowId: string }) {
         setPhase('annotating')
       } catch (err) {
         console.error('[snipping-tool] capture failed', err)
-        notify({
+        system.notify({
           title: 'Capture failed',
           body: 'The desktop could not be rasterized. Nothing was saved.',
           level: 'error',
-          appId: 'snipping-tool',
         })
         backToLauncher()
       }
     },
-    [backToLauncher, filterNode]
+    [backToLauncher, filterNode, system]
   )
 
   const fullScreenSelection = (): Selection => ({
@@ -104,7 +101,7 @@ export function SnippingTool({ windowId }: { windowId: string }) {
   const arm = useCallback(
     (mode: LaunchMode) => {
       captureStartedRef.current = false
-      hideWindow(windowId)
+      system.window.hide()
       if (mode.kind === 'region') {
         setPhase('selecting')
         return
@@ -116,7 +113,7 @@ export function SnippingTool({ windowId }: { windowId: string }) {
       setRemaining(mode.seconds)
       setPhase('counting')
     },
-    [capture, hideWindow, windowId]
+    [capture, system]
   )
 
   // The countdown. One interval, and the capture fires from the tick that reaches zero —
@@ -154,7 +151,7 @@ export function SnippingTool({ windowId }: { windowId: string }) {
     })
     if (!choice) return
     try {
-      const canvas = await loadCaptureCanvas(choice.root, choice.path)
+      const canvas = await loadCaptureCanvas(system.fs, choice.root, choice.path)
       setImage(canvas)
       // A saved file was rasterized when it was taken; whatever was lost is already lost, and
       // repeating the warning here would be about the wrong moment.
@@ -162,23 +159,17 @@ export function SnippingTool({ windowId }: { windowId: string }) {
       setPhase('annotating')
     } catch (err) {
       console.error('[snipping-tool] could not open the capture', err)
-      notify({
+      system.notify({
         title: 'Could not open that image',
         body: `${choice.path} could not be decoded as an image.`,
         level: 'error',
-        appId: 'snipping-tool',
       })
     }
-  }, [openFile])
+  }, [openFile, system])
 
   if (phase === 'launcher') {
     // Rendered in the window, not the portal: the desktop stays usable, which is the point.
-    return (
-      <>
-        <CaptureLauncher onArm={arm} onOpenSaved={() => void openSaved()} busy={false} />
-        {fileDialog}
-      </>
-    )
+    return <CaptureLauncher onArm={arm} onOpenSaved={() => void openSaved()} busy={false} />
   }
 
   let content: React.ReactNode = null

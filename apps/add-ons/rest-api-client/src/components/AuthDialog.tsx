@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Dialog, Input, Select } from '@imbatranim/core'
+import { Button, Dialog, Input, Select } from '@imbatranim/ui'
 import type { Environment } from '../types'
 import { basicHeader, bearerHeader, looksSecret, toVariables } from '../lib/environments'
 

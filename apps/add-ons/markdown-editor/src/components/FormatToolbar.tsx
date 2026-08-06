@@ -16,7 +16,7 @@ import {
   Table,
 } from 'lucide-react'
 import type { ComponentType } from 'react'
-import { Tooltip, cn } from '@imbatranim/core'
+import { Tooltip, cn } from '@imbatranim/ui'
 import { FORMAT_HINTS, type FormatKind } from '../lib/formatActions'
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>

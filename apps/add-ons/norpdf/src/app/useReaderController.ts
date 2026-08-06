@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PdfDoc } from '@pdfcore/engine'
 import type { DocumentMetadata, OutlineNode } from '@pdfcore/engine'
-import { useUnsavedGuard } from '@imbatranim/core'
+import { useUnsavedGuard } from '@imbatranim/ui'
 import type {
   FitMode,
   PageDim,
@@ -40,7 +40,7 @@ const EMPTY_SEARCH: SearchState = {
   ran: false,
 }
 
-export function useReaderController(windowId: string): ReaderController {
+export function useReaderController(): ReaderController {
   const [doc, setDoc] = useState<PdfDoc | null>(null)
   const [docName, setDocName] = useState('')
   const [saveTarget, setSaveTarget] = useState<SaveTarget | null>(null)
@@ -96,7 +96,7 @@ export function useReaderController(windowId: string): ReaderController {
 
   // Reflect the filename + a dirty marker in the window title and warn before
   // closing with unsaved edits — the save spine every other editor uses.
-  useUnsavedGuard(windowId, dirty, docName)
+  useUnsavedGuard(dirty, docName)
 
   /* ── Load a document from an engine PdfDoc ─────────────────────────────── */
   const adopt = useCallback((loaded: PdfDoc, name: string, target: SaveTarget | null) => {
@@ -323,7 +323,6 @@ export function useReaderController(windowId: string): ReaderController {
 
   return useMemo<ReaderController>(
     () => ({
-      windowId,
       doc,
       docName,
       pageCount,
@@ -368,7 +367,6 @@ export function useReaderController(windowId: string): ReaderController {
       reloadDocument,
     }),
     [
-      windowId,
       doc,
       docName,
       pageCount,

@@ -56,9 +56,6 @@ export interface SaveTarget {
  * navigation, and re-sync after a mutating edit lives here.
  */
 export interface ReaderController {
-  /** The OS window this reader lives in — used to scope window-global keys. */
-  windowId: string
-
   /* ── Document ─────────────────────────────────────────────────────────── */
   doc: PdfDoc | null
   docName: string

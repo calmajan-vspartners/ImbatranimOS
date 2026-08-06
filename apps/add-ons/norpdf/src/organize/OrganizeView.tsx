@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { PdfDoc } from '@pdfcore/engine'
-import { Button, Separator, fetchFileBytes, notify, useFileDialog } from '@imbatranim/core'
+import { Button, Separator, useSystem } from '@imbatranim/ui'
 import {
   Plus,
   Combine,
@@ -50,6 +50,7 @@ function download(bytes: Uint8Array, filename: string): void {
 }
 
 export function OrganizeView(): JSX.Element {
+  const system = useSystem()
   const ctrl = useReader()
   const { doc, docName, pageCount, pageDims, renderEpoch, setMode } = ctrl
   const { syncRaster, addedIds, busy } = useEditor()
@@ -58,10 +59,6 @@ export function OrganizeView(): JSX.Element {
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [everyN, setEveryN] = useState('1')
-  // No `windowId` on purpose: this picks a SECOND PDF to merge into the open
-  // one. Passing a windowId would latch the choice into the open-intent store
-  // and REPLACE the current document instead of merging into it.
-  const { openFile: pickPdf, fileDialog } = useFileDialog()
 
   const base = (docName || 'document').replace(/\.pdf$/i, '')
 
@@ -106,7 +103,7 @@ export function OrganizeView(): JSX.Element {
       await op()
       await syncRaster()
     } catch (err) {
-      notify({ appId: 'norpdf', level: 'error', title: 'Edit failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Edit failed', body: msgOf(err) })
     }
   }
 
@@ -131,18 +128,22 @@ export function OrganizeView(): JSX.Element {
     void run(() => doc.pages.reorder(from, target))
   }
 
-  // Merge another PDF's pages. Reads through the OS filesystem (core's file
-  // dialog + fetch-bytes), NOT a native `<input type=file>` — that browses the
-  // HOST machine, the exact pattern brief 65 removed from Open.
+  // Merge another PDF's pages. Reads through the OS filesystem (the OS pick
+  // portal + fs.read), NOT a native `<input type=file>` — that browses the
+  // HOST machine, the exact pattern brief 65 removed from Open. The raw
+  // `pickOpen` on purpose (not the SDK `useFileDialog`): this picks a SECOND
+  // PDF to merge into the open one, and `useFileDialog` latches every choice
+  // into the open-intent store, which would REPLACE the current document
+  // instead of merging into it.
   const mergeFromOs = async () => {
-    const choice = await pickPdf({ title: 'Merge a PDF', extensions: ['pdf'] })
+    const choice = await system.fs.pickOpen({ title: 'Merge a PDF', extensions: ['pdf'] })
     if (!choice) return
     let bytes: Uint8Array
     try {
-      const buf = await fetchFileBytes(choice.root, choice.path)
+      const buf = await system.fs.read(choice.root, choice.path)
       bytes = new Uint8Array(buf)
     } catch (err) {
-      notify({ appId: 'norpdf', level: 'error', title: 'Could not read PDF', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Could not read PDF', body: msgOf(err) })
       return
     }
     await run(() => doc.assemble.merge(bytes))
@@ -155,7 +156,7 @@ export function OrganizeView(): JSX.Element {
       const bytes = await doc.pages.extract(selectedPages1)
       download(bytes, `${base}-extract.pdf`)
     } catch (err) {
-      notify({ appId: 'norpdf', level: 'error', title: 'Extract failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Extract failed', body: msgOf(err) })
     }
   }
 
@@ -167,7 +168,7 @@ export function OrganizeView(): JSX.Element {
       const parts = await doc.assemble.split({ every: n })
       parts.forEach((p, i) => download(p, `${base}-part-${i + 1}.pdf`))
     } catch (err) {
-      notify({ appId: 'norpdf', level: 'error', title: 'Split failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Split failed', body: msgOf(err) })
     }
   }
 
@@ -280,7 +281,6 @@ export function OrganizeView(): JSX.Element {
           )
         })}
       </div>
-      {fileDialog}
     </div>
   )
 }

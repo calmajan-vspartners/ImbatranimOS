@@ -1,4 +1,3 @@
-import { api } from '@imbatranim/core'
 import type { SystemHttp } from '@imbatranim/ui'
 import type {
   BranchesResponse,
@@ -194,9 +193,8 @@ export async function rememberRepo(http: SystemHttp, root: string, path: string)
   await http.post('/git/recents', { root, path })
 }
 
-export async function forgetRepo(root: string, path: string): Promise<void> {
-  // Stays on the core client: DELETE /git/recents reads its body, and the
-  // protocol's SystemHttpRequestConfig carries no `data` for DELETE (brief 48).
-  // Migrates the day the protocol grows one — not worked around here.
-  await api.delete('/git/recents', { data: { root, path } })
+export async function forgetRepo(http: SystemHttp, root: string, path: string): Promise<void> {
+  // DELETE /git/recents reads its body; the protocol grew `data` on the request
+  // config for exactly this shape (brief 48).
+  await http.delete('/git/recents', { data: { root, path } })
 }

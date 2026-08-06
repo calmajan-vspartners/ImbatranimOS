@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Download, Music, RotateCcw } from 'lucide-react'
-import { Button, api, downloadUrl, fileName, notify } from '@imbatranim/core'
+import {
+  Button,
+  fileName,
+  useDocumentedShortcuts,
+  useSystem,
+  useTopWindowKeydown,
+} from '@imbatranim/ui'
 import type { MediaKind } from '../api/listDir'
 import { mediaErrorReport } from '../lib/mediaError'
 import { TransportBar } from './TransportBar'
-import { useDocumentedShortcuts, useTopWindowKeydown } from '@imbatranim/core'
 import {
   ARROW_SKIP_SECONDS,
   COARSE_SKIP_SECONDS,
@@ -18,8 +23,6 @@ import type { RepeatMode } from '../lib/queueOrder'
 import { formatTime } from '../lib/formatTime'
 
 type TrackStageProps = {
-  /** The media-player window this stage lives in, so its keys stay scoped to it. */
-  windowId: string
   root: string
   path: string
   kind: MediaKind
@@ -57,7 +60,6 @@ type TrackStageProps = {
  * React, so nothing keeps decoding after the user has moved on.
  */
 export function TrackStage({
-  windowId,
   root,
   path,
   kind,
@@ -81,6 +83,7 @@ export function TrackStage({
   onProgress,
   onStartOver,
 }: TrackStageProps) {
+  const system = useSystem()
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -173,11 +176,10 @@ export function TrackStage({
       setErrorHint(report.hint)
       // The window may be behind others by the time a queued track fails, so the overlay
       // alone can go unseen — which is the "dead player, no message" state this replaces.
-      notify({
+      system.notify({
         title: 'Cannot play this file',
         body: report.hint ? `${report.message} ${report.hint}` : report.message,
         level: 'error',
-        appId: 'media-player',
       })
     }
 
@@ -233,7 +235,7 @@ export function TrackStage({
     let cancelled = false
     void (async () => {
       try {
-        const res = await api.get<{ content: string }>('/files/content', {
+        const res = await system.http.get<{ content: string }>('/files/content', {
           params: { root, path: subtitlePath },
         })
         if (cancelled) return
@@ -259,7 +261,7 @@ export function TrackStage({
     }
     // Mount-once per track: the stage is remounted with `key={path}` on every track change,
     // so the element (and any track added to it) is always fresh.
-  }, [subtitlePath, root])
+  }, [subtitlePath, root, system])
 
   const toggleSubtitles = useCallback(() => {
     const track = textTrackRef.current
@@ -356,7 +358,7 @@ export function TrackStage({
     { id: 'media.fullscreen', keys: 'f', description: 'Fullscreen (video)', scope: 'Editing' },
   ])
 
-  useTopWindowKeydown(windowId, (e) => {
+  useTopWindowKeydown((e) => {
     // Real shortcuts (Ctrl/⌘/Alt combos) belong to the shell and other apps.
     if (e.ctrlKey || e.metaKey || e.altKey) return
     // Left/Right take a coarse variant on Shift; everything else is Shift-free.
@@ -421,7 +423,7 @@ export function TrackStage({
   }
 
   function triggerDownload() {
-    const url = downloadUrl(root, path)
+    const url = system.fs.downloadUrl(root, path)
     const a = document.createElement('a')
     a.href = url
     a.download = fileName(path, 'media')
@@ -430,7 +432,7 @@ export function TrackStage({
     a.remove()
   }
 
-  const src = downloadUrl(root, path)
+  const src = system.fs.downloadUrl(root, path)
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">

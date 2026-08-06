@@ -1,4 +1,4 @@
-import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 import type { Environment, HistoryEntry, RestClientData, SavedRequest } from '../types'
 
 // Web-OS identity: user data lives in the home volume, not localStorage. We
@@ -45,9 +45,9 @@ function normalize(raw: unknown): RestClientData {
  * Load collections + history. A missing file (first run) yields empty data —
  * the 404 from the files API is expected, not an error to surface.
  */
-export async function loadData(): Promise<RestClientData> {
+export async function loadData(http: SystemHttp): Promise<RestClientData> {
   try {
-    const res = await api.get<{ path: string; content: string }>('/files/content', {
+    const res = await http.get<{ path: string; content: string }>('/files/content', {
       params: { root: ROOT, path: PATH },
     })
     return normalize(JSON.parse(res.data.content))
@@ -59,14 +59,14 @@ export async function loadData(): Promise<RestClientData> {
 }
 
 /** Persist collections + history (history clamped to MAX_HISTORY). */
-export async function saveData(data: RestClientData): Promise<void> {
+export async function saveData(http: SystemHttp, data: RestClientData): Promise<void> {
   const bounded: RestClientData = {
     collections: data.collections,
     history: data.history.slice(0, MAX_HISTORY),
     environments: data.environments,
     activeEnvId: data.activeEnvId,
   }
-  await api.put('/files/content', {
+  await http.put('/files/content', {
     root: ROOT,
     path: PATH,
     content: JSON.stringify(bounded, null, 2),

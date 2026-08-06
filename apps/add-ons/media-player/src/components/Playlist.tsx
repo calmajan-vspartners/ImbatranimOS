@@ -1,5 +1,5 @@
 import { Music, Video, ListMusic, History } from 'lucide-react'
-import { ScrollArea, Tooltip, cn } from '@imbatranim/core'
+import { ScrollArea, Tooltip, cn } from '@imbatranim/ui'
 import type { Track } from '../api/listDir'
 import { formatTime } from '../lib/formatTime'
 import { resumeKey } from '../lib/resume'

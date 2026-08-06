@@ -1,5 +1,5 @@
 import { Crop, FolderOpen, Monitor, Timer } from 'lucide-react'
-import { Button, cn } from '@imbatranim/core'
+import { Button, cn } from '@imbatranim/ui'
 import { DELAYS, type LaunchMode } from '../lib/captureModes'
 
 /**

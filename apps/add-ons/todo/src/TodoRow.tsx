@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, GripVertical, Star, X } from 'lucide-react'
 import { useDrag } from '@use-gesture/react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import {
   dateInputValue,
   dueAtFromInput,

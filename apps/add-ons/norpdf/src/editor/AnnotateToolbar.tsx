@@ -22,7 +22,7 @@ import {
   Signature,
   Grid3x3,
 } from 'lucide-react'
-import { Button, Separator } from '@imbatranim/core'
+import { Button, Separator } from '@imbatranim/ui'
 import { useReader } from '../app/context'
 import { ToolButton } from '../shell/ToolButton'
 import { useEditor } from './context'

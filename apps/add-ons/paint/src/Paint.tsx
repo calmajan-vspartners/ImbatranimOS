@@ -23,19 +23,16 @@ import {
   Select,
   Tooltip,
   cn,
-  downloadUrl,
   fileName,
-  notify,
   reportFileFailure,
   reportFileRefusal,
-  uploadFileBytes,
   useConfirm,
   useFileDialog,
-  useIntentStore,
   useRegisteredHotkeys,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { floodFill } from './lib/floodFill'
 import {
   canRedo,
@@ -114,7 +111,8 @@ const TOOLS: { id: Tool; icon: typeof Pencil; label: string }[] = [
  * this component owns the canvas, the pointer choreography and the save
  * spine. Zero dependencies.
  */
-export function Paint({ windowId }: { windowId: string }) {
+export function Paint({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const [tool, setTool] = useState<Tool>('pencil')
@@ -135,7 +133,7 @@ export function Paint({ windowId }: { windowId: string }) {
   const dragRef = useRef<{ startX: number; startY: number; lastX: number; lastY: number } | null>(
     null
   )
-  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile } = useFileDialog()
   const { confirm, confirmDialog } = useConfirm()
 
   const ctx = () => canvasRef.current!.getContext('2d', { willReadFrequently: true })!
@@ -175,12 +173,13 @@ export function Paint({ windowId }: { windowId: string }) {
     async (root: string, path: string) => {
       try {
         const img = new Image()
-        img.src = downloadUrl(root, path)
+        img.src = system.fs.downloadUrl(root, path)
         await img.decode()
         if (img.naturalWidth > MAX_DIMENSION || img.naturalHeight > MAX_DIMENSION) {
           reportFileRefusal(
+            system,
             `is ${img.naturalWidth}×${img.naturalHeight} — Paint edits bitmaps whole and clamps at ${MAX_DIMENSION}px a side`,
-            { appId: 'paint', name: fileName(path) }
+            { name: fileName(path) }
           )
           return
         }
@@ -189,10 +188,10 @@ export function Paint({ windowId }: { windowId: string }) {
         setDoc({ root, path })
         setDirty(false)
       } catch (err) {
-        reportFileFailure('open', err, { appId: 'paint', noun: 'image', name: fileName(path) })
+        reportFileFailure(system, 'open', err, { noun: 'image', name: fileName(path) })
       }
     },
-    [blank]
+    [blank, system]
   )
 
   // One-shot open intent (file manager's "Edit in Paint", snip handoff).
@@ -200,9 +199,7 @@ export function Paint({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (consumedRef.current) return
     consumedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as
-      | { openPath?: string; root?: string; dataUrl?: string }
-      | undefined
+    const intent = system.intents.consume<{ openPath?: string; root?: string; dataUrl?: string }>()
     // Draining a one-shot intent IS the "sync from an external system" an
     // effect is for (ref-guarded; the house pattern since brief 30).
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -220,7 +217,7 @@ export function Paint({ windowId }: { windowId: string }) {
     /* eslint-enable react-hooks/set-state-in-effect */
     // Mount-once drain.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowId])
+  }, [system])
 
   const point = (e: { clientX: number; clientY: number }) => {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -428,21 +425,17 @@ export function Paint({ windowId }: { windowId: string }) {
       try {
         const blob = await toBlob()
         const bytes = new Uint8Array(await blob.arrayBuffer())
-        await uploadFileBytes(target.root, target.path, bytes, fileName(target.path))
+        await system.fs.upload(target.root, target.path, bytes, fileName(target.path))
         setDoc(target)
         setDirty(false)
-        notify({ title: 'Saved', body: fileName(target.path), appId: 'paint', level: 'info' })
+        system.notify({ title: 'Saved', body: fileName(target.path), level: 'info' })
       } catch (err) {
-        reportFileFailure('save', err, {
-          appId: 'paint',
-          noun: 'image',
-          name: fileName(target.path),
-        })
+        reportFileFailure(system, 'save', err, { noun: 'image', name: fileName(target.path) })
       }
     },
     // toBlob reads doc for the format; recreate when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [doc]
+    [doc, system]
   )
 
   const save = useCallback(async () => {
@@ -491,8 +484,8 @@ export function Paint({ windowId }: { windowId: string }) {
     blank(800, 600)
   }, [dirty, confirm, blank])
 
-  useSaveHotkey(windowId, () => void save())
-  useUnsavedGuard(windowId, dirty, doc ? fileName(doc.path) : 'untitled')
+  useSaveHotkey(() => void save())
+  useUnsavedGuard(dirty, doc ? fileName(doc.path) : 'untitled')
 
   // Handlers via a ref: useRegisteredHotkeys captures per key set (brief 98).
   const actionsRef = useRef({ undo: () => {}, redo: () => {} })
@@ -712,7 +705,6 @@ export function Paint({ windowId }: { windowId: string }) {
           <span>JPEG re-encodes on save (quality 92)</span>
         )}
       </div>
-      {fileDialog}
       {confirmDialog}
     </div>
   )

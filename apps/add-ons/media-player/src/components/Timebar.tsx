@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { formatTime } from '../lib/formatTime'
 
 type TimebarProps = {

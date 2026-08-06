@@ -15,7 +15,7 @@ import {
   Captions,
   CaptionsOff,
 } from 'lucide-react'
-import { Button, Tooltip, cn } from '@imbatranim/core'
+import { Button, Tooltip, cn } from '@imbatranim/ui'
 import { formatTime } from '../lib/formatTime'
 import { Timebar } from './Timebar'
 import { SKIP_SECONDS, PLAYBACK_RATES } from '../lib/transport'

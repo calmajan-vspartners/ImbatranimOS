@@ -80,6 +80,8 @@ export type SystemHttpRequestConfig = {
   responseType?: 'arraybuffer' | 'blob' | 'json' | 'text'
   signal?: AbortSignal
   timeout?: number
+  /** Request body for methods whose signature has no data argument (DELETE). */
+  data?: unknown
 }
 
 export interface SystemHttpResponse<T = unknown> {

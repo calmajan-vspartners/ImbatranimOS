@@ -1,7 +1,7 @@
 /** The welcome screen shown before a document is open. */
 import type { JSX } from 'react'
 import { FilePen, FolderOpen, Search, List, TextCursorInput, Loader2 } from 'lucide-react'
-import { Button } from '@imbatranim/core'
+import { Button } from '@imbatranim/ui'
 
 export interface EmptyStateProps {
   onOpenClick: () => void

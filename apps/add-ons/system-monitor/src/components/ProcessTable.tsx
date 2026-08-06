@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Search, XCircle } from 'lucide-react'
-import { notify, useConfirm, useVirtualList } from '@imbatranim/core'
+import { useConfirm, useSystem, useVirtualList } from '@imbatranim/ui'
 import type { ProcessInfo } from '../api/systemApi'
 import { useKillProcessMutation } from '../queries/systemQueries'
 import { matchesFilter } from '../lib/history'
@@ -29,6 +29,7 @@ export function ProcessTable({
   const [sortKey, setSortKey] = useState<SortKey>('cpuPercent')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [filter, setFilter] = useState('')
+  const system = useSystem()
   const killMutation = useKillProcessMutation()
   const { confirm, confirmDialog } = useConfirm()
 
@@ -97,21 +98,19 @@ export function ProcessTable({
       { pid: process.pid },
       {
         onSuccess: () =>
-          notify({
+          system.notify({
             title: 'Signal sent',
             body: `SIGTERM → ${process.name} (pid ${process.pid})`,
             level: 'info',
-            appId: 'system-monitor',
           }),
         onError: () =>
           // A notification rather than the old inline "not permitted", which sat in
           // a virtualized row that scrolls away — and did so in a window the user may
           // not be looking at.
-          notify({
+          system.notify({
             title: 'Could not end the process',
             body: `${process.name} (pid ${process.pid}) — it may belong to another user, or have already exited.`,
             level: 'error',
-            appId: 'system-monitor',
           }),
       }
     )

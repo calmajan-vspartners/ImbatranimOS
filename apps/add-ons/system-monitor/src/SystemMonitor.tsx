@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Activity, List, Info, type LucideIcon } from 'lucide-react'
-import { useWindowVisible } from '@imbatranim/core'
+import { useWindowVisible } from '@imbatranim/ui'
 import { useSystemAbout, useSystemProcesses, useSystemStats } from './queries/systemQueries'
 import { Gauge } from './components/Gauge'
 import { Sparkline } from './components/Sparkline'
@@ -30,11 +30,11 @@ function formatBytes(bytes: number): string {
 
 // Window contract: ComponentType<{ windowId: string }>, registered in
 // shared/registry/registry.tsx by the controller agent (see handoff).
-export function SystemMonitor({ windowId }: { windowId: string }) {
+export function SystemMonitor({ windowId: _windowId }: { windowId: string }) {
   const [tab, setTab] = useState<Tab>('overview')
   // Pause polling while minimized (window still mounted, display:none) so a
   // put-away monitor stops hitting the backend every 1.5s.
-  const visible = useWindowVisible(windowId)
+  const visible = useWindowVisible()
   const statsQuery = useSystemStats(visible)
   const processesQuery = useSystemProcesses(visible && tab === 'processes')
   const aboutQuery = useSystemAbout()

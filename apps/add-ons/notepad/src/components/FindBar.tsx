@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, CaseSensitive, Replace, X } from 'lucide-react'
-import { Button, cn } from '@imbatranim/core'
+import { Button, cn } from '@imbatranim/ui'
 
 /**
  * Find (and optionally replace) over the textarea.

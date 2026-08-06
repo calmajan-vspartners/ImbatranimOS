@@ -15,7 +15,7 @@
 import { useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { Point, SignatureMark } from '@pdfcore/engine'
-import { Button, Dialog, Input } from '@imbatranim/core'
+import { Button, Dialog, Input } from '@imbatranim/ui'
 import { useEditor } from './context'
 
 const PAD_W = 460

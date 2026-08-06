@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@imbatranim/core": "*",
+    "@imbatranim/ui": "*",
     "@pdfcore/engine": "*",
     "lucide-react": "^1.14.0",
     "pdfjs-dist": "^6.1.200"

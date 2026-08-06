@@ -8,13 +8,13 @@
  * raster sync) makes the filled widgets show in the rendered canvas, and is run
  * automatically after a flatten.
  *
- * Rebuilt in the OS design language: core `Input` / `Checkbox` / `Select` for the
+ * Rebuilt in the OS design language: SDK `Input` / `Checkbox` / `Select` for the
  * editors, `Button` for the actions, Tailwind token utilities for layout.
  */
 import { useCallback, useState } from 'react'
 import type { JSX } from 'react'
 import type { FieldInfo, FieldValue } from '@pdfcore/engine'
-import { Button, Checkbox, Input, Select, notify } from '@imbatranim/core'
+import { Button, Checkbox, Input, Select, useSystem } from '@imbatranim/ui'
 import { Check, Layers, Signature } from 'lucide-react'
 import { useReader } from '../app/context'
 import { useEditor } from '../editor/context'
@@ -22,6 +22,7 @@ import { useEditor } from '../editor/context'
 const msgOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 export function FormsPanel(): JSX.Element {
+  const system = useSystem()
   const { doc, goToPage, renderEpoch, markDirty } = useReader()
   const { syncRaster, openSignDialogForField, busy } = useEditor()
   const [tick, setTick] = useState(0)
@@ -67,7 +68,7 @@ export function FormsPanel(): JSX.Element {
   // reject; surface it instead of leaving an unhandled rejection with no feedback (M6).
   const applyToPage = () => {
     void syncRaster().catch((err) =>
-      notify({ appId: 'norpdf', level: 'error', title: 'Apply failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Apply failed', body: msgOf(err) })
     )
   }
 
@@ -77,7 +78,7 @@ export function FormsPanel(): JSX.Element {
       await syncRaster()
       bump()
     } catch (err) {
-      notify({ appId: 'norpdf', level: 'error', title: 'Flatten failed', body: msgOf(err) })
+      system.notify({ level: 'error', title: 'Flatten failed', body: msgOf(err) })
     }
   }
 

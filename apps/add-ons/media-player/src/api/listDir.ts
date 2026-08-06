@@ -1,9 +1,9 @@
-import { api } from '@imbatranim/core'
+import type { SystemHttp } from '@imbatranim/ui'
 
 /**
  * Mirrors the shape of file-manager's `GET /files` entries. Kept as a local
- * type — add-ons may import ONLY `@imbatranim/core`, never a sibling add-on
- * package, so this is redeclared here rather than imported.
+ * type — add-ons may not import a sibling add-on package, so this is
+ * redeclared here rather than imported.
  */
 type FsEntry = {
   name: string
@@ -74,12 +74,17 @@ export type FolderContents = {
  * lives among them; discarding them would mean a second listing request for the same
  * directory to find subtitles.
  *
- * A thin wrapper over core's `api`, mirroring file-manager's `GET /files?root=&path=`
- * contract without importing the file-manager package.
+ * A thin wrapper over the injected `system.http`, mirroring file-manager's
+ * `GET /files?root=&path=` contract without importing the file-manager
+ * package. Plain function, so the capability arrives as the first argument.
  */
-export async function listFolder(root: string, path: string): Promise<FolderContents> {
+export async function listFolder(
+  http: SystemHttp,
+  root: string,
+  path: string
+): Promise<FolderContents> {
   const folder = parentDir(path)
-  const res = await api.get<FsEntry[]>('/files', { params: { root, path: folder } })
+  const res = await http.get<FsEntry[]>('/files', { params: { root, path: folder } })
   const tracks: Track[] = []
   const siblings: string[] = []
   for (const entry of res.data) {

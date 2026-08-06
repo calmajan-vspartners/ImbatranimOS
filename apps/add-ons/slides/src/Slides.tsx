@@ -17,17 +17,14 @@ import {
   Button,
   Tooltip,
   cn,
-  downloadUrl,
-  fetchFileBytes,
   fileName,
-  notify,
   reportFileFailure,
-  uploadFileBytes,
   useElementSize,
   useFileDialog,
   useOpenIntent,
+  useSystem,
   useTopWindowKeydown,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { renderPptx } from './engine/pptx'
 import { extractNotes } from './engine/notes'
 import { ThumbnailRail } from './components/ThumbnailRail'
@@ -38,14 +35,15 @@ import { DEFAULT_ZOOM, resolveScale, stepZoom, zoomLabel, type Zoom } from './li
 const SLIDE_ASPECT = 9 / 16
 const SLIDE_GUTTER = 32
 
-export function Slides({ windowId }: { windowId: string }) {
+export function Slides({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, saveFile, fileDialog } = useFileDialog(windowId)
+  const { openFile, saveFile } = useFileDialog()
   const pickFile = () => void openFile({ extensions: ['pptx'] })
   // Starts true: the render effect runs as soon as a source is latched and only
   // flips these in async paths (avoids synchronous setState-in-effect).
@@ -93,7 +91,7 @@ export function Slides({ windowId }: { windowId: string }) {
     const renderTarget = document.createElement('div')
     ;(async () => {
       try {
-        const bytes = await fetchFileBytes(source.root, source.path)
+        const bytes = await system.fs.read(source.root, source.path)
         if (cancelled) return
         // Notes are read BEFORE the render, not after: pptx-preview consumes the
         // buffer (a post-render parse came back empty every time, because there
@@ -124,9 +122,8 @@ export function Slides({ windowId }: { windowId: string }) {
           setError(message)
           // Sticky, because a deck that came up blank in a background window is
           // otherwise indistinguishable from one nobody has looked at yet.
-          notify({
+          system.notify({
             level: 'warning',
-            appId: 'slides',
             title: 'Could not preview this presentation',
             body: `${docName} — ${message}`,
           })
@@ -136,8 +133,7 @@ export function Slides({ windowId }: { windowId: string }) {
       } catch (err) {
         if (!cancelled) {
           setError(
-            reportFileFailure('open', err, {
-              appId: 'slides',
+            reportFileFailure(system, 'open', err, {
               noun: 'presentation',
               name: docName,
             })
@@ -151,7 +147,7 @@ export function Slides({ windowId }: { windowId: string }) {
     return () => {
       cancelled = true
     }
-  }, [source, docName])
+  }, [source, docName, system])
 
   // ── Navigation ──────────────────────────────────────────────────────────────
 
@@ -178,13 +174,13 @@ export function Slides({ windowId }: { windowId: string }) {
   const prev = useCallback(() => goTo(current - 1), [goTo, current])
 
   // Keyboard navigation, genuinely scoped to the top-most slides window and
-  // skipped while the user is typing — via core's `useTopWindowKeydown`, not a
+  // skipped while the user is typing — via the SDK's `useTopWindowKeydown`, not a
   // bare `window.addEventListener`, which fired for every window at once and stole
   // arrows/Space/PageUp-Down OS-wide despite the comment that claimed otherwise
   // (T2-1). Bound directly rather than through the shortcut registry: these only
   // exist while a deck is open, and a row that appears and vanishes with a window
   // is worse than no row.
-  useTopWindowKeydown(windowId, (e) => {
+  useTopWindowKeydown((e) => {
     if (!source || slideCount === 0) return
     switch (e.key) {
       case 'ArrowRight':
@@ -284,7 +280,7 @@ export function Slides({ windowId }: { windowId: string }) {
 
   // ── Zoom ────────────────────────────────────────────────────────────────────
 
-  // Via core's `useElementSize`, a ref callback. The mount effect this replaces
+  // Via the SDK's `useElementSize`, a ref callback. The mount effect this replaces
   // never bound: the component early-returns an "Nothing open" tree until the open
   // intent is drained, so the pane did not exist on the first commit and `[]` deps
   // meant no retry. `viewport` stayed {0, 0}, which made the fit target {0, 0} —
@@ -361,25 +357,22 @@ export function Slides({ windowId }: { windowId: string }) {
       })
       if (!blob) throw new Error('The slide could not be rasterized.')
       const name = fileName(choice.path, suggested)
-      await uploadFileBytes(choice.root, choice.path, await blob.arrayBuffer(), name)
-      notify({
+      await system.fs.upload(choice.root, choice.path, await blob.arrayBuffer(), name)
+      system.notify({
         level: 'success',
-        appId: 'slides',
         title: 'Slide exported',
         body: `${name} — saved to /${choice.path.split('/').slice(0, -1).join('/') || 'home'}`,
       })
     } catch (err) {
-      setError(
-        reportFileFailure('save', err, { appId: 'slides', noun: 'slide image', name: docName })
-      )
+      setError(reportFileFailure(system, 'save', err, { noun: 'slide image', name: docName }))
     } finally {
       setExporting(false)
     }
-  }, [current, exporting, docName, saveFile])
+  }, [current, exporting, docName, saveFile, system])
 
   function triggerDownload() {
     if (!source) return
-    const url = downloadUrl(source.root, source.path)
+    const url = system.fs.downloadUrl(source.root, source.path)
     const a = document.createElement('a')
     a.href = url
     a.download = fileName(source.path, 'presentation.pptx')
@@ -396,7 +389,6 @@ export function Slides({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open a presentation
         </Button>
-        {fileDialog}
       </div>
     )
   }
@@ -633,8 +625,6 @@ export function Slides({ windowId }: { windowId: string }) {
           </>
         )}
       </div>
-
-      {fileDialog}
     </div>
   )
 }

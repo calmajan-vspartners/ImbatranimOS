@@ -31,13 +31,12 @@ import type { JSX } from 'react'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { configureWorker } from '@pdfcore/engine'
 import {
-  fetchFileBytes,
   fileName,
   installMapGetOrInsert,
-  notify,
   useFileDialog,
   useOpenIntent,
-} from '@imbatranim/core'
+  useSystem,
+} from '@imbatranim/ui'
 import { Download, FileText } from 'lucide-react'
 import { ReaderContext } from './app/context'
 import { useReaderController } from './app/useReaderController'
@@ -59,10 +58,11 @@ import './norpdf.css'
 installMapGetOrInsert()
 configureWorker(workerUrl)
 
-export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
-  const ctrl = useReaderController(windowId)
+export function NorPdf({ windowId: _windowId }: { windowId: string }): JSX.Element {
+  const system = useSystem()
+  const ctrl = useReaderController()
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
   const [dragging, setDragging] = useState(false)
   const [fetching, setFetching] = useState(false)
   const dragDepth = useRef(0)
@@ -78,7 +78,7 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
     void (async () => {
       setFetching(true)
       try {
-        const buf = await fetchFileBytes(source.root, source.path)
+        const buf = await system.fs.read(source.root, source.path)
         if (cancelled) return
         // Retain the source as the write-back target: Save writes back here,
         // rather than only offering a download.
@@ -88,11 +88,10 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
         })
       } catch (err) {
         if (!cancelled) {
-          notify({
+          system.notify({
             title: 'Could not open PDF',
             body: err instanceof Error ? err.message : String(err),
             level: 'error',
-            appId: 'norpdf',
           })
         }
       } finally {
@@ -102,7 +101,7 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [source, openBytes])
+  }, [source, openBytes, system])
 
   /* ── Manual open (OS picker + drag-drop) ───────────────────────────────── */
   // The OS's own Open dialog, browsing the CONTAINER's filesystem. It used to be
@@ -111,7 +110,7 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
   // and a dialog that browses the user's laptop instead of their home directory
   // is actively wrong here. The pick latches into the same store `useOpenIntent`
   // reads, so it runs the identical load path a File Manager double-click does.
-  const { openFile: pickFromOs, fileDialog } = useFileDialog(windowId)
+  const { openFile: pickFromOs } = useFileDialog()
   const pickFile = useCallback(() => {
     void pickFromOs({ extensions: ['pdf'] })
   }, [pickFromOs])
@@ -171,8 +170,6 @@ export function NorPdf({ windowId }: { windowId: string }): JSX.Element {
           onDragLeave={onDragLeave}
           onDrop={onDrop}
         >
-          {fileDialog}
-
           {/* 1. PART B annotate toolbar mounts via `toolbarSlot` when a doc is open. */}
           <TopBar onOpenClick={pickFile} toolbarSlot={ctrl.doc ? <AnnotateToolbar /> : undefined} />
 

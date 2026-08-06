@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@imbatranim/core": "*",
+    "@imbatranim/ui": "*",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-web-links": "^0.12.0",

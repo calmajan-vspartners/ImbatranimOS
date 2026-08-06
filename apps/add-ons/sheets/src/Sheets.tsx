@@ -3,17 +3,15 @@ import { AlertTriangle, Loader2, Save, Sheet as SheetIcon } from 'lucide-react'
 import {
   Button,
   Tooltip,
-  fetchFileBytes,
   fileName,
-  notify,
   reportFileFailure,
-  uploadFileBytes,
   useConfirm,
   useFileDialog,
   useOpenIntent,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { createSheetEngine, type SheetEngine } from './engine/univer'
 import { univerToXlsx, xlsxToUniver } from './engine/xlsxBridge'
 import { csvToUniver, univerToCsv } from './engine/csv'
@@ -22,14 +20,15 @@ import { lossyWarning, type LossyFeature } from './engine/xlsxScan'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-export function Sheets({ windowId }: { windowId: string }) {
+export function Sheets({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile } = useFileDialog()
   const { confirm, confirmDialog } = useConfirm()
   const pickFile = () => void openFile({ extensions: ['xlsx', 'csv'] })
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,7 +48,7 @@ export function Sheets({ windowId }: { windowId: string }) {
 
   // Reflect filename + dirty marker in the window title and warn before closing
   // with unsaved changes.
-  useUnsavedGuard(windowId, dirty, name)
+  useUnsavedGuard(dirty, name)
 
   // Boot Univer, fetch the file, map it through the ExcelJS bridge into the grid.
   useEffect(() => {
@@ -70,7 +69,7 @@ export function Sheets({ windowId }: { windowId: string }) {
         }
         engineRef.current = engine
         engine.onEdit(() => setDirty(true))
-        const bytes = await fetchFileBytes(source.root, source.path)
+        const bytes = await system.fs.read(source.root, source.path)
         if (cancelled) return
 
         if (csvFile) {
@@ -86,9 +85,8 @@ export function Sheets({ windowId }: { windowId: string }) {
           // which one will lose its charts.
           const warning = lossyWarning(found)
           if (warning) {
-            notify({
+            system.notify({
               level: 'warning',
-              appId: 'sheets',
               title: 'Some of this workbook cannot be saved',
               body: `${fileName(source.path, 'workbook.xlsx')} — ${warning}`,
             })
@@ -98,8 +96,7 @@ export function Sheets({ windowId }: { windowId: string }) {
       } catch (err) {
         if (!cancelled) {
           setError(
-            reportFileFailure('open', err, {
-              appId: 'sheets',
+            reportFileFailure(system, 'open', err, {
               noun: 'spreadsheet',
               name: fileName(source.path, 'workbook.xlsx'),
             })
@@ -114,7 +111,7 @@ export function Sheets({ windowId }: { windowId: string }) {
       engineRef.current = null
       engine?.destroy()
     }
-  }, [source])
+  }, [source, system])
 
   const handleSave = useCallback(async () => {
     const engine = engineRef.current
@@ -153,7 +150,7 @@ export function Sheets({ windowId }: { windowId: string }) {
       const bytes = isCsv
         ? (encoder.encode(univerToCsv(snapshot)).slice().buffer as ArrayBuffer)
         : await univerToXlsx(snapshot)
-      await uploadFileBytes(source.root, source.path, bytes, docName)
+      await system.fs.upload(source.root, source.path, bytes, docName)
       // Only on a resolved write, and only if no edit landed mid-flight — the
       // export ran before the upload, so those edits are not in these bytes.
       if (engine.editCount() === savedAtEditCount) setDirty(false)
@@ -161,8 +158,7 @@ export function Sheets({ windowId }: { windowId: string }) {
       // `dirty` is deliberately untouched: the bytes did not land, so the
       // workbook still differs from disk and the close guard stays armed.
       setError(
-        reportFileFailure('save', err, {
-          appId: 'sheets',
+        reportFileFailure(system, 'save', err, {
           noun: 'spreadsheet',
           name: fileName(source.path, isCsv ? 'data.csv' : 'workbook.xlsx'),
         })
@@ -170,10 +166,10 @@ export function Sheets({ windowId }: { windowId: string }) {
     } finally {
       setSaving(false)
     }
-  }, [source, saving, isCsv, confirm])
+  }, [source, saving, isCsv, confirm, system])
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
-  useSaveHotkey(windowId, handleSave)
+  useSaveHotkey(handleSave)
 
   if (!source) {
     return (
@@ -183,7 +179,6 @@ export function Sheets({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open a spreadsheet
         </Button>
-        {fileDialog}
       </div>
     )
   }

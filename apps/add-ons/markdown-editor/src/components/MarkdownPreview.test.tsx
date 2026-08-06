@@ -1,27 +1,35 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { SystemProvider, type SystemHandle } from '@imbatranim/ui'
 import { MarkdownPreview } from './MarkdownPreview'
 import { parseHeadings } from '../lib/outline'
 
 // `react-dom/server` renders without a DOM, so these run in the same node environment
 // as the pure tests — no jsdom, no testing-library, no new dev dependency for the one
 // property in this app that is a security property rather than a feature.
-vi.mock('@imbatranim/core', () => ({
-  cn: (...parts: unknown[]) => parts.filter((p) => typeof p === 'string').join(' '),
-  downloadUrl: (root: string, path: string) =>
-    `/api/files/download?root=${root}&path=${encodeURIComponent(path)}`,
-}))
+//
+// The preview reaches the OS only through the injected handle (brief 48), and only
+// for `fs.downloadUrl` — so the fake implements that one protocol member, shaped like
+// the real route, and nothing else. Touching any other capability should throw.
+const system = {
+  fs: {
+    downloadUrl: (root: string, path: string) =>
+      `/api/files/download?root=${root}&path=${encodeURIComponent(path)}`,
+  },
+} as unknown as SystemHandle
 
 function render(text: string, docDir = 'docs') {
   return renderToStaticMarkup(
-    <MarkdownPreview
-      text={text}
-      root="home"
-      docDir={docDir}
-      headings={parseHeadings(text)}
-      onToggleTaskLine={() => {}}
-      onOpenRelative={() => {}}
-    />
+    <SystemProvider system={system}>
+      <MarkdownPreview
+        text={text}
+        root="home"
+        docDir={docDir}
+        headings={parseHeadings(text)}
+        onToggleTaskLine={() => {}}
+        onOpenRelative={() => {}}
+      />
+    </SystemProvider>
   )
 }
 

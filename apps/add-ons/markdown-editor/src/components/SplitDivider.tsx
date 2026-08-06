@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { MAX_RATIO, MIN_RATIO } from '../store/markdownViewStore'
 
 /**

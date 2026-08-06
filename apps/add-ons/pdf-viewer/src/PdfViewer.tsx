@@ -12,13 +12,12 @@ import {
 import {
   Button,
   Tooltip,
-  downloadUrl,
-  fetchFileBytes,
   fileName,
   useElementSize,
   useFileDialog,
   useOpenIntent,
-} from '@imbatranim/core'
+  useSystem,
+} from '@imbatranim/ui'
 import { loadPdfDocument, type LoadedPdf, type PDFDocumentProxy } from './engine/pdf'
 
 const MIN_ZOOM = 0.25
@@ -26,14 +25,16 @@ const MAX_ZOOM = 4
 const ZOOM_STEP = 0.25
 const PAGE_GUTTER = 32 // horizontal breathing room used when fitting to width
 
-export function PdfViewer({ windowId }: { windowId: string }) {
+export function PdfViewer({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
+
   // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+  const source = useOpenIntent()
 
   // Lets the app open a file on its own instead of dead-ending on
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile } = useFileDialog()
   const pickFile = () => void openFile({ extensions: ['pdf'] })
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
@@ -66,7 +67,7 @@ export function PdfViewer({ windowId }: { windowId: string }) {
     let loaded: LoadedPdf | null = null
     ;(async () => {
       try {
-        const bytes = await fetchFileBytes(source.root, source.path)
+        const bytes = await system.fs.read(source.root, source.path)
         const pdf = await loadPdfDocument(bytes)
         if (cancelled) {
           pdf.destroy()
@@ -89,7 +90,7 @@ export function PdfViewer({ windowId }: { windowId: string }) {
       cancelled = true
       if (loaded) loaded.destroy()
     }
-  }, [source])
+  }, [source, system])
 
   // Render the current page whenever it, the zoom, or the fit target changes.
   // A stale render is cancelled before a new one starts (rapid paging / zoom).
@@ -154,7 +155,7 @@ export function PdfViewer({ windowId }: { windowId: string }) {
 
   function triggerDownload() {
     if (!source) return
-    const url = downloadUrl(source.root, source.path)
+    const url = system.fs.downloadUrl(source.root, source.path)
     const a = document.createElement('a')
     a.href = url
     a.download = fileName(source.path, 'document.pdf')
@@ -174,7 +175,6 @@ export function PdfViewer({ windowId }: { windowId: string }) {
         <Button size="sm" variant="primary" onClick={pickFile}>
           Open a PDF
         </Button>
-        {fileDialog}
       </div>
     )
   }

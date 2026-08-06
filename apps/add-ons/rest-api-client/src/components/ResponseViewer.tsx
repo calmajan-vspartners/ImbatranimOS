@@ -1,4 +1,4 @@
-import { ScrollArea, cn } from '@imbatranim/core'
+import { ScrollArea, cn } from '@imbatranim/ui'
 import { useMemo, useState } from 'react'
 import type { ProxyResponse } from '../types'
 import { base64ToBytes, base64ToText, formatBytes, prettyBody } from '../lib/body'

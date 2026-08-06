@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@imbatranim/core": "*",
+    "@imbatranim/ui": "*",
     "@univerjs/presets": "^0.25.1",
     "@univerjs/preset-sheets-core": "^0.25.1",
     "exceljs": "^4.4.0",

@@ -1,4 +1,4 @@
-import { Button, Input, Select, cn } from '@imbatranim/core'
+import { Button, Input, Select, cn } from '@imbatranim/ui'
 import {
   AlertTriangle,
   Download,

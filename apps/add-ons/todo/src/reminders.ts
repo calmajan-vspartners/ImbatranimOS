@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { claimScheduleOccurrence, notify } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { dueLabel, isDateOnly, startOfDay } from './due'
 import { peekTodos } from './queries/todosQueries'
 
@@ -38,6 +38,7 @@ function remember(key: string): void {
 }
 
 export function useTodoReminders(): void {
+  const system = useSystem()
   useEffect(() => {
     function check() {
       const now = Date.now()
@@ -60,12 +61,11 @@ export function useTodoReminders(): void {
           remember(key)
           // Cross-tab dedupe (brief 93): keyed on the due instant, so an edited
           // due date announces again and an unchanged one cannot double-toast.
-          void claimScheduleOccurrence('todo', `${todo.id}:today`, dueAt).then((claimed) => {
+          void system.schedule.claim('todo', `${todo.id}:today`, dueAt).then((claimed) => {
             if (!claimed) return
-            notify({
+            system.notify({
               title: 'Due today',
               body: todo.text,
-              appId: 'todo',
               level: todo.priority ? 'warning' : 'info',
             })
           })
@@ -76,12 +76,11 @@ export function useTodoReminders(): void {
         const key = `${todo.id}:${todo.dueAt}`
         if (notified.has(key)) continue
         remember(key)
-        void claimScheduleOccurrence('todo', `${todo.id}:due`, dueAt).then((claimed) => {
+        void system.schedule.claim('todo', `${todo.id}:due`, dueAt).then((claimed) => {
           if (!claimed) return
-          notify({
+          system.notify({
             title: 'Task due',
             body: `${todo.text} · ${dueLabel(dueAt, now)}`,
-            appId: 'todo',
             level: todo.priority ? 'warning' : 'info',
           })
         })
@@ -91,5 +90,5 @@ export function useTodoReminders(): void {
     check()
     const id = setInterval(check, CHECK_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [])
+  }, [system])
 }

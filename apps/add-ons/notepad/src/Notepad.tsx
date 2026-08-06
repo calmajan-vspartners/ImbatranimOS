@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileText, Loader2 } from 'lucide-react'
-import {
-  Button,
-  api,
-  notify,
-  openApp,
-  recordRecentFile,
-  useFileDialog,
-  useIntentStore,
-  useWindowStore,
-} from '@imbatranim/core'
+import { Button, useFileDialog, useSystem } from '@imbatranim/ui'
 import { NoteEditor } from './components/NoteEditor'
 import { useNotepadStore, type OpenDoc } from './store/notepadStore'
 import { useNotesRootHasFilesQuery } from './queries/notepadQueries'
@@ -27,17 +18,17 @@ function rootOf(value: unknown): NotepadRoot {
 }
 
 export function Notepad({ windowId }: { windowId: string }) {
+  const system = useSystem()
   const doc = useNotepadStore((s) => s.editorMap[windowId])
   const setEditor = useNotepadStore((s) => s.setEditor)
   const clearEditor = useNotepadStore((s) => s.clearEditor)
-  const openWindow = useWindowStore((s) => s.openWindow)
 
   // Which root to offer first. Asked once per session; see `lib/notepadRoot.ts` for
   // why the answer depends on whether the legacy notes root still has anything in it.
   const legacyQuery = useNotesRootHasFilesQuery()
   const initialRoot = defaultRoot(legacyQuery.data ?? null)
 
-  const { openFile, fileDialog } = useFileDialog(windowId)
+  const { openFile } = useFileDialog()
   const [checking, setChecking] = useState(false)
 
   /**
@@ -53,20 +44,20 @@ export function Notepad({ windowId }: { windowId: string }) {
       setChecking(true)
       try {
         const dir = next.path.includes('/') ? next.path.slice(0, next.path.lastIndexOf('/')) : ''
-        const res = await api.get<{ name: string; path: string; size?: number }[]>('/files', {
-          params: { root: next.root, path: dir },
-        })
+        const res = await system.http.get<{ name: string; path: string; size?: number }[]>(
+          '/files',
+          { params: { root: next.root, path: dir } }
+        )
         const entry = res.data.find((e) => e.path === next.path)
         const size = entry?.size ?? NaN
         if (isTooLarge(size)) {
-          notify({
+          system.notify({
             title: 'Too large for Notepad',
             body: `${next.path.split('/').pop()} is ${formatBytes(size)}. Notepad holds the whole file in memory, so anything over ${formatBytes(MAX_OPEN_BYTES)} types badly. Opening it in Code Editor instead.`,
             level: 'warning',
-            appId: 'notepad',
           })
           // Handed off rather than just refused: "no" with nowhere to go is not help.
-          openApp('code-editor', { openPath: next.path, root: next.root })
+          system.intents.openApp('code-editor', { openPath: next.path, root: next.root })
           return
         }
       } catch {
@@ -76,9 +67,9 @@ export function Notepad({ windowId }: { windowId: string }) {
         setChecking(false)
       }
       setEditor(windowId, next)
-      recordRecentFile(next.root, next.path, 'notepad')
+      system.fs.recordRecent(next.root, next.path)
     },
-    [setEditor, windowId]
+    [setEditor, system, windowId]
   )
 
   // Drain the one-shot open intent exactly once in a ref-guarded effect — never in a
@@ -88,9 +79,7 @@ export function Notepad({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (consumedRef.current) return
     consumedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as
-      | { openPath?: string; root?: string }
-      | undefined
+    const intent = system.intents.consume<{ openPath?: string; root?: string }>()
     if (intent?.openPath && !doc) {
       // The root comes from the intent: File Manager opens home files, and the
       // launcher can open either. Defaulting to `home` when absent matches every
@@ -126,14 +115,13 @@ export function Notepad({ windowId }: { windowId: string }) {
   }, [openFile, openDoc])
 
   function handleOpenInNewWindow(next: OpenDoc) {
-    const newWindowId = openWindow(
-      'notepad',
-      next.path.split('/').pop() || 'Notepad',
-      { width: 600, height: 500 },
-      { width: 400, height: 300 }
-    )
+    // Launching ourselves goes through the shell like any other app; title and
+    // size come from the manifest. The doc is seeded before the window mounts,
+    // so the new instance renders straight into the editor.
+    const newWindowId = system.intents.openApp('notepad')
+    if (!newWindowId) return
     setEditor(newWindowId, next)
-    recordRecentFile(next.root, next.path, 'notepad')
+    system.fs.recordRecent(next.root, next.path)
   }
 
   if (doc) {
@@ -171,8 +159,6 @@ export function Notepad({ windowId }: { windowId: string }) {
       >
         or start a new file in a new window
       </button>
-
-      {fileDialog}
     </div>
   )
 }

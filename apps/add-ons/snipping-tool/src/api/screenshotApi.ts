@@ -1,4 +1,4 @@
-import { api } from '@imbatranim/core'
+import type { SystemFs } from '@imbatranim/ui'
 
 /**
  * Where saved screenshots land, relative to the `home` files root
@@ -20,17 +20,10 @@ export function screenshotFilename(now: Date = new Date()): string {
   return `screenshot-${stamp}.png`
 }
 
-/** Upload a PNG blob to ~/Pictures/Screenshots via the authed files API. */
-export async function saveScreenshot(blob: Blob): Promise<string> {
+/** Upload a PNG blob to ~/Pictures/Screenshots via the fs capability. */
+export async function saveScreenshot(fs: SystemFs, blob: Blob): Promise<string> {
   const name = screenshotFilename()
   const path = `${SCREENSHOTS_DIR}/${name}`
-  const file = new File([blob], name, { type: 'image/png' })
-  const formData = new FormData()
-  formData.append('root', 'home')
-  formData.append('path', path)
-  formData.append('file', file)
-  await api.post('/files/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  await fs.upload('home', path, await blob.arrayBuffer(), name)
   return path
 }

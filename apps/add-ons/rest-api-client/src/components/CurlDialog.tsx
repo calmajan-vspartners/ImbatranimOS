@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Copy } from 'lucide-react'
-import { Button, Dialog, notify } from '@imbatranim/core'
+import { Button, Dialog, useSystem } from '@imbatranim/ui'
 import { CurlParseError, describeIgnored, parseCurl, toCurl } from '../lib/curl'
 import type { BodyMode, FormField, HeaderRow, HttpMethod } from '../types'
 import { newId } from '../lib/ui'
@@ -31,6 +31,7 @@ export function CurlDialog({
   }) => void
   onClose: () => void
 }) {
+  const system = useSystem()
   const [text, setText] = useState(mode === 'export' ? toCurl(request) : '')
   const [error, setError] = useState<string | null>(null)
 
@@ -52,13 +53,12 @@ export function CurlDialog({
   const copy = () => {
     void navigator.clipboard
       .writeText(text)
-      .then(() => notify({ level: 'success', title: 'Copied as curl', appId: 'rest-api-client' }))
+      .then(() => system.notify({ level: 'success', title: 'Copied as curl' }))
       .catch(() =>
-        notify({
+        system.notify({
           level: 'error',
           title: 'Could not copy',
           body: 'Select the text and copy it manually.',
-          appId: 'rest-api-client',
         })
       )
   }
@@ -82,11 +82,10 @@ export function CurlDialog({
       })),
     })
     const note = describeIgnored(ignored)
-    notify({
+    system.notify({
       level: note ? 'warning' : 'success',
       title: 'Request imported',
       body: note ?? undefined,
-      appId: 'rest-api-client',
     })
     onClose()
   }

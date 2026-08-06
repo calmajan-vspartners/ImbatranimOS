@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
-import { Button, Dialog, Input, ScrollArea, Select, cn } from '@imbatranim/core'
+import { Button, Dialog, Input, ScrollArea, Select, cn } from '@imbatranim/ui'
 import type { Environment } from '../types'
 import {
   MAX_ENVIRONMENTS,

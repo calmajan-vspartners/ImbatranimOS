@@ -4,7 +4,7 @@
  * OS design language. `icon` is a lucide-react component.
  */
 import type { ComponentType, JSX } from 'react'
-import { Button, Tooltip } from '@imbatranim/core'
+import { Button, Tooltip } from '@imbatranim/ui'
 
 export interface ToolButtonProps {
   icon: ComponentType<{ size?: number }>

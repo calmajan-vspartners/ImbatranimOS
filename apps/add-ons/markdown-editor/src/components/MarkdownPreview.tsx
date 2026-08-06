@@ -14,7 +14,7 @@ import Markdown, {
   type UrlTransform,
 } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, downloadUrl } from '@imbatranim/core'
+import { cn, useSystem } from '@imbatranim/ui'
 import { resolveRelative } from '../lib/assetPaths'
 import { hasFencedCode, type RehypePlugins } from '../lib/highlight'
 import type { Heading } from '../lib/outline'
@@ -117,6 +117,9 @@ export function MarkdownPreview({
   onOpenRelative: (path: string) => void
   className?: string
 }) {
+  // Only for `downloadUrl`: relative images and links resolve to real files,
+  // and the handle is what knows how to address them.
+  const { fs } = useSystem()
   const slugs = new Map(headings.map((h) => [h.line, h.slug]))
 
   /**
@@ -208,7 +211,12 @@ export function MarkdownPreview({
       const resolved = resolveRelative(docDir, raw)
       if (resolved) {
         return (
-          <img {...rest} src={downloadUrl(root, resolved)} alt={alt ?? ''} data-src-line={line} />
+          <img
+            {...rest}
+            src={fs.downloadUrl(root, resolved)}
+            alt={alt ?? ''}
+            data-src-line={line}
+          />
         )
       }
       if (raw.startsWith('data:')) {
@@ -264,7 +272,7 @@ export function MarkdownPreview({
         return (
           <a
             {...rest}
-            href={downloadUrl(root, resolved)}
+            href={fs.downloadUrl(root, resolved)}
             data-src-line={line}
             onClick={(event) => {
               event.preventDefault()

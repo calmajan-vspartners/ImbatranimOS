@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { notify, queryClient } from '@imbatranim/core'
+import { queryClient, useSystem, type SystemHandle } from '@imbatranim/ui'
 import {
   clearCompleted,
   createList,
@@ -50,19 +50,19 @@ function invalidateTodos(): void {
  * update back and the row simply sprang into its old state, which reads as the app
  * ignoring the click.
  */
-function reportFailure(action: string): void {
-  notify({
+function reportFailure(system: SystemHandle, action: string): void {
+  system.notify({
     title: `Could not ${action}`,
     body: 'The change was not saved. Your list has been put back the way it was.',
-    appId: 'todo',
     level: 'error',
   })
 }
 
 export function useTodosQuery(scope: Scope, options?: { refetchIntervalMs?: number }) {
+  const system = useSystem()
   return useQuery({
     queryKey: todosKey(scope),
-    queryFn: () => fetchTodos(scope),
+    queryFn: () => fetchTodos(system.http, scope),
     // The background service (brief 93) keeps the all-todos cache warm for the
     // due-date watcher even with no Todo window open — including hidden tabs,
     // where a due toast still has to land.
@@ -72,20 +72,24 @@ export function useTodosQuery(scope: Scope, options?: { refetchIntervalMs?: numb
 }
 
 export function useListsQuery() {
-  return useQuery({ queryKey: LISTS_KEY, queryFn: fetchLists })
+  const system = useSystem()
+  return useQuery({ queryKey: LISTS_KEY, queryFn: () => fetchLists(system.http) })
 }
 
 export function useCreateTodoMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (input: TodoInput) => createTodo(input),
-    onError: () => reportFailure('add that task'),
+    mutationFn: (input: TodoInput) => createTodo(system.http, input),
+    onError: () => reportFailure(system, 'add that task'),
     onSettled: invalidateTodos,
   })
 }
 
 export function useUpdateTodoMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: TodoPatch }) => updateTodo(id, patch),
+    mutationFn: ({ id, patch }: { id: number; patch: TodoPatch }) =>
+      updateTodo(system.http, id, patch),
     onMutate: async ({ id, patch }) => {
       await queryClient.cancelQueries({ queryKey: TODOS_ROOT })
       const snapshots = queryClient.getQueriesData<Todo[]>({ queryKey: TODOS_ROOT })
@@ -96,15 +100,16 @@ export function useUpdateTodoMutation() {
     },
     onError: (_err, _vars, ctx) => {
       ctx?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      reportFailure('save that change')
+      reportFailure(system, 'save that change')
     },
     onSettled: invalidateTodos,
   })
 }
 
 export function useDeleteTodoMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteTodo(id),
+    mutationFn: (id: number) => deleteTodo(system.http, id),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: TODOS_ROOT })
       const snapshots = queryClient.getQueriesData<Todo[]>({ queryKey: TODOS_ROOT })
@@ -115,48 +120,53 @@ export function useDeleteTodoMutation() {
     },
     onError: (_err, _id, ctx) => {
       ctx?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      reportFailure('delete that task')
+      reportFailure(system, 'delete that task')
     },
     onSettled: invalidateTodos,
   })
 }
 
 export function useReorderTodosMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (ids: number[]) => reorderTodos(ids),
-    onError: () => reportFailure('save the new order'),
+    mutationFn: (ids: number[]) => reorderTodos(system.http, ids),
+    onError: () => reportFailure(system, 'save the new order'),
     onSettled: invalidateTodos,
   })
 }
 
 export function useClearCompletedMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (listId: number | null) => clearCompleted(listId),
-    onError: () => reportFailure('clear the completed tasks'),
+    mutationFn: (listId: number | null) => clearCompleted(system.http, listId),
+    onError: () => reportFailure(system, 'clear the completed tasks'),
     onSettled: invalidateTodos,
   })
 }
 
 export function useCreateListMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (name: string) => createList(name),
-    onError: () => reportFailure('create that list'),
+    mutationFn: (name: string) => createList(system.http, name),
+    onError: () => reportFailure(system, 'create that list'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: LISTS_KEY }),
   })
 }
 
 export function useRenameListMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => renameList(id, name),
-    onError: () => reportFailure('rename that list'),
+    mutationFn: ({ id, name }: { id: number; name: string }) => renameList(system.http, id, name),
+    onError: () => reportFailure(system, 'rename that list'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: LISTS_KEY }),
   })
 }
 
 export function useDeleteListMutation() {
+  const system = useSystem()
   return useMutation({
-    mutationFn: (id: number) => deleteList(id),
-    onError: () => reportFailure('delete that list'),
+    mutationFn: (id: number) => deleteList(system.http, id),
+    onError: () => reportFailure(system, 'delete that list'),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: LISTS_KEY })
       // The todos that were in it are now unfiled, so their scopes are stale too.

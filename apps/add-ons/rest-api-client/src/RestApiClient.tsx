@@ -1,4 +1,4 @@
-import { fetchFileBytes, notify } from '@imbatranim/core'
+import { useSystem } from '@imbatranim/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RequestBuilder } from './components/RequestBuilder'
 import { ResponseViewer } from './components/ResponseViewer'
@@ -26,8 +26,6 @@ import { activeFields, buildMultipart, bytesToBase64, contentTypeFor } from './l
 type BuilderTab = 'headers' | 'body'
 type OpenDialog = 'env' | 'curl-import' | 'curl-export' | 'auth' | null
 
-const APP_ID = 'rest-api-client'
-
 /** Pull a readable message out of an axios-style error without importing axios. */
 function extractError(err: unknown): string {
   const e = err as { response?: { data?: { message?: unknown } }; message?: string }
@@ -38,6 +36,7 @@ function extractError(err: unknown): string {
 }
 
 export function RestApiClient(_props: { windowId: string }) {
+  const system = useSystem()
   const [method, setMethod] = useState<HttpMethod>('GET')
   const [url, setUrl] = useState('')
   const [headers, setHeaders] = useState<HeaderRow[]>([emptyHeaderRow()])
@@ -61,20 +60,23 @@ export function RestApiClient(_props: { windowId: string }) {
 
   useEffect(() => {
     let alive = true
-    void loadData().then((loaded) => {
+    void loadData(system.http).then((loaded) => {
       if (alive) setData(loaded)
     })
     return () => {
       alive = false
     }
-  }, [])
+  }, [system])
 
-  const persist = useCallback((next: RestClientData) => {
-    setData(next)
-    void saveData(next).catch((err) =>
-      notify({ level: 'error', title: 'Save failed', body: extractError(err), appId: APP_ID })
-    )
-  }, [])
+  const persist = useCallback(
+    (next: RestClientData) => {
+      setData(next)
+      void saveData(system.http, next).catch((err) =>
+        system.notify({ level: 'error', title: 'Save failed', body: extractError(err) })
+      )
+    },
+    [system]
+  )
 
   const env = activeEnvironment(data)
   const vars = useMemo(() => toVariables(env), [env])
@@ -137,8 +139,8 @@ export function RestApiClient(_props: { windowId: string }) {
     }
     if (bodyMode === 'file') {
       if (!filePath.trim()) throw new Error('Choose a file to send as the body')
-      // fetchFileBytes yields an ArrayBuffer; the multipart helpers work in views.
-      const bytes = new Uint8Array(await fetchFileBytes('home', filePath.trim()))
+      // fs.read yields an ArrayBuffer; the multipart helpers work in views.
+      const bytes = new Uint8Array(await system.fs.read('home', filePath.trim()))
       return { bodyBase64: bytesToBase64(bytes), contentType: contentTypeFor(filePath) }
     }
     // multipart
@@ -150,7 +152,7 @@ export function RestApiClient(_props: { windowId: string }) {
           // Variables work inside a form value too.
           return { name: field.name.trim(), value: interpolateOne(field.value, vars) }
         }
-        const bytes = new Uint8Array(await fetchFileBytes('home', field.filePath))
+        const bytes = new Uint8Array(await system.fs.read('home', field.filePath))
         return {
           name: field.name.trim(),
           bytes,
@@ -161,12 +163,12 @@ export function RestApiClient(_props: { windowId: string }) {
     )
     const { bytes, contentType } = buildMultipart(parts)
     return { bodyBase64: bytesToBase64(bytes), contentType }
-  }, [method, bodyMode, preview.body, filePath, form, vars])
+  }, [method, bodyMode, preview.body, filePath, form, vars, system])
 
   const handleSend = useCallback(async () => {
     if (!url.trim() || loading) return
     if (sendBlocked) {
-      notify({ level: 'error', title: 'Cannot send that', body: issueText, appId: APP_ID })
+      system.notify({ level: 'error', title: 'Cannot send that', body: issueText })
       return
     }
     setLoading(true)
@@ -184,7 +186,7 @@ export function RestApiClient(_props: { windowId: string }) {
         outHeaders['Content-Type'] = composed.contentType
       }
 
-      const res = await sendProxyRequest({
+      const res = await sendProxyRequest(system.http, {
         method,
         url: preview.url,
         headers: outHeaders,
@@ -199,7 +201,7 @@ export function RestApiClient(_props: { windowId: string }) {
     } finally {
       setLoading(false)
     }
-  }, [url, loading, sendBlocked, issueText, composeBody, preview, method, recordHistory])
+  }, [url, loading, sendBlocked, issueText, composeBody, preview, method, recordHistory, system])
 
   const handleSave = useCallback(() => {
     if (!url.trim()) return
@@ -215,8 +217,8 @@ export function RestApiClient(_props: { windowId: string }) {
       filePath: filePath || undefined,
     }
     persist({ ...dataRef.current, collections: [...dataRef.current.collections, saved] })
-    notify({ level: 'success', title: 'Saved to collection', appId: APP_ID })
-  }, [method, url, headers, body, bodyMode, form, filePath, persist])
+    system.notify({ level: 'success', title: 'Saved to collection' })
+  }, [method, url, headers, body, bodyMode, form, filePath, persist, system])
 
   /** Load a request into the builder — every field, so nothing is left over. */
   const loadRequest = useCallback(

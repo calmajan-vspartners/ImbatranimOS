@@ -5,19 +5,15 @@ import {
   ScrollArea,
   Tooltip,
   UploadTooLargeError,
-  api,
   cn,
-  fetchFileBytes,
   fileName,
-  notify,
-  openApp,
-  uploadFileBytes,
   useElementSize,
   useFileDialog,
   useOpenIntent,
   useSaveHotkey,
+  useSystem,
   useUnsavedGuard,
-} from '@imbatranim/core'
+} from '@imbatranim/ui'
 import { VIEW_MODE_OPTIONS, type ViewMode } from './viewMode'
 import { FormatToolbar } from './components/FormatToolbar'
 import { MarkdownPreview } from './components/MarkdownPreview'
@@ -46,16 +42,18 @@ const encoder = new TextEncoder()
 
 type FsEntry = { name: string; path: string; type: 'file' | 'directory' }
 
-export function MarkdownEditor({ windowId }: { windowId: string }) {
-  // One-shot open intent, drained by the shared hook (StrictMode-safe).
-  const source = useOpenIntent(windowId)
+export function MarkdownEditor({ windowId: _windowId }: { windowId: string }) {
+  const system = useSystem()
 
-  // Two dialogs, deliberately. The window-scoped one latches its choice into the
+  // One-shot open intent, drained by the shared hook (StrictMode-safe).
+  const source = useOpenIntent()
+
+  // Two pick paths, deliberately. The SDK dialog latches its choice into the
   // opened-file store, which is what makes "Open a Markdown file" work with no second
   // load path — and exactly what must NOT happen when picking an image to insert, since
-  // that would replace the document being edited.
-  const { openFile, fileDialog } = useFileDialog(windowId)
-  const { openFile: pickAsset, fileDialog: assetDialog } = useFileDialog()
+  // that would replace the document being edited. Assets go through the raw portal,
+  // which latches (and records) nothing.
+  const { openFile } = useFileDialog()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -71,7 +69,7 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
   // Elements the sync hooks measure. Held as state, not refs: a ref's `.current` does not
   // re-run an effect when the node attaches, and the pane mounts several renders after
   // the window does (the open intent is drained in an effect) — the exact class of bug
-  // core's `useElementSize` exists to document.
+  // the SDK's `useElementSize` exists to document.
   const [editorEl, setEditorEl] = useState<HTMLTextAreaElement | null>(null)
   const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null)
   const attachEditor = useCallback((el: HTMLTextAreaElement | null) => setEditorEl(el), [])
@@ -90,7 +88,7 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
   const showPreview = mode === 'preview' || mode === 'split'
   const headings = useMemo(() => parseHeadings(text), [text])
 
-  useUnsavedGuard(windowId, dirty, name)
+  useUnsavedGuard(dirty, name)
 
   // Load the file's bytes and decode as UTF-8 text whenever a new file is opened.
   useEffect(() => {
@@ -100,7 +98,7 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
       setLoading(true)
       setError(null)
       try {
-        const bytes = await fetchFileBytes(source.root, source.path)
+        const bytes = await system.fs.read(source.root, source.path)
         if (cancelled) return
         const decoded = decoder.decode(bytes)
         setText(decoded)
@@ -117,7 +115,7 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
     return () => {
       cancelled = true
     }
-  }, [source])
+  }, [source, system])
 
   const handleSave = useCallback(async () => {
     if (!source || saving) return
@@ -128,7 +126,7 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
     setSaving(true)
     setError(null)
     try {
-      await uploadFileBytes(source.root, source.path, encoder.encode(uploadedText), name)
+      await system.fs.upload(source.root, source.path, encoder.encode(uploadedText), name)
       if (textRef.current === uploadedText) setSavedText(uploadedText)
     } catch (err) {
       if (err instanceof UploadTooLargeError) {
@@ -140,10 +138,10 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
     } finally {
       setSaving(false)
     }
-  }, [source, saving, text, name])
+  }, [source, saving, system, text, name])
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
-  useSaveHotkey(windowId, handleSave)
+  useSaveHotkey(handleSave)
 
   const lineTops = useLineTops(editorEl, text, settings.syncScroll && mode === 'split')
   useScrollSync({
@@ -210,13 +208,16 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
   )
 
   /** Names already taken in a directory, plus whether it holds an `assets/` folder. */
-  const readDirectory = useCallback(async (root: string, path: string) => {
-    const res = await api.get<FsEntry[]>('/files', { params: { root, path } })
-    return {
-      names: res.data.map((entry) => entry.name),
-      hasAssets: res.data.some((entry) => entry.type === 'directory' && entry.name === 'assets'),
-    }
-  }, [])
+  const readDirectory = useCallback(
+    async (root: string, path: string) => {
+      const res = await system.http.get<FsEntry[]>('/files', { params: { root, path } })
+      return {
+        names: res.data.map((entry) => entry.name),
+        hasAssets: res.data.some((entry) => entry.type === 'directory' && entry.name === 'assets'),
+      }
+    },
+    [system]
+  )
 
   /**
    * Write an image into the document's own directory and link it relatively.
@@ -238,30 +239,28 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
         const base = safeBaseName(suggestedName)
         const file = uniqueName(taken, base, extensionForMime(mime))
         const target = targetDir === '' ? file : `${targetDir}/${file}`
-        await uploadFileBytes(source.root, target, bytes, file)
+        await system.fs.upload(source.root, target, bytes, file)
         insertAtCaret(imageMarkdown(base, relativeFrom(docDir, target)))
-        notify({
+        system.notify({
           title: 'Image added',
           body: `Written to ${target} and linked from the document.`,
           level: 'success',
-          appId: 'markdown-editor',
         })
       } catch (err) {
         const tooLarge = err instanceof UploadTooLargeError
         if (!tooLarge) console.error('[markdown-editor] failed to attach image', err)
-        notify({
+        system.notify({
           title: 'Could not add the image',
           body: tooLarge
             ? 'The image is larger than the upload limit.'
             : 'Writing the file next to the document failed.',
           level: 'error',
-          appId: 'markdown-editor',
         })
       } finally {
         setImageBusy(false)
       }
     },
-    [docDir, insertAtCaret, readDirectory, source]
+    [docDir, insertAtCaret, readDirectory, source, system]
   )
 
   const attachImageFile = useCallback(
@@ -278,7 +277,10 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
    */
   const insertExistingImage = useCallback(async () => {
     if (!source) return
-    const choice = await pickAsset({ title: 'Insert an image', extensions: [...IMAGE_EXTENSIONS] })
+    const choice = await system.fs.pickOpen({
+      title: 'Insert an image',
+      extensions: [...IMAGE_EXTENSIONS],
+    })
     if (!choice) return
     if (choice.root === source.root) {
       insertAtCaret(
@@ -288,14 +290,14 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
     }
     setImageBusy(true)
     try {
-      const bytes = await fetchFileBytes(choice.root, choice.path)
+      const bytes = await system.fs.read(choice.root, choice.path)
       const chosenName = fileName(choice.path)
       const extension = chosenName.includes('.') ? chosenName.split('.').pop()! : 'png'
       await attachImageBytes(bytes, chosenName, `image/${extension === 'jpg' ? 'jpeg' : extension}`)
     } finally {
       setImageBusy(false)
     }
-  }, [attachImageBytes, docDir, insertAtCaret, pickAsset, source])
+  }, [attachImageBytes, docDir, insertAtCaret, source, system])
 
   /** Scroll the editor so a heading is at the top, and put the caret on it. */
   const goToHeading = useCallback(
@@ -334,17 +336,16 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
     (path: string) => {
       if (!source) return
       if (/\.(md|markdown)$/i.test(path)) {
-        openApp('markdown-editor', { openPath: path, root: source.root })
+        system.intents.openApp('markdown-editor', { openPath: path, root: source.root })
         return
       }
-      notify({
+      system.notify({
         title: 'Linked file',
         body: `${path} — open it from Files. Markdown links open here directly.`,
         level: 'info',
-        appId: 'markdown-editor',
       })
     },
-    [source]
+    [source, system]
   )
 
   if (!source) {
@@ -358,7 +359,6 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
         >
           Open a Markdown file
         </Button>
-        {fileDialog}
       </div>
     )
   }
@@ -561,8 +561,6 @@ export function MarkdownEditor({ windowId }: { windowId: string }) {
           </>
         )}
       </div>
-
-      {assetDialog}
     </div>
   )
 }
