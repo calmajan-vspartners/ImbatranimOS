@@ -34,6 +34,9 @@ export function CommandPalette({ open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Monotonic id for the in-flight search. A slow earlier query must not overwrite
+  // a newer one when it finally resolves out of order.
+  const reqIdRef = useRef(0)
   // Only keyboard navigation should auto-scroll the active row into view.
   // Mouse hover also moves the selection (onMouseEnter below), and if that
   // scrolled too, wheel-scrolling — which drags the pointer across rows —
@@ -66,13 +69,16 @@ export function CommandPalette({ open, onClose }: Props) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
     debounceRef.current = setTimeout(async () => {
+      const reqId = ++reqIdRef.current
       setLoading(true)
       try {
         const results = await searchAllSources(query)
+        // Ignore a result that a newer query has already superseded.
+        if (reqId !== reqIdRef.current) return
         setItems(results)
         setSelectedIndex(0)
       } finally {
-        setLoading(false)
+        if (reqId === reqIdRef.current) setLoading(false)
       }
     }, 80)
 

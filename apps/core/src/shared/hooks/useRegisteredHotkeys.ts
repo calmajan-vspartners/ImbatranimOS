@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { useGlobalHotkeys } from './useGlobalHotkeys'
 import { useShortcutStore, type Shortcut } from './shortcutRegistry'
 
@@ -42,14 +42,11 @@ export function useRegisteredHotkeys(list: RegisteredHotkey[]): void {
   const register = useShortcutStore((s) => s.register)
   const unregister = useShortcutStore((s) => s.unregister)
 
-  // Bind on the set of keys, matching useGlobalHotkeys' own contract: handler
-  // identity churns every render because callers pass inline closures.
-  const keysKey = list.map((s) => s.keys).join('|')
-  const bindings = useMemo(
-    () => Object.fromEntries(list.map((s) => [s.keys, s.handler])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [keysKey]
-  )
+  // Build fresh bindings every render and hand them straight to useGlobalHotkeys,
+  // which keeps the latest set in a ref. Memoizing on the key SET (as before)
+  // froze the handlers at their first-render closures, so a handler over changing
+  // state ran stale.
+  const bindings = Object.fromEntries(list.map((s) => [s.keys, s.handler]))
   useGlobalHotkeys(bindings)
 
   const metaKey = list.map((s) => `${s.id}:${s.keys}:${s.description}:${s.scope}`).join('|')

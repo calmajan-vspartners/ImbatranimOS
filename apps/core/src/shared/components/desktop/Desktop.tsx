@@ -105,8 +105,8 @@ export function Desktop({ wallpaper }: DesktopProps) {
   return (
     <div
       ref={containerRef}
-      className="absolute top-0 right-0 bottom-[44px] left-0 w-full overflow-hidden"
-      style={WALLPAPER_STYLES[wallpaper]}
+      className="absolute top-0 right-0 left-0 w-full overflow-hidden"
+      style={{ ...WALLPAPER_STYLES[wallpaper], bottom: TASKBAR_HEIGHT }}
     >
       {/* Desktop icon container - using absolute positioning for children */}
       <div className="absolute inset-0 p-4">

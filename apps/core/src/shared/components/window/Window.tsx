@@ -1,5 +1,5 @@
-import React, { useRef, useCallback, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import React, { Suspense, useRef, useCallback, useState } from 'react'
+import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useDrag } from '@use-gesture/react'
 import { Minus, Square, X, Copy } from 'lucide-react'
@@ -10,14 +10,16 @@ import {
   detectSnapRegion,
   TASKBAR_HEIGHT,
 } from '../../store/windowStore'
+import { APP_REGISTRY } from '../../registry/registry'
 import { SnapOverlay } from './SnapOverlay'
 
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
+const FALLBACK_MIN_SIZE = { width: 240, height: 180 }
+
 type WindowProps = {
   windowId: string
-  minSize: { width: number; height: number }
-  children: React.ReactNode
+  appId: string
   isFocused: boolean
 }
 
@@ -126,12 +128,18 @@ function ResizeHandle({ direction, instanceId, minSize }: ResizeHandleProps) {
   )
 }
 
-export const Window = React.memo(function Window({
-  windowId,
-  minSize,
-  children,
-  isFocused,
-}: WindowProps) {
+export const Window = React.memo(function Window({ windowId, appId, isFocused }: WindowProps) {
+  // Look the app up here, inside the memoized window, rather than building the
+  // <AppComponent> subtree in WindowContainer and passing it as `children`. A
+  // freshly-built `children` element changes identity every render, which
+  // defeated React.memo entirely: every drag frame reconciled every app subtree.
+  // Now the props are all stable primitives, so a window that is not moving bails
+  // out of the memo, and the dragged window re-renders only via its own store
+  // subscription below.
+  const app = APP_REGISTRY.find((a) => a.id === appId)
+  const AppComponent = app?.component
+  const minSize = app?.minSize ?? FALLBACK_MIN_SIZE
+
   const instance = useWindowStore((s) => s.windows.find((w) => w.id === windowId))
   const closeWindow = useWindowStore((s) => s.closeWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
@@ -224,100 +232,104 @@ export const Window = React.memo(function Window({
       {/* Snap preview overlay — rendered in portal so it covers the full viewport */}
       {snapPreview && createPortal(<SnapOverlay region={snapPreview} />, document.body)}
 
-      <AnimatePresence>
-        <motion.div
-          key={instance.id}
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.1 } }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          style={{
-            position: 'fixed',
-            left: instance.position.x,
-            top: instance.position.y,
-            width: instance.size.width,
-            height: instance.size.height,
-            zIndex: instance.zIndex,
-            display: instance.isVisible ? 'flex' : 'none',
-            flexDirection: 'column',
-            fontFamily: "'Space Grotesk', sans-serif",
-          }}
+      <motion.div
+        key={instance.id}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+        style={{
+          position: 'fixed',
+          left: instance.position.x,
+          top: instance.position.y,
+          width: instance.size.width,
+          height: instance.size.height,
+          zIndex: instance.zIndex,
+          display: instance.isVisible ? 'flex' : 'none',
+          flexDirection: 'column',
+          fontFamily: "'Space Grotesk', sans-serif",
+        }}
+        className={cn(
+          'bg-surface-container-low overflow-hidden',
+          isFocused
+            ? 'border-primary border shadow-[0_18px_50px_rgba(0,0,0,0.5)]'
+            : 'border-outline-variant border shadow-[0_10px_30px_rgba(0,0,0,0.35)]'
+        )}
+        onClick={handleWindowClick}
+      >
+        {/* Resize handles — only when not maximized */}
+        {!instance.isMaximized && (
+          <>
+            {(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeDirection[]).map((dir) => (
+              <ResizeHandle key={dir} direction={dir} instanceId={instance.id} minSize={minSize} />
+            ))}
+          </>
+        )}
+
+        {/* Title bar */}
+        <div
+          {...titleBarBind()}
+          style={{ touchAction: 'none', userSelect: 'none' }}
           className={cn(
-            'bg-surface-container-low overflow-hidden',
+            'flex h-[30px] shrink-0 items-center justify-between border-b pr-1 pl-3',
             isFocused
-              ? 'border-primary border shadow-[0_18px_50px_rgba(0,0,0,0.5)]'
-              : 'border-outline-variant border shadow-[0_10px_30px_rgba(0,0,0,0.35)]'
+              ? 'bg-surface-container-high border-outline-variant text-on-surface'
+              : 'bg-surface-container border-outline-variant text-on-surface-variant'
           )}
-          onClick={handleWindowClick}
         >
-          {/* Resize handles — only when not maximized */}
-          {!instance.isMaximized && (
-            <>
-              {(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeDirection[]).map((dir) => (
-                <ResizeHandle
-                  key={dir}
-                  direction={dir}
-                  instanceId={instance.id}
-                  minSize={minSize}
-                />
-              ))}
-            </>
-          )}
-
-          {/* Title bar */}
-          <div
-            {...titleBarBind()}
-            style={{ touchAction: 'none', userSelect: 'none' }}
-            className={cn(
-              'flex h-[30px] shrink-0 items-center justify-between border-b pr-1 pl-3',
-              isFocused
-                ? 'bg-surface-container-high border-outline-variant text-on-surface'
-                : 'bg-surface-container border-outline-variant text-on-surface-variant'
-            )}
-          >
-            {/* Left: accent tick + title */}
-            <span className="flex min-w-0 items-center gap-2 pr-2 select-none">
-              <span
-                className={cn(
-                  'h-2.5 w-2.5 shrink-0',
-                  isFocused ? 'bg-primary' : 'bg-outline-variant'
-                )}
-              />
-              <span className="truncate text-[12px] leading-none font-semibold tracking-tight">
-                {instance.title}
-              </span>
+          {/* Left: accent tick + title */}
+          <span className="flex min-w-0 items-center gap-2 pr-2 select-none">
+            <span
+              className={cn(
+                'h-2.5 w-2.5 shrink-0',
+                isFocused ? 'bg-primary' : 'bg-outline-variant'
+              )}
+            />
+            <span className="truncate text-[12px] leading-none font-semibold tracking-tight">
+              {instance.title}
             </span>
+          </span>
 
-            {/* Right: window controls */}
-            <div
-              className="flex shrink-0 items-center gap-[2px]"
-              onClick={(e) => e.stopPropagation()}
+          {/* Right: window controls */}
+          <div
+            className="flex shrink-0 items-center gap-[2px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TitleBarButton onClick={handleHide} title="Minimize">
+              <Minus size={13} strokeWidth={2} />
+            </TitleBarButton>
+            <TitleBarButton
+              onClick={handleMaximizeToggle}
+              title={instance.isMaximized ? 'Restore' : 'Maximize'}
             >
-              <TitleBarButton onClick={handleHide} title="Minimize">
-                <Minus size={13} strokeWidth={2} />
-              </TitleBarButton>
-              <TitleBarButton
-                onClick={handleMaximizeToggle}
-                title={instance.isMaximized ? 'Restore' : 'Maximize'}
-              >
-                {instance.isMaximized ? (
-                  <Copy size={12} strokeWidth={2} />
-                ) : (
-                  <Square size={11} strokeWidth={2} />
-                )}
-              </TitleBarButton>
-              <TitleBarButton onClick={handleClose} title="Close" isClose>
-                <X size={13} strokeWidth={2} />
-              </TitleBarButton>
-            </div>
+              {instance.isMaximized ? (
+                <Copy size={12} strokeWidth={2} />
+              ) : (
+                <Square size={11} strokeWidth={2} />
+              )}
+            </TitleBarButton>
+            <TitleBarButton onClick={handleClose} title="Close" isClose>
+              <X size={13} strokeWidth={2} />
+            </TitleBarButton>
           </div>
+        </div>
 
-          {/* Window body */}
-          <div className="bg-surface-container-lowest text-on-surface min-h-0 flex-1 overflow-auto">
-            {children}
-          </div>
-        </motion.div>
-      </AnimatePresence>
+        {/* Window body */}
+        <div className="bg-surface-container-lowest text-on-surface min-h-0 flex-1 overflow-auto">
+          {AppComponent ? (
+            <Suspense
+              fallback={
+                <div className="text-on-surface-variant flex h-full items-center justify-center p-3 text-sm">
+                  Loading…
+                </div>
+              }
+            >
+              <AppComponent windowId={windowId} />
+            </Suspense>
+          ) : (
+            <div className="text-on-surface-variant p-3 text-sm">Unknown app: {appId}</div>
+          )}
+        </div>
+      </motion.div>
     </>
   )
 })

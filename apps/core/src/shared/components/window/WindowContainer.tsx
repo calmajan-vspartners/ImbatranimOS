@@ -1,62 +1,48 @@
-import { Suspense, useMemo } from 'react'
-import { useWindowStore } from '../../store/windowStore'
+import { useShallow } from 'zustand/shallow'
+import { topVisibleWindowId, useWindowStore } from '../../store/windowStore'
 import { Window } from './Window'
-import { APP_REGISTRY } from '../../registry/registry'
+
+// Field separator for the per-window projection key. `␟` (SYMBOL FOR UNIT
+// SEPARATOR) cannot occur in a uuid or an app-id slug, so splitting is safe.
+const SEP = '␟'
+
+/**
+ * Subscribe to a projection that deliberately omits `position`/`size`, so the
+ * ~60fps geometry churn of a drag/resize does NOT re-render this container. Only
+ * a change to identity, stacking order (zIndex) or visibility does. `useShallow`
+ * caches the array while the projected strings are unchanged — projecting to
+ * *objects* would defeat it (freshly-built objects are never shallow-equal), the
+ * same trap the raw-array subscription used to fall into.
+ */
+function useOrderedWindows(): { id: string; appId: string; zIndex: number; isVisible: boolean }[] {
+  const keys = useWindowStore(
+    useShallow((s) =>
+      s.windows.map((w) => `${w.id}${SEP}${w.appId}${SEP}${w.zIndex}${SEP}${w.isVisible ? 1 : 0}`)
+    )
+  )
+  return keys
+    .map((k) => {
+      const [id, appId, zIndex, isVisible] = k.split(SEP)
+      return { id, appId, zIndex: Number(zIndex), isVisible: isVisible === '1' }
+    })
+    .sort((a, b) => a.zIndex - b.zIndex)
+}
 
 export function WindowContainer() {
-  // Subscribe to the raw windows array — a reference that only changes when the
-  // store actually updates. We must NOT project into a fresh array of objects
-  // inside the selector: `useShallow` compares only one level deep, so an array
-  // of freshly-built objects is never seen as equal. That makes the
-  // useSyncExternalStore snapshot change on every call ("getSnapshot should be
-  // cached" → infinite render loop the moment a window is open). The projection
-  // is done below in useMemo instead, keyed off the stable array reference.
-  const windows = useWindowStore((s) => s.windows)
-
-  const orderedWindows = useMemo(
-    () =>
-      windows
-        .map((w) => ({
-          id: w.id,
-          appId: w.appId,
-          zIndex: w.zIndex,
-          isVisible: w.isVisible,
-        }))
-        .sort((a, b) => a.zIndex - b.zIndex),
-    [windows]
-  )
-  const maxZIndex = windows.length > 0 ? Math.max(...windows.map((w) => w.zIndex)) : 0
+  const orderedWindows = useOrderedWindows()
+  // The one shared definition of "focused" — taskbar highlight, window chrome and
+  // hotkey target all read this same helper so they can never disagree.
+  const focusedId = topVisibleWindowId()
 
   return (
-    <>
-      {orderedWindows.map((w) => {
-        const app = APP_REGISTRY.find((a) => a.id === w.appId)
-        const AppComponent = app?.component
-        const minSize = app?.minSize ?? { width: 240, height: 180 }
-
-        return (
-          <Window
-            key={w.id}
-            windowId={w.id}
-            minSize={minSize}
-            isFocused={w.zIndex === maxZIndex && w.isVisible}
-          >
-            {AppComponent ? (
-              <Suspense
-                fallback={
-                  <div className="text-on-surface-variant flex h-full items-center justify-center p-3 text-sm">
-                    Loading…
-                  </div>
-                }
-              >
-                <AppComponent windowId={w.id} />
-              </Suspense>
-            ) : (
-              <div className="text-on-surface-variant p-3 text-sm">Unknown app: {w.appId}</div>
-            )}
-          </Window>
-        )
-      })}
-    </>
+    // Own stacking context: window zIndex grows unboundedly (persisted, bumped on
+    // every focus), so left in the root context it would climb past portaled
+    // overlays and swallow dialogs/selects/tooltips. `isolation:isolate` confines
+    // the whole window band to this wrapper; overlays sit in a higher band above it.
+    <div style={{ isolation: 'isolate' }}>
+      {orderedWindows.map((w) => (
+        <Window key={w.id} windowId={w.id} appId={w.appId} isFocused={w.id === focusedId} />
+      ))}
+    </div>
   )
 }

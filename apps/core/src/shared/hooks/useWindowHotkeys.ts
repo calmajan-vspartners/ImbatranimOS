@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useWindowStore } from '../store/windowStore'
+import { topVisibleWindowId, useWindowStore } from '../store/windowStore'
 import { useRegisteredHotkeys } from './useRegisteredHotkeys'
 
 /**
@@ -24,45 +24,33 @@ export function useWindowHotkeys(): void {
   const bindings = useMemo(
     () => ({
       cycle: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
+        const visible = getWindows().filter((w) => w.isVisible)
         if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
+        const focusedId = topVisibleWindowId()
         const sorted = [...visible].sort((a, b) => a.zIndex - b.zIndex)
-        if (!focused) {
+        if (!focusedId) {
           focusWindow(sorted[sorted.length - 1].id)
           return
         }
-        const idx = sorted.findIndex((w) => w.id === focused.id)
+        const idx = sorted.findIndex((w) => w.id === focusedId)
         const next = sorted[(idx + 1) % sorted.length]
         focusWindow(next.id)
       },
 
       close: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
-        if (focused) closeWindow(focused.id)
+        const focusedId = topVisibleWindowId()
+        if (focusedId) closeWindow(focusedId)
       },
 
       minimise: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
-        if (focused) hideWindow(focused.id)
+        const focusedId = topVisibleWindowId()
+        if (focusedId) hideWindow(focusedId)
       },
 
       maximise: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
-        if (visible.length === 0) return
-        const maxZ = Math.max(...visible.map((w) => w.zIndex))
-        const focused = visible.find((w) => w.zIndex === maxZ)
+        const focusedId = topVisibleWindowId()
+        if (!focusedId) return
+        const focused = getWindows().find((w) => w.id === focusedId)
         if (!focused) return
         if (focused.isMaximized) {
           restoreWindow(focused.id)

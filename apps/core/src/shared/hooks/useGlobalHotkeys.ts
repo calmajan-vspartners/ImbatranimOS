@@ -1,4 +1,5 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
+import { isTextEntry } from './shortcutRegistry'
 
 /**
  * Maps a key string like "mod+k", "esc", "alt+tab", "mod+`", "mod+w", "mod+m"
@@ -77,30 +78,34 @@ function eventMatchesBinding(e: KeyboardEvent, parsed: ParsedKey): boolean {
  *   useGlobalHotkeys({ 'mod+k': () => openPalette(), 'esc': () => closePalette() })
  */
 export function useGlobalHotkeys(bindings: HotkeyBinding): void {
-  const stableBindings = bindings
-  // Re-bind only when the SET of hotkeys changes; handler identity churn per
-  // render is deliberately ignored (callers pass inline closures).
-  const bindingsKey = JSON.stringify(Object.keys(stableBindings))
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      for (const [bindingStr, handler] of Object.entries(stableBindings)) {
-        const parsed = parseBinding(bindingStr)
-        if (eventMatchesBinding(e, parsed)) {
-          e.preventDefault()
-          handler()
-          return
-        }
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bindingsKey]
-  )
+  // Keep the latest bindings in a ref, refreshed every render, and let a single
+  // permanent listener read `ref.current`. The old code memoized the handler on
+  // the key SET only, so a handler closing over changing state was frozen at its
+  // first-render value and fired stale — the same bug `useSaveHotkey` avoids with
+  // a ref.
+  const bindingsRef = useRef(bindings)
+  useEffect(() => {
+    bindingsRef.current = bindings
+  })
 
   useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      for (const [bindingStr, handler] of Object.entries(bindingsRef.current)) {
+        const parsed = parseBinding(bindingStr)
+        if (!eventMatchesBinding(e, parsed)) continue
+        // A bare (or shift-only) key must not be stolen from a text field: while
+        // the user is typing, `space`/`m`/`f`/arrows belong to the input. Modifier
+        // combos (Ctrl/⌘/Alt) are real shortcuts and still fire everywhere.
+        const bare = !parsed.mod && !parsed.ctrl && !parsed.alt
+        if (bare && isTextEntry(e.target)) continue
+        e.preventDefault()
+        handler()
+        return
+      }
+    }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleKeyDown])
+  }, [])
 }

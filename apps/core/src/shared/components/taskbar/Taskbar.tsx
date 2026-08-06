@@ -1,17 +1,19 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef } from 'react'
+import { useShallow } from 'zustand/shallow'
 import { Search } from 'lucide-react'
 import { cn } from '../../../lib/cn'
-import { useWindowStore } from '../../store/windowStore'
+import { TASKBAR_HEIGHT, topVisibleWindowId, useWindowStore } from '../../store/windowStore'
 import { usePaletteStore } from '../../store/paletteStore'
 import { APP_REGISTRY } from '../../registry/registry'
 import { Logo } from '../brand/Logo'
 import { StartMenu } from './StartMenu'
 import { Tray } from './Tray'
 
-export const TASKBAR_HEIGHT = 44
+// Field separator for the task-button projection; cannot occur in a uuid, slug,
+// or realistic window title. Title goes last and is rejoined so a stray one is harmless.
+const SEP = '␟'
 
 export function Taskbar() {
-  const windows = useWindowStore((s) => s.windows)
   const openWindow = useWindowStore((s) => s.openWindow)
   const showWindow = useWindowStore((s) => s.showWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
@@ -21,12 +23,21 @@ export function Taskbar() {
   const [startOpen, setStartOpen] = useState(false)
   const startBtnRef = useRef<HTMLButtonElement>(null)
 
-  // The focused window is the topmost visible one.
-  const focusedId = useMemo(() => {
-    const visible = windows.filter((w) => w.isVisible)
-    if (visible.length === 0) return null
-    return visible.reduce((top, w) => (w.zIndex > top.zIndex ? w : top)).id
-  }, [windows])
+  // Project only what a task button renders (id/appId/visibility/title) — NOT
+  // position or size — so a drag/resize does not re-render the whole taskbar
+  // every frame. `useShallow` caches the array while those strings are unchanged.
+  const tasks = useWindowStore(
+    useShallow((s) =>
+      s.windows.map((w) => `${w.id}${SEP}${w.appId}${SEP}${w.isVisible ? 1 : 0}${SEP}${w.title}`)
+    )
+  ).map((k) => {
+    const [id, appId, isVisible, ...titleParts] = k.split(SEP)
+    return { id, appId, isVisible: isVisible === '1', title: titleParts.join(SEP) }
+  })
+
+  // Focus from the shared helper (topmost VISIBLE window). Selecting the derived
+  // id keeps this re-rendering only when focus changes, not on every drag frame.
+  const focusedId = useWindowStore(() => topVisibleWindowId())
 
   function openApp(appId: string) {
     const app = APP_REGISTRY.find((a) => a.id === appId)
@@ -35,12 +46,12 @@ export function Taskbar() {
   }
 
   function handleTaskClick(id: string) {
-    const win = windows.find((w) => w.id === id)
+    const win = useWindowStore.getState().windows.find((w) => w.id === id)
     if (!win) return
     if (!win.isVisible) {
       showWindow(id)
       focusWindow(id)
-    } else if (win.id === focusedId) {
+    } else if (win.id === topVisibleWindowId()) {
       hideWindow(id) // minimize the focused window
     } else {
       focusWindow(id)
@@ -105,7 +116,7 @@ export function Taskbar() {
 
       {/* Running-window buttons */}
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5">
-        {windows.map((win) => {
+        {tasks.map((win) => {
           const app = APP_REGISTRY.find((a) => a.id === win.appId)
           const Icon = app?.icon
           const isFocused = win.id === focusedId

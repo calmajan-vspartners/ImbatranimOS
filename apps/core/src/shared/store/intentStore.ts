@@ -4,6 +4,8 @@ type IntentStore = {
   intents: Map<string, unknown>
   setIntent: (windowId: string, payload: unknown) => void
   consumeIntent: (windowId: string) => unknown
+  /** Drop any pending intent for a window without reading it (close cleanup). */
+  clearIntent: (windowId: string) => void
 }
 
 export const useIntentStore = create<IntentStore>((set, get) => ({
@@ -27,5 +29,14 @@ export const useIntentStore = create<IntentStore>((set, get) => ({
       })
     }
     return intent
+  },
+
+  clearIntent: (windowId) => {
+    if (!get().intents.has(windowId)) return
+    set((state) => {
+      const newIntents = new Map(state.intents)
+      newIntents.delete(windowId)
+      return { intents: newIntents }
+    })
   },
 }))
