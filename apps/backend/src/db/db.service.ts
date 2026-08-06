@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Database from 'better-sqlite3';
+import { renameSync, rmSync } from 'fs';
 import type { Env } from '../config/env.schema';
 
 @Injectable()
@@ -13,6 +14,61 @@ export class DbService implements OnModuleInit {
     this.db = new Database(this.config.get('DB_PATH'));
     this.db.pragma('journal_mode = WAL');
     this.migrate();
+  }
+
+  /** Where the database file lives. Backup and restore both need this. */
+  path(): string {
+    return this.config.get('DB_PATH');
+  }
+
+  /**
+   * Write a **consistent** copy of the database to `destPath` (brief 80).
+   *
+   * The database sits inside the home volume that a backup tars up, and it is in
+   * WAL mode. Copying `db.sqlite` with `tar` while the process is writing gives a
+   * torn file *and* silently omits the `-wal` — the archive would look fine and
+   * restore to a database missing the most recent writes, or refusing to open.
+   *
+   * `VACUUM INTO` is SQLite's own answer: it builds a fresh, checkpointed,
+   * single-file database from a read transaction, so the snapshot is a valid
+   * point-in-time copy with no sidecar files to keep together. The destination
+   * is **bound as a parameter**, not interpolated into the SQL text.
+   */
+  snapshotTo(destPath: string): void {
+    this.db.prepare('VACUUM INTO ?').run(destPath);
+  }
+
+  /**
+   * Swap the live database file for `sourcePath` and reopen (brief 80's restore).
+   *
+   * Renaming a file out from under an open SQLite connection does **not** switch
+   * the connection to the new file: the descriptor follows the inode, so every
+   * later query would read and write a ghost that no longer has a name. The
+   * connection therefore has to be closed, the file replaced, and a new
+   * connection opened — which is safe for callers because every service reaches
+   * the handle through `this.db.db` at call time rather than capturing it.
+   *
+   * The `-wal`/`-shm` sidecars of the *old* database are removed: they belong to
+   * the file being replaced, and leaving them next to a different database is how
+   * you get a "file is not a database" on the next boot. `migrate()` runs after
+   * reopening so a backup taken by an older image is brought forward.
+   */
+  replaceWith(sourcePath: string): void {
+    const target = this.path();
+    this.db.close();
+    try {
+      renameSync(sourcePath, target);
+      for (const suffix of ['-wal', '-shm']) {
+        rmSync(target + suffix, { force: true });
+      }
+    } finally {
+      // Reopen no matter what: a failed swap must not leave the process without
+      // a database, or every subsequent request 500s including the login that
+      // would let the user try again.
+      this.db = new Database(target);
+      this.db.pragma('journal_mode = WAL');
+      this.migrate();
+    }
   }
 
   /**

@@ -249,6 +249,11 @@ export const Window = React.memo(function Window({
               : 'border-outline-variant border shadow-[0_10px_30px_rgba(0,0,0,0.35)]'
           )}
           onClick={handleWindowClick}
+          // Addressable from the outside. Every UI probe so far has had to guess
+          // at a window by its text; the compositor knowing its own id costs a
+          // string and is not part of any app's API.
+          data-window-id={instance.id}
+          data-app-id={instance.appId}
         >
           {/* Resize handles — only when not maximized */}
           {!instance.isMaximized && (

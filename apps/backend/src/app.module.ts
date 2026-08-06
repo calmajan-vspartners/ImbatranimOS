@@ -15,6 +15,8 @@ import { ArchiveModule } from './modules/archive/archive.module';
 import { ClockModule } from './modules/clock/clock.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ScheduleModule } from './modules/schedule/schedule.module';
+import { BackupModule } from './modules/backup/backup.module';
+import { LogsModule } from './modules/logs/logs.module';
 
 // Prod image only: serve the built frontend from STATIC_ROOT on the API
 // port, with the SPA index.html fallback. API + health are excluded so
@@ -34,6 +36,7 @@ const staticModules: DynamicModule[] = process.env.STATIC_ROOT
     ...staticModules,
     ConfigModule,
     DbModule,
+    LogsModule,
     AuthModule,
     StickyNotesModule,
     TodosModule,
@@ -47,6 +50,7 @@ const staticModules: DynamicModule[] = process.env.STATIC_ROOT
     ClockModule,
     CalendarModule,
     ScheduleModule,
+    BackupModule,
   ],
 })
 export class AppModule {}

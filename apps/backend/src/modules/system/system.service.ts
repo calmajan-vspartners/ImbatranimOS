@@ -3,11 +3,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import { LogService } from '../logs/log.service';
 import {
   bytesPerSecond,
   parseNetDev,
@@ -189,6 +191,12 @@ const MAX_PROCESSES = 200;
 @Injectable()
 export class SystemService {
   private readonly logger = new Logger(SystemService.name);
+
+  /**
+   * Optional so the existing specs, which construct this directly, keep working
+   * without a logger — reporting system stats must not depend on auditing.
+   */
+  constructor(@Optional() private readonly logs?: LogService) {}
 
   // Small CPU-delta cache: each stats() call samples os.cpus() once and
   // diffs against the previous call's sample, instead of blocking the
@@ -535,6 +543,10 @@ export class SystemService {
       );
     }
 
+    // The name is read BEFORE the signal: afterwards /proc/<pid> may be gone,
+    // and "killed pid 4127" is a worse record than "killed node".
+    const name = await this.processName(pid);
+
     try {
       process.kill(pid, safeSignal);
     } catch (err) {
@@ -544,6 +556,16 @@ export class SystemService {
       throw err;
     }
 
+    this.logs?.record(
+      'warn',
+      'process.killed',
+      `Sent ${safeSignal} to ${name}`,
+      {
+        pid,
+        name,
+        signal: safeSignal,
+      },
+    );
     return { pid, signaled: true };
   }
 
@@ -563,5 +585,15 @@ export class SystemService {
       throw new NotFoundException(`Could not determine owner for pid ${pid}`);
     }
     return Number(match[1]);
+  }
+
+  /** `Name:` from /proc/<pid>/status, for a log line a human can read. */
+  private async processName(pid: number): Promise<string> {
+    try {
+      const raw = await fsp.readFile(`/proc/${pid}/status`, 'utf8');
+      return raw.match(/^Name:\s+(.*)$/m)?.[1]?.trim() || `pid ${pid}`;
+    } catch {
+      return `pid ${pid}`;
+    }
   }
 }

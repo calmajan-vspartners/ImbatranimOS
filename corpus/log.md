@@ -2520,6 +2520,290 @@ baseline was carried over from brief 74 rather than brief 75; the true figures a
 886 → 916, corrected in place. The "30 new" count was right, and no other number in
 that entry was affected.)*
 
+## 2026-08-05 — Brief 78: Archive Manager stops being a progress bar
+
+The most defensively written module in the repo got a new surface, and the whole job
+was making sure the new surface routes *through* the existing guards rather than
+around them. The shape is unchanged: same `execFile` with array args, same
+`resolveSafe` jail, same temp-dir-then-realpath-walk, same ratio caps.
+
+**The format question was checked, not guessed** — the brief said so explicitly,
+because this is the class of assumption that broke `ps` and `git`. Docker pulls are
+blocked here, so it was cleared the way brief 68 cleared `--no-same-owner`: busybox's
+own source plus `aports@3.22-stable main/busybox/busyboxconfig`, cross-read on
+`3.21-stable`. **The answer is asymmetric, which is exactly why a guess would have
+been wrong.** Reading uses busybox's *built-in* decompressors, and
+`CONFIG_FEATURE_SEAMLESS_GZ/_BZ2/_XZ/_LZMA` are all `=y` — so `.tar.xz` lists fine.
+Creating is a different mechanism entirely: tar `vfork`s and `execlp`s a separate
+compressor applet (`archival/tar.c:573-621`), and Alpine sets `CONFIG_GZIP=y`,
+`CONFIG_BZIP2=y`, but **`# CONFIG_XZ is not set`**. A `tar -cJf` would have died at
+exec time with a message about `xz` that says nothing about the real cause. So xz is
+offered for extraction only. (The brief's item asking to "add `.tar` and `.tgz`" was
+**half wrong** — `detectFormat` already had them.)
+
+**Browse-inside is the headline.** `GET /archive/list` reads a zip's central directory
+or runs `tar -tv`, and extracts nothing — proved by a test that snapshots the directory
+before and after, not by reading the code and believing it. The load-bearing choice:
+**a refused entry is reported, not hidden.** Every declared name goes through the same
+`resolveEntry` a real extraction uses, and a failure lands in `refused` with its reason
+rather than being quietly dropped. A listing that hid the dangerous entries would be a
+listing that lies about the file; the UI turns it into a banner naming them, so the user
+learns the archive is hostile *before* pressing anything.
+
+**Selective extraction is a new road into the zip-slip machinery**, since a selection is
+client input. Three guards, all tested. Each chosen name goes through the jail. A name
+the archive does not declare is refused outright instead of being handed to tar and
+hoped over. And **every** declared entry is still checked, not just the selected ones —
+otherwise not-selecting the bad entry *is* the bypass. Verified: a zip holding one safe
+file and one `../` entry is refused even when only the safe file is picked. Chosen tar
+members go after `--`, tested with an archive containing a member literally named
+`-rf.txt`.
+
+Progress is a **polled job, not a new transport** — a WebSocket for one feature would be
+a second realtime channel to secure, while an id plus a status endpoint reuses the guard
+that already exists. The id is a CSPRNG UUID rather than a counter, because it is the
+only thing naming a result; jobs are TTL-swept and capped. The failure path got as much
+attention as the progress: a job that dies minutes in reports `state: 'failed'` carrying
+the service's own sentence, instead of ending in silence.
+
+Non-UTF8 names are decoded lossily and the row is flagged **repaired** — deliberately
+not a CP437 guess, because the "names are UTF-8" flag is frequently wrong in the wild
+and a mis-guessed codepage yields a *different* wrong name with no warning attached. A
+replacement character is visibly wrong, which is the honest failure, and the repaired
+text is slash- and NUL-free so it cannot become a traversal the raw bytes were not.
+Encrypted zips are detected from the general-purpose bit and declined with the reason,
+rather than failing cryptically part-way through.
+
+Add-to-existing-archive was **dropped, with the reason recorded**: appending means either
+re-packing (which is "compress" with extra steps) or mutating the file in place, and both
+give up the property that a failed operation leaves the original untouched.
+
+Verified against real fixtures — a 43-entry zip, a `.tar.gz`, a `.tar.bz2`, and an
+`evil.zip` built with fflate containing `../../ESCAPED.txt` — through the production
+bundle on the real backend: listing extracted nothing, the traversal entry was reported
+then refused with nothing escaping anywhere, `../../etc/passwd` / `/etc/passwd` / an
+invented name were each refused, 2 of 43 files extracted meant exactly 2 on disk, the
+job reached 100% with its result, a failing job named its reason, an unknown id 404'd,
+a created archive re-opened, and all three new routes 401 without a session.
+
+Tests: backend unit **287 → 319**. Frontend vitest unchanged at 1022, e2e unchanged at
+138. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 80: the OS learns to back itself up
+
+The README's answer to "how do I back this up" was a host `docker run`, and its answer
+to a forgotten password was "delete the volume". A product that tells you to delete
+your data as a recovery step should be able to back it up first — and the shell command
+is **impossible for two of its own audiences**: the kiosk ISO has no host shell, and
+nobody handed a VPS instance has docker access. Settings → Backup replaces it.
+
+**The archive never touches disk.** `tar -czf -` streams straight to the response.
+Writing the tarball into the tree being archived is both a recursion trap and a
+disk-space trap on a volume that may already be near full — and if tar fails after the
+headers are out, the socket is destroyed, so the client gets a truncated gzip that
+fails its own CRC. A partial backup can never look like a complete one.
+
+**Brief 78's habit paid twice more, and both answers changed the design.** Reading
+busybox's source rather than assuming GNU behaviour turned up that `-C` is
+*single-valued* — it parses into one `base_dir` and calls `xchdir` once, after option
+parsing — so the GNU idiom of several `-C` interleaved with paths would have produced a
+differently-rooted archive on Alpine, discovered at the worst possible moment. The
+manifest and the database snapshot therefore ride *inside* the tree being archived.
+Then `--exclude` turned out to be unanchored in both tars, matching at every `/`
+boundary: a bare `.imbatranim/db.sqlite` would also have silently eaten a user's own
+`Documents/.imbatranim/db.sqlite`. Every pattern is `./`-prefixed, which anchors it
+because member names keep their `./` — `strip_unsafe_prefix` strips a leading `/` and
+`../` but deliberately not `./`. Measured on GNU tar 1.35, read out of busybox for
+Alpine, and there is a test that plants exactly that file and asserts it survives.
+
+**The database is snapshotted, not copied.** It lives inside the volume, in WAL mode;
+tarring it hot gives a torn file *and* omits the `-wal`, so the archive would look fine
+and restore to a database missing its most recent writes. `VACUUM INTO` — bound as a
+parameter, never interpolated — builds a checkpointed single-file copy from a read
+transaction. A test extracts it, opens it read-only, and reads back a row.
+
+**Restore reuses the hardened extractor by splitting it, not by copying it.**
+`extractTar` became `stageTarExtraction()` + `mergeTree()`; restore calls the staging
+half and does its own swap. A second copy of a traversal check is a second place for it
+to rot. One resource bound moves and is stated: the 512 MB zip-bomb cap is right for an
+archive a user found somewhere and wrong for a home volume, so restore's cap comes from
+actual free disk. Traversal, symlink, hardlink, entry-count and `--no-same-owner` are
+unchanged, and the review confirmed it by throwing a crafted `../ESCAPED.txt` archive
+and a symlink-to-`/etc` archive at the live server: both refused, nothing planted.
+
+**The swap detail that matters:** the undo list records **one entry per completed
+rename, not one per name**. A failure between parking the live entry and moving the new
+one leaves that name missing from the home directory entirely, and a per-name record
+would not know to put it back. Restore also replaces only what the backup declares and
+deletes nothing else — making home exactly match the archive would mean deleting files
+created since, which is a bigger blast radius than the word "restore" implies.
+
+**Refusal happens before staging.** No manifest, a manifest naming another product, an
+unparseable date, or a snapshot missing from the staged tree — all refused before
+anything moves. That last one is not paranoia: discovering it after the swap would
+leave a restored tree whose database is not at the path the process reopens, i.e. an OS
+booting into its setup screen with the user's data present but unreachable. Free space
+is checked against an exact figure from `tar -tzv` (parsed with brief 78's
+`parseTarListLine`, reused), so the preview can say "this will not fit" before the user
+commits rather than filling the volume and dying halfway.
+
+Two access decisions, both written down. **No password re-prompt on the download**,
+despite it being the most sensitive route in the OS: it grants nothing the session
+lacks, because `db.sqlite` — password hash and TOTP secret included — is inside the
+home volume and already readable through `/api/files`. A prompt would be theatre.
+**A typed `RESTORE`, enforced with `@Equals` on the server** and not only in the UI,
+because a stray POST to that route replaces a home directory. Afterwards every session
+is revoked and the cookie cleared: the restored database carries the backup's password,
+so whoever holds this session is no longer necessarily the owner of the machine.
+
+Progress is the browser's own download UI, not a byte counter of ours — reading the
+archive through `fetch` to draw one would mean holding the entire volume in the tab's
+heap before a byte reached disk, which is exactly the failure the streaming backend
+exists to avoid. What the panel adds is the number the browser cannot know: how big the
+backup will be, and what is deliberately left out of it.
+
+Verified end to end in a browser against the real backend: take a backup, delete a
+file, restore, the file comes back byte for byte, the session is gone, `auth/status`
+agrees, and signing in again works. Zero page errors, no scratch directories left
+behind.
+
+Tests: backend unit **319 → 356** (37 new). Frontend vitest unchanged at 1022, e2e
+unchanged at 138. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 47: a faulty app can no longer take down the OS
+
+Pulled forward out of order because brief 84 lists it as a prerequisite — a caught
+app crash needs somewhere to land. It is small, grilled and standalone, so doing it
+first was the cheap correct order rather than a detour.
+
+Every windowed app renders into core's shared React tree, so one uncaught `throw`
+unmounted **the whole desktop**. Apps here are first-party and built in, so the
+threat is a buggy app rather than a malicious one, which a boundary addresses
+completely at no API cost.
+
+**Reload had to be a key change, not a state reset.** The obvious error boundary
+exposes `reset()` — clear the error, render the children again. That ships a Reload
+button that visibly does nothing: the same child re-renders in the same state that
+just threw, throws again, and the panel comes straight back. Recovery therefore
+belongs to the caller — `WindowSlot` owns a remount counter and Reload bumps the
+boundary's `key`, so the app genuinely remounts. The prop is `fallback(error)`, with
+no `reset` to misuse. That is also why the container's map became a component: a key
+needs state, and a map callback cannot hold a hook.
+
+**The boundary is inside the chrome, and that is load-bearing.** A crashed app keeps
+a title bar that drags, a taskbar button that focuses it, and a close button that
+works — wrapping the chrome would remove the exact controls needed to deal with the
+crash. Verified by dragging a crashed window 137px. `Suspense` sits inside the
+boundary too: a lazy chunk that fails to load throws, and that deserves the same
+handling as any other crash.
+
+Crash toasts are deduped per app, because a render loop turns the notification centre
+into a denial of service against itself. The guard started as a module-scoped `Map`
+inside the boundary file and **eslint's `react-refresh/only-export-components`
+rejected it** — the same rule that caught a real defect in brief 83. Moving it to its
+own module fixed fast refresh and made the policy testable without mounting anything,
+which is the only reason the window-expiry case has a test.
+
+**A DOM test, and still no new dependency.** `vitest.config.ts` had said component
+tests "would need jsdom plus @testing-library/react; add those the day a brief
+actually requires them". This brief required the DOM; jsdom was already there, so
+`.test.tsx` is now included with a per-file `// @vitest-environment jsdom`. RTL was
+**not** added — `react-dom/client` plus React 19's `act` covers the whole surface in
+a dozen lines.
+
+Two React 19 behaviours had to be understood rather than papered over, and both had
+already made my first draft of the spec **pass vacuously**. Dev mode re-invokes a
+component after it throws to build a better stack, so a "throw once" test app
+succeeds on the retry and the boundary never latches; the broken state is now the
+test's to control. And a *caught* error is re-reported to `window.onerror`, which
+vitest counts as an unhandled failure — `onCaughtError` is the supported way to say
+the boundary handled it. A third came from the spec itself: rendering two boundaries
+one after another into the same root does not test per-app dedupe, because the same
+element type in the same position means React reuses the instance, which is already
+latched and never catches again.
+
+Verified with a real deliberate crash — a temporary `throw` in Calculator, a
+production build, the real backend — and the blast radius held: both windows alive,
+the taskbar intact, the desktop root at 364 elements, one notification rather than a
+storm, Reload recovering the app, and Close closing that window and no other. Two
+compositor-internal test hooks fell out of writing the probe (`data-window-id` /
+`data-app-id` on the window root, `data-testid` on the taskbar); every UI probe so
+far has had to find a window by its text.
+
+The documented limit stands and is not half-solved: this catches throws, not hangs.
+An app in an infinite loop still freezes the tab. That needs brief 48's transport
+swap, and a watchdog here would be a worse version of it.
+
+Tests: frontend vitest **1022 → 1032** (10 new). Backend unchanged at 356 unit, 138
+e2e. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 84: the machine gets a memory of itself
+
+`/var/log` is empty and nothing runs there — `entrypoint.sh` execs node as PID 1, so
+Nest's output goes to stdout where only `docker logs` sees it, which is to say nowhere
+at all on the kiosk ISO. "Was anyone trying to log in as me last week?" was
+unanswerable on a product whose README suggests exposing it to the internet.
+
+**The brief's own argument overruled the brief's own proposal.** It asks for a Nest
+logger transport writing JSONL. Two paragraphs earlier it says the thing that rules
+that out: *"an audit trail assembled from incidental log lines is not a trail."* A
+transport would pour every `RouterExplorer` mapping line into the file, pushing the
+events that matter out of the 2 MB rotation window faster, and swapping the global
+logger risks the stdout path the brief separately asks to preserve. So Nest's logging
+is untouched and `record()` is called on purpose at each site that matters. Backend
+errors come in through an exception filter that records **only 5xx** — a 404 is the
+system working, and logging refusals buries real incidents within minutes — and it
+extends `BaseExceptionFilter` and delegates, so no response changes. An audit trail
+that alters behaviour is a liability, not a record.
+
+**Never logging a secret is enforced, not promised.** Redaction lives inside
+`record()`, not at the call sites: a rule applied in one place is a rule, and a rule
+each caller has to remember is a leak waiting for the one caller who forgets. It
+denies by key name and errs towards dropping, including **`hash`** — an argon2 hash is
+not a password but it is the input to an offline cracking attempt, and a log file is a
+far easier thing to end up in a bug report than a database is. The failed-login site
+goes further and never hands the DTO to the logger at all. Verified against the
+running server: three refused sign-ins are in the file and neither the attempted nor
+the real password appears anywhere in it.
+
+Writes are **fire and forget** through a serialising queue, so a full disk cannot fail
+the request that triggered it — a login must not stop working because the audit log
+cannot be written; that turns a disk problem into a lockout. Reads walk **backwards in
+64 KB chunks**, filter the raw line before paying for a JSON parse, and stop the moment
+`limit` matches are in hand: a size cap is pointless if reading it needs the whole file
+in the heap. A line torn by a crash mid-append is skipped rather than poisoning the
+rest. Both routes are authed, and that is not boilerplate — log content names the
+addresses that tried to sign in and the files that were deleted, so an open read would
+be a reconnaissance endpoint for the exact attacker the log exists to catch.
+
+Brief 47's boundary makes **the browser a writer**, and it is handled as one: a DTO
+with an app id and 300 characters and nothing else, because a client-controlled object
+in a log file is log injection with no upside; a per-process budget so a render loop
+cannot fill the volume; and `source: 'client'` on the entry so it can never be read as
+something the server saw for itself. A request that also sent `source: 'server'` and
+`event: 'auth.login.ok'` had both silently dropped by the whitelisting pipe.
+
+**Two dependency bugs the tools caught, both real.** `@Global` on the logs module was
+*not enough* — the e2e suites build partial module graphs, and a global module that was
+never imported does not exist, so all twelve failed to boot. Modules whose providers
+require the logger now import it explicitly; services that unit tests construct with
+`new` take it `@Optional()` so rate limiting does not stop working because nothing is
+listening. Then core's eslint refused `RecentSignIns` importing `toSignIns` from the
+add-on — correctly: that inverts the dependency the composition root exists to keep
+one-way. The log's *shape* is a backend contract, so it moved into core; the
+presentation stayed in the app.
+
+Ships the **System Log** app (virtualized rows, level chips, debounced text filter,
+Follow, click-to-expand raw JSON, dotted events shown as English) with filtering done
+**server-side** — pulling the whole log down to filter in the browser would undo the
+point of a capped tail. And **Settings → Security → Recent sign-ins**, placed first in
+that section because "has anyone been trying to get in?" is the question people open
+Security to answer, with refusals shown beside successes.
+
+Tests: backend unit **356 → 385**, frontend vitest **1032 → 1044** in a package that did
+not exist this morning. e2e unchanged at 138. All 107 turbo tasks green. Zero new
+dependencies.
+
 ## 2026-08-06 — Feature exploration: seven new ungrilled briefs (93-99)
 
 Charter: "do code exploration and a deep research; write a brief for new features

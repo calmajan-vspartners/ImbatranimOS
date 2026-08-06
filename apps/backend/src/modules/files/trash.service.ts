@@ -2,10 +2,12 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { basename, dirname, join, relative, sep } from 'path';
 import * as fs from 'fs/promises';
 import { FilesService } from './files.service';
+import { LogService } from '../logs/log.service';
 
 /**
  * Trash, following the freedesktop spec.
@@ -40,7 +42,10 @@ export interface TrashEntry {
 
 @Injectable()
 export class TrashService {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    @Optional() private readonly logs?: LogService,
+  ) {}
 
   /**
    * The spec stores Path= percent-encoded. Encode every component but keep the
@@ -234,6 +239,11 @@ export class TrashService {
   async remove(id: string): Promise<void> {
     this.assertPlainId(id);
     const { infoDir } = await this.trashDirs();
+    // Read the original name BEFORE the info file goes: "you deleted
+    // Documents/taxes.pdf" is the sentence the log exists to be able to say,
+    // and an opaque trash id is not it. Best-effort — a missing info file is
+    // not a reason to refuse the delete.
+    const original = await this.originalPathOf(infoDir, id);
     // assertPlainId guarantees a bare filename, so this virtual path cannot
     // escape; resolveSafe re-checks it anyway (lexical + symlink containment).
     const { abs } = await this.files.resolveSafe(
@@ -242,6 +252,14 @@ export class TrashService {
     );
     await fs.rm(abs, { recursive: true, force: true });
     await fs.rm(join(infoDir, `${id}.trashinfo`), { force: true });
+    this.logs?.record(
+      'warn',
+      'files.deleted',
+      'A trashed item was deleted for good',
+      {
+        originalPath: original ?? `(unknown, trash id ${id})`,
+      },
+    );
   }
 
   async empty(): Promise<{ removed: number }> {
@@ -254,6 +272,27 @@ export class TrashService {
     for (const name of infos) {
       await fs.rm(join(infoDir, name), { force: true });
     }
+    this.logs?.record('warn', 'files.trash.emptied', 'The Trash was emptied', {
+      items: names.length,
+    });
     return { removed: names.length };
+  }
+
+  /** The path an item had before it was trashed, or null if unknowable. */
+  private async originalPathOf(
+    infoDir: string,
+    id: string,
+  ): Promise<string | null> {
+    try {
+      const raw = await fs.readFile(join(infoDir, `${id}.trashinfo`), 'utf8');
+      const pathLine = /^Path=(.*)$/m.exec(raw)?.[1] ?? '';
+      try {
+        return decodeURIComponent(pathLine);
+      } catch {
+        return pathLine || null;
+      }
+    } catch {
+      return null;
+    }
   }
 }

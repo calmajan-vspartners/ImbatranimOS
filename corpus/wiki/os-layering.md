@@ -122,6 +122,16 @@ Apps are **first-party for the foreseeable future** (in-repo, build-time,
 loop), **not** a *malicious* one. That is cheaply contained with **per-window
 React error boundaries + main-thread hygiene** — brief 47. No iframes today.
 
+**Brief 47 is DONE (2026-08-06)** —
+[brief](../briefs/done/47-per-window-error-boundaries.md). The boundary sits
+*inside* the window frame, so a crashed app keeps a title bar that drags and a
+close button that works; Reload is a **key change**, not a state reset, because
+clearing the error in place re-renders the state that just threw. Crash toasts
+are deduped per app so a render loop cannot bury the one message that matters.
+The half it explicitly does **not** solve is unchanged and still true: an
+error boundary catches throws, not hangs, and a spinning app still freezes the
+tab. That needs the transport swap below, not a watchdog.
+
 Hard sandboxing (sandboxed iframes / workers, real crash + security isolation)
 is the **transport swap** of the `system` handle, and is **gated on third-party
 apps actually arriving** — not built speculatively. The seam is designed so that
@@ -141,8 +151,8 @@ swap needs no app rewrites.
 
 ## Migration sequence (briefs 47–48)
 
-1. **Error boundaries first** (brief 47, standalone) — banks the (c) win at
-   near-zero cost, no API change, independent of the seam.
+1. ~~**Error boundaries first** (brief 47, standalone) — banks the (c) win at
+   near-zero cost, no API change, independent of the seam.~~ **Done 2026-08-06.**
 2. **Extract `@imbatranim/ui`** — mechanical move of the ~70 component/hook
    exports; apps re-point imports.
 3. **`SystemHandle` + in-process impl + `SystemProvider`** at each app mount +

@@ -25,7 +25,12 @@ documentation/
 *.bak
 *.bak.*
 *.log
-logs/
+# Anchored to the repo root ON PURPOSE. An unanchored `logs/` matches a
+# directory called `logs` at ANY depth, which silently swallowed
+# `apps/backend/src/modules/logs/` and `apps/add-ons/logs/` when brief 84 added
+# them — a commit that pushed a build no fresh clone could produce. The runtime
+# log this rule is for lives in the home volume, outside the repo entirely.
+/logs/
 # OS + editor cruft (machine-identifiable)
 .DS_Store
 Thumbs.db

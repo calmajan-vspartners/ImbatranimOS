@@ -36,6 +36,7 @@ import {
   solitaireManifest as solitaire,
 } from '@imbatranim/games'
 import { manifest as paint } from '@imbatranim/paint'
+import { manifest as logs } from '@imbatranim/logs'
 import type { AddonManifest, AppConfig } from './contract'
 import { COMMAND_SOURCES, registerCommandSource } from './shared/commands/CommandSourcesRegistry'
 
@@ -84,6 +85,7 @@ const MANIFESTS: AddonManifest[] = [
   gitGui,
   restApiClient,
   archiveManager,
+  logs,
 ]
 
 export const APP_REGISTRY: AppConfig[] = MANIFESTS

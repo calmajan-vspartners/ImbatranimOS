@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   Keyboard,
   HardDrive,
+  DatabaseBackup,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Checkbox } from '../../shared/components/ui'
@@ -23,6 +24,7 @@ import { NON_DISABLEABLE } from '../../shared/registry/enabledApps'
 import { useAddonStore } from '../../shared/store/addonStore'
 import { ShortcutList } from '../../shared/components/shortcuts/ShortcutsOverlay'
 import { StorageSettings } from './StorageSettings'
+import { BackupSettings } from './BackupSettings'
 import { SecuritySettings } from '../auth/SecuritySettings'
 import { AboutMachine } from './AboutMachine'
 
@@ -254,6 +256,12 @@ export function Settings() {
         <section className="mb-10">
           <SectionHeader icon={HardDrive} title="Storage" />
           <StorageSettings />
+        </section>
+
+        {/* Backup ─────────────────────────────────────────────── */}
+        <section className="mb-10">
+          <SectionHeader icon={DatabaseBackup} title="Backup" />
+          <BackupSettings />
         </section>
 
         {/* Keyboard ───────────────────────────────────────────── */}
