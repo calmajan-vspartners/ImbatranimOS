@@ -17,12 +17,14 @@
   ],
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "docker compose -f infrastructure/docker-compose.yml --profile dev watch",
+    "dev:local": "turbo dev",
     "lint": "turbo lint",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "format:check": "turbo format:check",
-    "docs": "turbo run docs"
+    "docs": "turbo run docs",
+    "install:tooling": "npm install --ignore-scripts"
   },
   "devDependencies": {
     "prettier": "3.8.3",

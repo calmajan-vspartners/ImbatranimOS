@@ -28,6 +28,12 @@ COPY --parents apps/add-ons/*/package.json ./
 # core's manifest pulls in). Without these manifests npm ci never links the
 # packages/* workspaces and the desktop's turbo build fails on the dangling dep.
 COPY --parents packages/*/package.json ./
+# apps/docs (the documentation site) is DELIBERATELY absent: .dockerignore
+# excludes it from the whole build context. npm ci tolerates the missing
+# workspace dir, and the builder's `turbo build` must never discover it — its
+# Astro deps are not installed here, so copying its manifest in with `COPY
+# apps ./apps` would break the image build (it did, silently, from the day the
+# site landed until brief 51 simulated a fresh-clone install).
 RUN npm ci
 
 # ---------------------------------------------------------------------------
@@ -140,15 +146,21 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "apps/backend/dist/main"]
 
 # ---------------------------------------------------------------------------
-# dev — source-mounted development: `turbo dev` = Nest watch + Vite HMR
-# (docker compose dev profile bind-mounts apps/ over this; node_modules stay
-# from the image via anonymous volumes)
+# dev — contained development: `turbo dev` = Nest watch + Vite HMR
+# (docker compose dev profile SYNCS source changes into this image's own FS
+# via `develop.watch` — no bind mounts, no anonymous-volume list; brief 51)
 # ---------------------------------------------------------------------------
 FROM deps AS dev
 RUN deluser node 2>/dev/null || true; delgroup node 2>/dev/null || true; \
     addgroup -g 1000 imbatranim && adduser -D -u 1000 -G imbatranim imbatranim
 WORKDIR /app
 COPY apps ./apps
+# The shared workspace packages are SOURCE the dev server compiles (the
+# @imbatranim/ui SDK lives here since brief 48) — without them `turbo dev`
+# fails on every dangling workspace dep. The old bind-mount dev flow never
+# mounted them either, which is how host edits to packages/* silently did
+# nothing in the container.
+COPY packages ./packages
 COPY infrastructure/entrypoint.sh /entrypoint.sh
 RUN chmod 0755 /entrypoint.sh \
  && mkdir -p /home/imbatranim && chown -R imbatranim:imbatranim /home/imbatranim /app

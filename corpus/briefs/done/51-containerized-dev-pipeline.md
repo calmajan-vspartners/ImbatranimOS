@@ -107,3 +107,76 @@ of the default `dev` entry.
 
 VS Code Dev Containers config (rejected), CI, image registry, changing the
 prod runtime or ports, and the Browser add-on itself (brief 50).
+
+## Outcome — done 2026-08-06 (container-run half environment-gated, see below)
+
+The brief's two blockers had **already half-rotted in opposite directions** by
+build time, which is the strongest argument for the fix it prescribes:
+
+- Blocker 2 (the Dockerfile's stale 7-manifest COPY list) was already fixed —
+  a later change replaced it with globbed `COPY --parents apps/add-ons/*/package.json`.
+- Blocker 1 (the compose hand-list) had been *expanded* to 23 add-ons and had
+  **already rotted again**: `games`, `logs` and `paint` were missing, and the
+  `packages/*` workspaces (where the `@imbatranim/ui` SDK has lived since
+  brief 48) were not covered at all — neither mounted nor volume-protected, so
+  a host edit to the SDK silently did nothing in the dev container. Lists that
+  cannot glob rot; twice is the proof.
+
+### What shipped
+
+- **compose `develop.watch` replaces the bind mount and the whole volume
+  list**: `sync` for `../apps` and `../packages` into the container's own
+  filesystem (node_modules ignored — the container owns its deps), `rebuild`
+  on `package-lock.json`, root `package.json`, `turbo.json` and the
+  Dockerfile. No per-add-on enumeration exists anywhere any more.
+- **The dev image now carries `packages/`** (`COPY packages ./packages`) — it
+  never did, so `turbo dev` in the container would have failed on every
+  workspace dep since brief 48 split the SDK out.
+- **Scripts**: `dev` → `docker compose … --profile dev watch`; `dev:local` →
+  `turbo dev` (host escape hatch); `install:tooling` → `npm install
+  --ignore-scripts`. `infrastructure/README.md` documents the contained flow
+  and the editor-only caveat.
+
+### The bug the grill found: the prod image build was silently broken
+
+The workspace list gained `apps/docs` (the Starlight documentation site,
+2026-08-06) but the deps stage copies no manifest for it — tolerated, `npm ci`
+skips an absent workspace dir. The **builder** stage then does `COPY apps
+./apps`, which brings the docs site *with* its package.json into the tree
+after install, and `npx turbo build` discovers the workspace and runs
+`@imbatranim/docs-site#build` with its (Astro) dependencies never installed.
+Proven by simulation: a fresh-clone `npm ci` from exactly the Dockerfile's
+manifest set, then the turbo graph — `docs-site#build` present, deps absent.
+**Every from-source image build since the docs site landed would have failed**;
+nobody noticed because nobody has built the image since. Fixed by excluding
+`apps/docs` from the build context (`.dockerignore`) — documentation is not
+product runtime — with the reasoning written at both sites. The prod target's
+runtime output is otherwise untouched.
+
+### Verified here
+
+- `docker compose --profile dev config` validates the watch schema.
+- **`install:tooling` proven in a scratch clone**: 1,869 packages in ~1 min
+  with `--ignore-scripts`, `better-sqlite3/build` absent (no native compile
+  ran, no python3/make/g++ touched), typescript + all `.d.ts` present — and
+  `tsc --noEmit` on a real app (which transitively typechecks core's whole
+  manifest graph, every add-on and the SDK) passes against that install. The
+  host-tooling claim holds end to end.
+- The fresh-clone `npm ci` simulation above (both with and without the docs
+  manifest), which is what caught the broken image build.
+- All 119 turbo tasks, backend e2e 141 — the prod runtime path is untouched.
+
+### Environment-gated (run on a Docker-capable host)
+
+This sandbox's egress policy denies Docker Hub's blob CDN (the daemon starts,
+`docker pull` gets 403 at the gateway), so the image builds themselves could
+not run here. The three commands to complete the bar on a real host:
+
+```bash
+docker compose -f infrastructure/docker-compose.yml up imbatranimos  # prod: :8080 serves, health green
+npm run dev                                                          # dev: :3001 + :5173 up
+# then edit apps/add-ons/games/src/... AND packages/ui/src/... — both must HMR
+```
+
+`games` and `packages/ui` are the right probes because both were dead under
+the old volume list.

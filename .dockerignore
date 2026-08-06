@@ -5,3 +5,8 @@
 .git
 corpus
 docs
+# The documentation SITE is not product runtime. Excluding it here keeps it
+# out of the builder's `COPY apps ./apps`, so the image's `turbo build` never
+# discovers the workspace — its (heavy, Astro) deps are deliberately never
+# installed by the manifest-glob `npm ci` in the deps stage (brief 51).
+apps/docs

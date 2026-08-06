@@ -45,9 +45,15 @@ services:
     #   - TRUST_PROXY=true
     #   - SESSION_TTL_HOURS=168
 
-  # Development: Nest watch + Vite HMR, source bind-mounted, two ports.
-  # node_modules are kept from the image via anonymous volumes so the host
-  # mount doesn't shadow the container's installed deps.
+  # Development, fully contained (brief 51): Nest watch + Vite HMR with source
+  # changes SYNCED into the container by `docker compose watch` — run it via
+  # `npm run dev`. No bind mounts and no anonymous-volume list: the old
+  # hand-list of per-add-on node_modules volumes rotted twice (7/24 covered at
+  # grilling time; 23/26 + none of packages/* by the time it was replaced),
+  # because compose volumes cannot glob. Watch syncs into the container's own
+  # filesystem, so container-side inotify fires natively — more reliable on
+  # WSL2 than bind-mount event propagation — and the container's node_modules
+  # are simply never shadowed in the first place.
   dev:
     profiles: ["dev"]
     build:
@@ -59,37 +65,31 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:3001/api
-    # The ../apps bind mount shadows every workspace's image-installed
-    # node_modules, so each needs an anonymous volume to keep the container's
-    # own deps (per-package TS/eslint live here). This list must cover ALL
-    # add-ons — a partial list silently ran the hoisted toolchain for the rest.
+    develop:
+      watch:
+        # Source sync — node_modules excluded: the container owns its deps.
+        - action: sync
+          path: ../apps
+          target: /app/apps
+          ignore:
+            - "**/node_modules/**"
+        # The shared workspace packages (the @imbatranim/ui SDK, pdfcore) are
+        # source too — the old bind-mount flow never covered them at all.
+        - action: sync
+          path: ../packages
+          target: /app/packages
+          ignore:
+            - "**/node_modules/**"
+        # Dependency- or image-shape changes need a real rebuild, not a sync.
+        - action: rebuild
+          path: ../package-lock.json
+        - action: rebuild
+          path: ../package.json
+        - action: rebuild
+          path: ../turbo.json
+        - action: rebuild
+          path: Dockerfile
     volumes:
-      - ../apps:/app/apps
-      - /app/apps/backend/node_modules
-      - /app/apps/core/node_modules
-      - /app/apps/add-ons/archive-manager/node_modules
-      - /app/apps/add-ons/bookmarks/node_modules
-      - /app/apps/add-ons/calculator/node_modules
-      - /app/apps/add-ons/calendar/node_modules
-      - /app/apps/add-ons/clock/node_modules
-      - /app/apps/add-ons/code-editor/node_modules
-      - /app/apps/add-ons/docs/node_modules
-      - /app/apps/add-ons/file-manager/node_modules
-      - /app/apps/add-ons/git-gui/node_modules
-      - /app/apps/add-ons/image-viewer/node_modules
-      - /app/apps/add-ons/markdown-editor/node_modules
-      - /app/apps/add-ons/media-player/node_modules
-      - /app/apps/add-ons/norpdf/node_modules
-      - /app/apps/add-ons/notepad/node_modules
-      - /app/apps/add-ons/pdf-viewer/node_modules
-      - /app/apps/add-ons/repl-interpreter/node_modules
-      - /app/apps/add-ons/rest-api-client/node_modules
-      - /app/apps/add-ons/sheets/node_modules
-      - /app/apps/add-ons/slides/node_modules
-      - /app/apps/add-ons/snipping-tool/node_modules
-      - /app/apps/add-ons/sticky-notes/node_modules
-      - /app/apps/add-ons/system-monitor/node_modules
-      - /app/apps/add-ons/todo/node_modules
       - imbatranim-home-dev:/home/imbatranim
 
 volumes:

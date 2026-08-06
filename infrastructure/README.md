@@ -11,11 +11,35 @@ covers running it and the **HTTPS / auth exposure** story (Brief 10).
 docker compose -f infrastructure/docker-compose.yml up imbatranimos
 
 # Dev (HMR): Nest watch + Vite, two ports (3001 API, 5173 desktop)
-docker compose -f infrastructure/docker-compose.yml --profile dev up
+npm run dev     # = docker compose --profile dev watch
 ```
 
 First visit forces a password (no default password ever exists). After that
 it is a lock screen. TOTP is opt-in from **Settings → Security**.
+
+## Developing (contained — brief 51)
+
+`npm run dev` runs **`docker compose … --profile dev watch`**: install, build,
+watch and serve all happen in the container, and compose `watch` syncs your
+edits from `apps/` and `packages/` into the container's own filesystem
+(node_modules excluded — the container owns its deps). Dependency changes
+(`package-lock.json`, root `package.json`, `turbo.json`, the Dockerfile)
+trigger an image rebuild instead of a sync. There are no bind mounts and no
+per-add-on volume list to keep in sync — adding an add-on needs no
+infrastructure edit.
+
+The host needs **Docker plus Node/npm for editor IntelliSense only**:
+
+```bash
+npm run install:tooling   # npm install --ignore-scripts — no python3/make/g++
+```
+
+`--ignore-scripts` skips the native compilation of `better-sqlite3`/`node-pty`,
+so the host never needs a C toolchain; all JS and `.d.ts` still install, which
+is what the editor, eslint and tsc read. Caveat: host-run paths that _execute_
+those modules (`npm run dev:local`, `backend`'s tests) need the real compile
+— `install:tooling` is editor-only. `npm run dev:local` (`turbo dev` on the
+host) remains as the escape hatch for a host with the full toolchain.
 
 ## HTTPS decision: reverse-proxy TLS (not built-in)
 

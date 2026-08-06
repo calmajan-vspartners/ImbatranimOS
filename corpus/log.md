@@ -3238,3 +3238,37 @@ the flip (36,476 KB dist, 396 KB entry chunk) — the brief's no-growth bar met
 exactly. In the browser, production build: all 29 apps open clean from search
 with zero page errors, and the four regression probes (brief 81 ×2, the
 sticky-notes seam probe, brief 82's startup probe) all pass.
+
+## 2026-08-06 — Brief 51: the contained dev pipeline, and a broken image build caught statically
+
+`npm run dev` is now `docker compose --profile dev watch`: source syncs from
+`apps/` AND `packages/` into the container's own filesystem, dependency changes
+rebuild the image, and the hand-list of per-add-on anonymous volumes is gone.
+It had rotted **twice** — 7/24 covered when the brief was grilled, then a
+23-entry rewrite that was already missing `games`/`logs`/`paint` and never
+covered `packages/*` at all, which since brief 48 means host edits to the
+`@imbatranim/ui` SDK silently did nothing in the dev container. The dev image
+also never copied `packages/` — `turbo dev` inside it has been unbootable since
+the SDK split. Lists that cannot glob rot; compose `watch` enumerates nothing.
+
+The grill found a worse bug than the brief asked about: **the prod image build
+has been silently broken since the documentation site landed.** `apps/docs`
+joined the workspaces, the deps stage copies no manifest for it (tolerated —
+`npm ci` skips an absent dir), but the builder's `COPY apps ./apps` brings the
+site in afterwards and `turbo build` then runs `@imbatranim/docs-site#build`
+with its Astro deps never installed. Proven by simulating a fresh-clone
+install from exactly the Dockerfile's manifest set. Fixed in `.dockerignore`:
+the documentation site is not product runtime, so it never enters the build
+context.
+
+`install:tooling` (`npm install --ignore-scripts`) verified in a scratch clone:
+no native compile, no C toolchain, and `tsc --noEmit` on a real app — which
+transitively typechecks the whole manifest graph — passes against that install.
+
+The container-run half of the verify bar is **environment-gated**: this
+sandbox's egress policy denies Docker Hub's blob CDN, so the images cannot be
+built here. The exact commands, and why `games` + `packages/ui` are the right
+HMR probes (both dead under the old list), are in the outcome note.
+
+All 119 turbo tasks and backend e2e 141 green; the prod runtime path is
+untouched by design.
