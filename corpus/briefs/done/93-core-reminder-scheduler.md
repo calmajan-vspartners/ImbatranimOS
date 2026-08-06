@@ -1,6 +1,6 @@
 # Brief 93 — Core reminder scheduler (one clock for alarms, reminders and due dates)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)); Tier-2 #5 in
 [real-os-gaps.md](../../wiki/real-os-gaps.md). MEDIUM · CORE + a small backend
 read-model + three add-on touch-ups. Independent of the open queue; the
@@ -85,3 +85,21 @@ mid-horizon and confirm no refire; set DND and confirm history-only.
 Service-worker/background notifications (post-brief-50), toast action buttons,
 cron-style user-defined tasks (that is the separate scheduled-tasks idea,
 gated on brief 80), and any change to how the three apps store their data.
+
+## Outcome — DONE 2026-08-06
+
+Shipped, with one architectural departure the code forced: **occurrence
+computation stays client-side** (alarm times and calendar epoch-ms both carry
+local wall-clock meaning; the container deliberately knows no timezone, per the
+calendar_events schema note), so the backend read-model was wrong. Instead the
+seam became general: `AppConfig.background` — a headless desktop-lifetime
+service the shell mounts for every enabled add-on. Clock/Calendar/Todo moved
+their existing tested watchers into one, each subscribing to its own query
+with a background-safe poll. The backend got the one thing tabs cannot decide
+alone: `POST /api/schedule/claim`, an atomic INSERT-or-lose (fails open — a
+duplicate toast beats a missed alarm). The clock's minute-equality check would
+skip alarms in throttled hidden tabs; `dueOccurrence` judges a (lastTick, now]
+window with a 90s cap and reports the occurrence instant, which doubles as the
+claim key. The missed-while-away digest was dropped: the apps' fire windows
+already refuse stale toasts by grilled design, and a digest contradicts that.
+8 schedule tests, 5 service tests, 3 e2e; all three apologies deleted.

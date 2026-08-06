@@ -1,6 +1,6 @@
 # Brief 98 — Games: Minesweeper + Solitaire (the identity-affirming tier)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)) — the landscape
 pass found every comparable web desktop ships games (daedalOS's DOOM/emulators
 are its most-loved feature; Puter ships a games shelf), and this OS's locked
@@ -71,3 +71,19 @@ More games (FreeCell, Hearts, DOOM — emulators are rejected on the size/RAM
 budget in [real-os-gaps.md](../../wiki/real-os-gaps.md)), multiplayer,
 sound effects (no audio system exists), and animated win sequences beyond a
 cheap CSS cascade.
+
+## Outcome — DONE 2026-08-06
+
+Shipped: one package, two manifests (the packaging question settled — brief
+99 took the same answer), pure rule engines with 25 tests, zero deps, both
+apps lazy chunks. Minesweeper: first-click-safe with protected neighbours,
+flood reveal, chording (wrong-flag loss preserved as the rule), keyboard play
+via roving focus, best times per difficulty. Solitaire: draw-1/3, click-to-
+place with run-aware selection, double-click auto-place, foundation digging,
+unlimited undo, auto-finish only when provably bookkeeping, lowest-rank-first.
+**Departure: free drag deferred** — click-to-place is the accessible model and
+good drag choreography is its own project. Found while building: setState-
+inside-updater would have double-pushed undo under StrictMode, and
+`useRegisteredHotkeys` captures handlers once per key set, so F2 would have
+dealt at the first render's difficulty — both routed through refs, and the
+same trap then avoided in briefs 95/96.

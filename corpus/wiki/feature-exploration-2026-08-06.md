@@ -1,5 +1,5 @@
 ---
-summary: The 2026-08-06 feature-exploration sweep — code map + external landscape (Puter, daedalOS, AnuraOS, CasaOS/Umbrel) distilled into seven new ungrilled briefs (93-99), a cheap-wins list, a grill-first tier with the contentious questions named, and what was deliberately NOT proposed because real-os-gaps.md already rejected it.
+summary: The 2026-08-06 feature-exploration sweep — code map + external landscape (Puter, daedalOS, AnuraOS, CasaOS/Umbrel) distilled into seven briefs (93-99, ALL BUILT the same day — see each brief's outcome note), a cheap-wins list, a grill-first tier with the contentious questions named, and what was deliberately NOT proposed because real-os-gaps.md already rejected it.
 updated: 2026-08-06
 ---
 
@@ -57,22 +57,24 @@ practically demands).
   sharing. Sharing means unauthenticated links — contentious against "auth
   everywhere"; listed under grill-first, not briefed.
 
-## The seven new briefs (93-99, all ungrilled)
+## The seven briefs (93-99) — ALL BUILT 2026-08-06, full-auto
 
-| # | Brief | Size | One line |
-|---|---|---|---|
-| 93 | [core-reminder-scheduler](../briefs/todo/93-core-reminder-scheduler.md) | MEDIUM | One desktop-lifetime scheduler so Clock/Calendar/Todo stop apologising three ways for the same gap |
-| 94 | [recent-files-service](../briefs/todo/94-recent-files-service.md) | MEDIUM | Promote Notepad-only recents to an OS service: every opener records, Start menu + picker + palette consume |
-| 95 | [paint-app](../briefs/todo/95-paint-app.md) | MEDIUM | The strongest missing app category; lift the snipping tool's annotation layer into a real canvas editor |
-| 96 | [desktop-widgets](../briefs/todo/96-desktop-widgets.md) | MEDIUM | Generalise `desktopLayer` (one consumer today) into Win7-gadget-style widgets: clock, agenda, system sparkline |
-| 97 | [auto-lock-on-idle](../briefs/todo/97-auto-lock-on-idle.md) | EASY | Lock exists; nothing ever locks by itself — the cheap security win for the VPS deployment |
-| 98 | [games-minesweeper-solitaire](../briefs/todo/98-games-minesweeper-solitaire.md) | EASY/MED | The identity-affirming tier every comparable ships; two zero-dep classics, B&W + accent |
-| 99 | [diff-tool](../briefs/todo/99-diff-tool.md) | EASY/MED | Monaco's DiffEditor is already in the bundle; give it a window and a "Compare" verb |
+Built the same day in the proposed order (97 → 93 → 94 → 99 → 98 → 95 → 96),
+one commit per brief; each brief's outcome note records what the code forced
+to change. The headline departures: 93's backend read-model was wrong
+(timezones live in the browser) and became the general `AppConfig.background`
+seam + an atomic cross-tab claim; 98 shipped click-to-place instead of free
+drag; 96 dropped the duplicate Settings list.
 
-Suggested order: **97 → 93 → 94** (platform spine, and 93/94 both want brief
-49's prefs/dotfiles thinking nearby), then **95 / 98 / 99** (independent app
-tier, any order), then **96** (wants 49 for durable placement; check brief 85's
-workspaces hasn't just rewritten the desktop layer underneath it).
+| # | Brief | One line |
+|---|---|---|
+| 93 | [core-reminder-scheduler](../briefs/done/93-core-reminder-scheduler.md) | **DONE** — `AppConfig.background` desktop-lifetime services + `POST /api/schedule/claim`; all three apologies deleted |
+| 94 | [recent-files-service](../briefs/done/94-recent-files-service.md) | **DONE** — `/api/files/recent` + Start menu / FilePicker / palette; the two-route notes module deleted |
+| 95 | [paint-app](../briefs/done/95-paint-app.md) | **DONE** — full v1 tool set, zero deps; snip→Paint pipeline instead of shared tool-core |
+| 96 | [desktop-widgets](../briefs/done/96-desktop-widgets.md) | **DONE** — hosted widget layer + the desktop's first context menu; Clock/Agenda/System widgets |
+| 97 | [auto-lock-on-idle](../briefs/done/97-auto-lock-on-idle.md) | **DONE** — 15-min default, media inhibitor shipped, 9 controller tests |
+| 98 | [games-minesweeper-solitaire](../briefs/done/98-games-minesweeper-solitaire.md) | **DONE** — pure engines, 25 tests; free drag deferred (recorded) |
+| 99 | [diff-tool](../briefs/done/99-diff-tool.md) | **DONE** — second manifest in code-editor; file-manager Compare; git integration deferred |
 
 ## Cheap wins (below brief-size; fold into other work or batch as one)
 

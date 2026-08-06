@@ -1,6 +1,6 @@
 # Brief 95 — Paint (the missing creative app, lifted from the snipping tool)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)); Tier-2 #1 in
 [real-os-gaps.md](../../wiki/real-os-gaps.md) called it "the strongest missing
 app category". MEDIUM · one new add-on package, zero new dependencies.
@@ -69,3 +69,16 @@ unsaved-close guard fires; 1280×577 window fits every control.
 Layers, filters/adjustments, selection-move of pixels (v1 crop only),
 animated GIF editing, SVG editing, and any new image format support beyond
 what the viewer already maps.
+
+## Outcome — DONE 2026-08-06
+
+Shipped with the full v1 tool set, zero dependencies: pencil/brush/line/rect/
+ellipse (outline or filled), scanline flood fill with a JPEG-white tolerance,
+text, eraser, eyedropper, selection+crop, 0.5-4× zoom (pixelated upscaling),
+bounded undo/redo whose snapshots survive dimension changes; full save spine;
+4096px-a-side cap. The pixel decisions are pure modules with 12 tests. The
+tool-core sharing question resolved itself: the snipping tool's annotation
+layer is object-based (annotations re-render over the bitmap) while Paint is
+bitmap-based — sharing would have made both worse, so the pipeline was built
+instead: 'Edit in Paint' from a finished capture, and from the file manager
+for any bitmap (the viewer keeps the double-click, as specced).

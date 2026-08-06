@@ -1,6 +1,6 @@
 # Brief 99 — Diff tool (Monaco's DiffEditor is already on the disk)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)); Tier-2 #7 in
 [real-os-gaps.md](../../wiki/real-os-gaps.md). EASY/MED · lives inside the
 existing code-editor package. No new dependencies.
@@ -71,3 +71,14 @@ one or three); refuse a binary and an oversized file with the house message.
 
 Three-way merge, directory diff, diffing two git revisions in the Diff app
 (the Git GUI owns history), and any patch-file (.diff/.patch) apply flow.
+
+## Outcome — DONE 2026-08-06
+
+Shipped: second manifest in the code-editor package (shares the self-hosted
+Monaco + worker chunks), dual pickers, file-manager 'Compare' appearing
+exactly when two files are selected and the clicked entry is one of them,
+side-by-side/inline + word-wrap toggles, per-side language inference, right
+side editable with the full save spine, >5 MB and binary (null-byte sniff)
+refusals. The Git GUI integration was deferred as the brief anticipated —
+`git show` is a new allowlist argument that deserves brief-76-grade scrutiny,
+not a rider.

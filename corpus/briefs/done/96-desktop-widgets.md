@@ -1,6 +1,6 @@
 # Brief 96 — Desktop widgets (the second consumer of `desktopLayer`)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)). MEDIUM · CORE
 (widget host) + small widget implementations. Wants brief 49 (durable
 dotfiles) for placement persistence; check interaction with brief 85
@@ -69,3 +69,17 @@ add-on — its widget disappears; windows drag/snap over widgets normally;
 Third-party widgets (that is the install-from-GitHub story), a widget
 gallery/marketplace, per-workspace widget sets, and migrating sticky notes
 onto the host.
+
+## Outcome — DONE 2026-08-06
+
+Shipped: `AppConfig.widgets` + a core host layer owning placement/drag/clamp/
+persistence (the sticky-notes pointer-capture discipline; the clamp is a pure
+tested module because an off-screen widget is unrecoverable), the desktop's
+first context menu (toggle widgets on/off), and the three v1 widgets — Clock,
+Calendar agenda (reading the cache brief 93's service keeps warm), System
+CPU-sparkline + RAM bar (sharing the monitor's query key at a 5s ambient
+cadence). A disabled add-on's widgets keep their stored placement and return
+with the app. Two departures: the Settings duplicate list was dropped (one
+surface that fully covers add/remove beats two that can disagree), and
+placement persists in localStorage in the house key style until brief 49's
+dotfiles land. 7 geometry tests.

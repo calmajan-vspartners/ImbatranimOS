@@ -1,6 +1,6 @@
 # Brief 94 — OS-wide recent files (one service, three consumers)
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)); Tier-2 #2 in
 [real-os-gaps.md](../../wiki/real-os-gaps.md). MEDIUM · backend `files` module
 + CORE (Start menu, FilePicker, palette) + one-line hooks in the openers.
@@ -69,3 +69,16 @@ file manager, click its recent entry, watch it self-heal + notify; clear all.
 
 Per-app recents UI beyond what exists, jump-lists on taskbar buttons,
 frecency ranking, and recording terminal/PTY file access (no seam exists).
+
+## Outcome — DONE 2026-08-06
+
+Shipped as specced: `/api/files/recent` (upsert + prune to 50, id tiebreak for
+same-second bursts), recording at the choke points (file-manager open routing,
+the core dialog's open AND save-as, Notepad's list via the shared helper), and
+all three consumers (Start menu Recent with clear button, FilePicker Recent
+tab — open mode only, extension-filtered — and a core palette source that
+replaced Notepad's private one, reopening files in the app that recorded
+them). The old table was dropped, not migrated (grilled option taken: bare
+paths whose root brief 59 moved out from under them). The two-route notes
+module went with it — the recents API was all it had left after brief 25.
+6 service tests incl. the shape migration; e2e 141 green.

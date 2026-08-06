@@ -1,6 +1,6 @@
 # Brief 97 — Auto-lock after idle
 
-Status: **todo (ungrilled)** · From the 2026-08-06 feature exploration
+Status: **done** (was: todo, ungrilled) · From the 2026-08-06 feature exploration
 ([wiki page](../../wiki/feature-exploration-2026-08-06.md)); Tier-2 #4 in
 [real-os-gaps.md](../../wiki/real-os-gaps.md). EASY · CORE + Settings.
 Independent; real value arrives with the VPS/HTTPS deployment (brief 15).
@@ -68,3 +68,14 @@ background the tab and confirm it still locked on time.
 
 Cross-tab lock broadcast, a screensaver, server-side idle eviction changes,
 and "lock on browser close" (that is what the session cookie already does).
+
+## Outcome — DONE 2026-08-06
+
+Shipped as specced: timestamp-driven pure controller (9 tests — fire at
+expiry, activity defers, media holds the lock, setting change re-arms from
+now, hidden tabs re-check on visibilitychange), `useIdleLock` in the shell,
+lock via the exact Start-menu path, Settings → Security select. Grilled
+defaults taken: **15 minutes on**, and the media-playback inhibitor shipped
+in v1 (it was one querySelectorAll at fire time). Note for the walkthrough:
+locking unmounts the desktop today for the manual path too — the Terminal's
+brief-56 reconnect is what carries scrollback across it, unchanged here.
