@@ -90,10 +90,26 @@ it becomes the per-app permission you gate in the manifest.
 
 ## Sessions vs dotfiles (the one new decision) — brief 49
 
-- **Session = ephemeral, per-tab, in-memory window layout.** Pure-SSH: new tab =
+**DONE 2026-08-06** — [brief](../briefs/done/49-ephemeral-session-durable-dotfiles.md).
+One refinement to the decision below, made while building and recorded here
+because the wiki is where the design lives: the session is **per-tab
+`sessionStorage`, not in-memory**. Same boundary, one more property. Under this
+page's own SSH analogy, closing the tab is logging out and reloading is the
+terminal redrawing — so a refresh should not lose the arrangement, and
+`sessionStorage` is exactly that line. It is still per-tab, still fresh on a new
+tab, still gone with the tab, and still needs no server state, no reattach and no
+GC. "In-memory" would have cost the single-tab user their whole layout on every
+refresh to fix a two-tab problem.
+
+The dotfile half gained one too: the server is the source of truth, with
+`localStorage` kept as a **first-paint cache**. `main.tsx` brands the very first
+paint — the lock screen — synchronously, and that happens *before* authentication,
+so there is no server to read at the moment the value is needed.
+
+- **Session = ephemeral, per-tab window layout.** Pure-SSH: new tab =
   fresh desktop; close tab = its windows are gone; no server-side session
   persistence, no reattach/GC. This kills the shared-`localStorage` bug — each
-  tab holds its own in-memory session, nothing shared. (tmux-style
+  tab holds its own session, nothing shared. (tmux-style
   detach/reattach is explicitly a *possible future* brief, not v1.)
 - **User config = durable dotfiles.** Wallpaper, accent, desktop icon positions,
   pinned taskbar items are **not** session state — they're `$HOME` dotfiles:

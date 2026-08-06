@@ -203,6 +203,18 @@ export class DbService implements OnModuleInit {
       -- every opener records (root, path, appId), and the Start menu, file
       -- picker and palette consume. UNIQUE(root, path) makes reopening an
       -- upsert of the timestamp; app_id remembers which app to reopen with.
+      -- Dotfiles (Brief 49): durable user config, keyed by store name and
+      -- holding that store's serialised state as JSON. The SSH analogy the
+      -- layering grill settled on: your window layout is the session and dies
+      -- with the tab, but your wallpaper and accent are dotfiles -- they belong
+      -- to the account and follow you to any browser. Single user, so no owner
+      -- column; the global SessionAuthGuard is the whole access story.
+      CREATE TABLE IF NOT EXISTS prefs (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS recent_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         root TEXT NOT NULL,

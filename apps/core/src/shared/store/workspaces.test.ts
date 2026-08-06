@@ -18,7 +18,7 @@ import {
  * reachable workspace is data loss with a UI.
  */
 
-// The store touches `window.innerWidth` and localStorage; jsdom provides both.
+// The store touches `window.innerWidth` and sessionStorage; jsdom provides both.
 const open = (appId: string): string =>
   useWindowStore
     .getState()
@@ -28,6 +28,7 @@ const state = () => useWindowStore.getState()
 const winsOn = (id: WorkspaceId) => state().windows.filter((w) => w.workspaceId === id)
 
 beforeEach(() => {
+  sessionStorage.clear()
   localStorage.clear()
   useWindowStore.setState({
     windows: [],
@@ -214,7 +215,7 @@ describe('persistence', () => {
   })
 
   it('defaults a pre-brief-85 layout to workspace 1 rather than nowhere', () => {
-    localStorage.setItem(
+    sessionStorage.setItem(
       'imbatranimos:window-layout',
       JSON.stringify([
         {
@@ -234,7 +235,7 @@ describe('persistence', () => {
   })
 
   it('a corrupt stored workspace cannot strand a window', () => {
-    localStorage.setItem(
+    sessionStorage.setItem(
       'imbatranimos:window-layout',
       JSON.stringify([
         {
@@ -249,7 +250,7 @@ describe('persistence', () => {
         },
       ])
     )
-    localStorage.setItem('imbatranimos:active-workspace', '47')
+    sessionStorage.setItem('imbatranimos:active-workspace', '47')
     state().restoreLayout()
 
     const w = state().windows[0]

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { prefsStorage } from '../../lib/prefs'
 
 type IconPosition = {
   x: number
@@ -56,6 +57,12 @@ export const useDesktopStore = create<DesktopStore>()(
     }),
     {
       name: 'desktop-storage',
+      /**
+       * Server-backed dotfile (brief 49): durable user config that belongs to the
+       * account, not to one browser. `prefsStorage` mirrors to localStorage for
+       * the pre-auth first paint and writes through to `/api/prefs`.
+       */
+      storage: createJSONStorage(() => prefsStorage),
       version: 1,
       /**
        * v0 stored bare `{x, y}` with no notion of pinning. Those coordinates

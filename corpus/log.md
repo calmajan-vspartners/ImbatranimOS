@@ -2945,3 +2945,68 @@ promote on the third.
 Tests: frontend vitest **1044 → 1071** (19 on the store, 8 on the hotkey matcher).
 Backend unchanged at 385 unit, 138 e2e. All 107 turbo tasks green. Zero new
 dependencies.
+
+## 2026-08-06 — Brief 49: the session becomes per-tab, the config becomes an account
+
+The grilled split from the layering session, finally built: **a session is per-tab
+and dies with the tab; user config belongs to the account and follows you to any
+browser.** Two of the brief's implementation instructions changed, both because the
+brief's own reasoning points somewhere better once you read the code.
+
+**`sessionStorage`, not "delete the persistence".** The brief says to hold each
+session purely in memory. That ends the two-tab stomp, and it also throws away
+reload survival for the overwhelmingly common single-tab case — refresh and your
+whole arrangement is gone. Under the brief's own SSH analogy that is the wrong cut:
+closing the tab is logging out, reloading is the terminal redrawing.
+`sessionStorage` is exactly that boundary, meets every acceptance criterion the
+brief lists, and needs no server state, no reattach and no GC because the browser
+drops it. One word changed and the bug class went with it — `localStorage` is
+shared by every tab of an origin, which is why two desktops fought over one key.
+It also **preserves brief 85** instead of reverting it: workspace assignment rides
+in the same per-tab store, which is simultaneously the answer to "a reload must not
+collapse four workspaces onto one" and "two tabs must not fight over the active
+one".
+
+**Server as source of truth, localStorage as a first-paint cache.** The brief says
+to replace each dotfile store's `persist(localStorage)` outright. For appearance
+that is structurally impossible: `main.tsx` applies theme and accent synchronously
+before React mounts, so the lock screen is branded — and that paint happens
+*before* authentication, while `/api/prefs` is behind the session guard, as it must
+be. There is no server to read at the moment the value is needed. So paint from the
+mirror, hydrate once there is a session, re-apply, keep the mirror fresh. A browser
+that has never seen this machine shows the default behind the lock and picks up the
+real values on sign-in — correct, because your wallpaper lives behind your password.
+The mirror is also why the adapter is synchronous: an async `StateStorage` makes
+zustand hydrate a tick later, and every visual store would flash its default first.
+
+**The step that was easy to miss, and it did not work without it.** `persist`
+hydrates once, at store creation — at import, long before there is a session.
+Filling the cache afterwards changes nothing on its own; the stores are still
+sitting on what they read at import. `rehydrate()` on each dotfile store after the
+fetch is what makes the server's copy take effect. Without it the feature *appeared*
+to work in the tab that made the change and silently did nothing in a fresh browser
+— the only case it exists for. The probe caught it; reasoning had not.
+
+**And the bug the unit test could not see.** `PrefsService.put` handed the DTO
+straight to better-sqlite3 and every real request 500'd with "Named parameters can
+only be passed within plain objects", while the spec stayed green: the global
+`ValidationPipe` runs with `transform: true`, so the controller receives a class
+*instance*, and a spec naturally writes object literals — a shape production never
+produces. Destructured, with a test that builds a real DTO instance.
+
+Smaller calls: the stored value is **opaque to the server** (a backend that knew
+each client store's schema would need changing every time one gained a field); the
+migration *is* the hydrate, because "the server has not got it yet" and "this is a
+legacy local value" are the same condition; writes are debounced, coalesced, and
+flushed on `visibilitychange` and `beforeunload`; a non-dotfile key is refused at
+the adapter so window layout can never reach the server by accident; and a failed
+fetch keeps the desktop running on the mirror, because refusing to render over an
+unreadable wallpaper would be the worse failure.
+
+Verified with two real tabs: tab A keeps its two windows while tab B opens its own
+and neither disturbs the other, a reload keeps each tab's own arrangement, a browser
+that has never seen this machine gets the theme and accent but no windows, and no
+prefs request is made while the lock screen is showing.
+
+Tests: backend unit **385 → 408**, frontend vitest **1071 → 1147**. e2e unchanged at
+141. All 115 turbo tasks green. Zero new dependencies. **Unblocks briefs 81 and 82.**
