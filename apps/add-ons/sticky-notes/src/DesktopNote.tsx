@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GripHorizontal, Palette, Trash2, X } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn } from '@imbatranim/ui'
 import { COLOR_OPTIONS, COLOR_SWATCH, noteColorClass } from './noteStyle'
 import { clampNote } from './noteGeometry'
 import { usePointerDrag } from './usePointerDrag'

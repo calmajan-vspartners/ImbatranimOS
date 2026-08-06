@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useConfirm } from '@imbatranim/core'
+import { useConfirm } from '@imbatranim/ui'
 import { DesktopNote } from './DesktopNote'
 import {
   useDeleteStickyNoteMutation,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { ArrowLeft, Monitor, Palette, Plus, Search, Trash2, X } from 'lucide-react'
-import { Button, ScrollArea, cn, useConfirm } from '@imbatranim/core'
+import { Button, ScrollArea, cn, useConfirm } from '@imbatranim/ui'
 import {
   useCreateStickyNoteMutation,
   useDeleteStickyNoteMutation,
