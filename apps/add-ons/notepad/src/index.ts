@@ -1,7 +1,6 @@
 import { lazy } from 'react'
 import { FileText } from 'lucide-react'
 import type { AddonManifest } from '@imbatranim/core'
-import { recentFilesSource } from './commandSource'
 
 export const manifest: AddonManifest = {
   id: 'notepad',
@@ -13,5 +12,4 @@ export const manifest: AddonManifest = {
   multiInstance: true,
   defaultSize: { width: 600, height: 500 },
   minSize: { width: 400, height: 300 },
-  commandSources: [recentFilesSource],
 }

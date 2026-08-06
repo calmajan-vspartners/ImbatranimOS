@@ -7,9 +7,11 @@ import { usePaletteStore } from './shared/store/paletteStore'
 import { useAppearanceStore, applyAppearance } from './shared/store/appearanceStore'
 import { CommandPalette } from './shared/components/CommandPalette'
 import { ToastHost } from './shared/components/notifications'
+import { BackgroundServices } from './shared/components/BackgroundServices'
 import { useDocumentedShortcuts, useRegisteredHotkeys } from './shared/hooks/useRegisteredHotkeys'
 import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay'
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
+import { useIdleLock } from './shared/hooks/useIdleLock'
 
 export default function App() {
   const wallpaper = useWallpaperStore((s) => s.wallpaper)
@@ -131,6 +133,8 @@ export default function App() {
 
   // 4c: keyboard window management (Alt+Tab, Mod+W, Mod+M, Mod+Enter)
   useWindowHotkeys()
+  // Auto-lock after idle (brief 97) — Settings → Security owns the timeout.
+  useIdleLock()
   // ── /SWARM:S4 layout restore boot ──────────────────────────────────────────
 
   return (
@@ -139,6 +143,8 @@ export default function App() {
       <Taskbar />
       {/* Notification toasts (bottom-right, above the taskbar) */}
       <ToastHost />
+      {/* Desktop-lifetime add-on services — alarms/reminders fire without windows */}
+      <BackgroundServices />
       <ShortcutsOverlay />
       {/* SWARM:S3 command palette mount */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

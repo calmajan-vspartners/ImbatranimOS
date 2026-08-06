@@ -1,5 +1,5 @@
 import { api } from '@imbatranim/core'
-import type { NoteEntry, NoteFile, RecentFile } from '../types'
+import type { NoteEntry, NoteFile } from '../types'
 import type { NotepadRoot } from '../lib/notepadRoot'
 
 /**
@@ -65,13 +65,4 @@ export async function notesRootHasFiles(): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-export async function fetchRecent(): Promise<RecentFile[]> {
-  const res = await api.get<RecentFile[]>('/notes/recent')
-  return res.data
-}
-
-export async function upsertRecent(path: string): Promise<void> {
-  await api.post('/notes/recent', { path })
 }

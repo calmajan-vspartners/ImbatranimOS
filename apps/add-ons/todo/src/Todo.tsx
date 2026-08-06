@@ -4,7 +4,6 @@ import { ScrollArea, cn, notify, useConfirm, usePrompt } from '@imbatranim/core'
 import { TodoRow } from './TodoRow'
 import { dueAtFromInput, isOverdue } from './due'
 import { SORT_LABELS, SORT_MODES, canReorder, sortTodos } from './sort'
-import { useTodoReminders } from './reminders'
 import {
   useClearCompletedMutation,
   useCreateListMutation,
@@ -45,8 +44,6 @@ function useMinuteClock(): number {
 }
 
 export function Todo({ windowId: _windowId }: { windowId: string }) {
-  useTodoReminders()
-
   const [filter, setFilter] = useState<Filter>('all')
   const [listId, setListId] = useState<number | null>(null)
   const [sort, setSort] = useState<SortMode>('manual')
@@ -483,9 +480,9 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
         )}
       </div>
 
-      {/* The same honest caveat Clock and Calendar carry. */}
+      {/* The same note Clock and Calendar carry since brief 93. */}
       <div className="border-outline-variant bg-surface-container-low text-on-surface-variant flex h-5 shrink-0 items-center gap-1 border-t px-2 text-[10px]">
-        Due reminders only appear while this window is open.
+        Due reminders appear while the desktop is open — this window can be closed.
       </div>
 
       {confirmDialog}

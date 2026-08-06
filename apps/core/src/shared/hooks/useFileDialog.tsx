@@ -2,6 +2,17 @@ import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { Dialog } from '../components/ui/Dialog'
 import { FilePicker } from '../components/files/FilePicker'
 import { setOpenedFile } from './useOpenIntent'
+import { recordRecentFile } from '../../lib/recentFiles'
+import { useWindowStore } from '../store/windowStore'
+
+/**
+ * Which app owns this dialog, for the recents record (brief 94). The window id
+ * is the dialog's only identity; the window store knows whose window it is.
+ */
+function appIdOf(windowId?: string): string | null {
+  if (!windowId) return null
+  return useWindowStore.getState().windows.find((w) => w.id === windowId)?.appId ?? null
+}
 
 export type FileChoice = { root: string; path: string }
 
@@ -44,6 +55,10 @@ export function useFileDialog(windowId?: string) {
       new Promise<FileChoice | null>((resolve) => {
         resolveRef.current = (choice) => {
           if (choice && windowId) setOpenedFile(windowId, choice)
+          if (choice) {
+            const appId = appIdOf(windowId)
+            if (appId) recordRecentFile(choice.root, choice.path, appId)
+          }
           resolve(choice)
         }
         setState({
@@ -58,7 +73,15 @@ export function useFileDialog(windowId?: string) {
   const saveFile = useCallback(
     (opts: SaveOptions = {}) =>
       new Promise<FileChoice | null>((resolve) => {
-        resolveRef.current = resolve
+        resolveRef.current = (choice) => {
+          // A saved-as file is a recent file too — it is where the user's
+          // attention just went.
+          if (choice) {
+            const appId = appIdOf(windowId)
+            if (appId) recordRecentFile(choice.root, choice.path, appId)
+          }
+          resolve(choice)
+        }
         setState({
           mode: 'save',
           title: opts.title ?? 'Save as',
@@ -66,7 +89,7 @@ export function useFileDialog(windowId?: string) {
           suggestedName: opts.suggestedName,
         })
       }),
-    []
+    [windowId]
   )
 
   /**

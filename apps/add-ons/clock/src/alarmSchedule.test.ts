@@ -6,6 +6,7 @@ import {
   SNOOZE_MS,
   describeDays,
   dayIndex,
+  dueOccurrence,
   dueReason,
   firedPatch,
   isValidDayMask,
@@ -77,6 +78,67 @@ describe('minuteKey', () => {
     )
     expect(minuteKey(new Date(2026, 6, 20, 7, 0))).not.toBe(minuteKey(new Date(2026, 6, 20, 7, 1)))
     expect(minuteKey(new Date(2026, 6, 20, 7, 0))).not.toBe(minuteKey(new Date(2026, 6, 21, 7, 0)))
+  })
+})
+
+describe('dueOccurrence (window-based, brief 93)', () => {
+  const since = (d: Date, secondsBefore: number) => d.getTime() - secondsBefore * 1000
+
+  it('a throttled tick landing after the minute still catches the alarm', () => {
+    // Hidden-tab reality: previous tick 06:59:30, this one 07:00:45.
+    const tick = new Date(2026, 6, 20, 7, 0, 45)
+    const due = dueOccurrence(alarm(), tick, since(tick, 75))
+    expect(due).toEqual({ reason: 'scheduled', occurrenceMs: monday0700.getTime() })
+  })
+
+  it('reports the occurrence instant, not the tick that observed it', () => {
+    const tick = new Date(2026, 6, 20, 7, 1, 20)
+    const due = dueOccurrence(alarm(), tick, since(tick, 110))
+    expect(due?.occurrenceMs).toBe(monday0700.getTime())
+  })
+
+  it('refuses an occurrence older than the late-fire window', () => {
+    // Reopening a desktop at 07:02:00 must not ring the 07:00 alarm.
+    const tick = new Date(2026, 6, 20, 7, 2, 0)
+    expect(dueOccurrence(alarm(), tick, since(tick, 600))).toBeNull()
+  })
+
+  it('catches an alarm across midnight', () => {
+    const lateAlarm = alarm({ time: '23:59' })
+    const tick = new Date(2026, 6, 21, 0, 0, 20)
+    const due = dueOccurrence(lateAlarm, tick, since(tick, 90))
+    expect(due?.occurrenceMs).toBe(new Date(2026, 6, 20, 23, 59, 0).getTime())
+  })
+
+  it('weekday mask is judged on the occurrence day, not the tick day', () => {
+    // Sunday 23:59 alarm observed Monday 00:00:30 — mask says Sundays only.
+    // (since is strictly exclusive: 00:00:30 − 91s puts 23:59:00 inside it.)
+    const sundayOnly = alarm({ time: '23:59', days: '0000001' })
+    const tick = new Date(2026, 6, 20, 0, 0, 30)
+    const due = dueOccurrence(sundayOnly, tick, since(tick, 91))
+    expect(due?.occurrenceMs).toBe(new Date(2026, 6, 19, 23, 59, 0).getTime())
+  })
+
+  it('the minute guard keys on the occurrence minute', () => {
+    const occurrence = new Date(2026, 6, 20, 7, 0, 0)
+    const rang = alarm({ lastFiredAt: minuteKey(occurrence) })
+    const tick = new Date(2026, 6, 20, 7, 0, 45)
+    expect(dueOccurrence(rang, tick, since(tick, 75))).toBeNull()
+  })
+
+  it('a pending snooze yields its deadline as the occurrence', () => {
+    const deadline = monday0700.getTime() + SNOOZE_MS
+    const snoozed = alarm({ snoozedUntil: deadline })
+    const tick = new Date(2026, 6, 20, 7, 5, 30)
+    expect(dueOccurrence(snoozed, tick, since(tick, 60))).toEqual({
+      reason: 'snooze',
+      occurrenceMs: deadline,
+    })
+  })
+
+  it('nothing due inside a quiet window', () => {
+    const tick = new Date(2026, 6, 20, 6, 59, 50)
+    expect(dueOccurrence(alarm(), tick, since(tick, 60))).toBeNull()
   })
 })
 

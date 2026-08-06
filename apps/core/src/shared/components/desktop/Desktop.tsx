@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { DesktopIcon } from './DesktopIcon'
 import { useEnabledApps } from '../../registry/enabledApps'
 import { TASKBAR_HEIGHT } from '../../store/windowStore'
@@ -7,6 +7,9 @@ import { openApp } from '../../intents/openApp'
 import { layoutIcons } from './layoutIcons'
 import type { Wallpaper } from '../../store/wallpaperStore'
 import { WindowContainer } from '../window/WindowContainer'
+import { WidgetLayer } from './WidgetLayer'
+import { DesktopContextMenu } from './DesktopContextMenu'
+import { useElementSize } from '../../hooks/useElementSize'
 
 type DesktopProps = {
   wallpaper: Wallpaper
@@ -41,6 +44,9 @@ export function Desktop({ wallpaper }: DesktopProps) {
   const updateIconPosition = useDesktopStore((s) => s.updateIconPosition)
   const setAutoPositions = useDesktopStore((s) => s.setAutoPositions)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Widgets clamp against the live desktop bounds (brief 96).
+  const [desktopSize, sizeRef] = useElementSize()
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
 
   // The icons actually drawn — `settings` lives in the Start menu, not on the
   // desktop, so it must not consume a grid cell (it used to, leaving a hole).
@@ -108,11 +114,31 @@ export function Desktop({ wallpaper }: DesktopProps) {
     openApp(appId)
   }
 
+  const bounds = {
+    width: desktopSize.width || window.innerWidth,
+    height: desktopSize.height || window.innerHeight - TASKBAR_HEIGHT,
+  }
+
   return (
     <div
-      ref={containerRef}
+      ref={(el) => {
+        containerRef.current = el
+        sizeRef(el)
+      }}
       className="absolute top-0 right-0 bottom-[44px] left-0 w-full overflow-hidden"
       style={WALLPAPER_STYLES[wallpaper]}
+      onContextMenu={(e) => {
+        // The desktop's own menu (widgets). Only for the background — an icon
+        // or a layer element keeps the browser/default behaviour it had.
+        if (
+          e.target !== e.currentTarget &&
+          (e.target as HTMLElement).closest('[data-desktop-icon], [data-widget]')
+        )
+          return
+        e.preventDefault()
+        const rect = e.currentTarget.getBoundingClientRect()
+        setMenuAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+      }}
     >
       {/* Desktop icon container - using absolute positioning for children */}
       <div className="absolute inset-0 p-4">
@@ -149,6 +175,21 @@ export function Desktop({ wallpaper }: DesktopProps) {
           ))}
         </Suspense>
       </div>
+
+      {/* Hosted widgets (brief 96) — same stacking slot as the add-on layers:
+          above the icon grid, below every window. */}
+      <div className="pointer-events-none absolute inset-0">
+        <WidgetLayer bounds={bounds} />
+      </div>
+
+      {menuAt && (
+        <DesktopContextMenu
+          x={menuAt.x}
+          y={menuAt.y}
+          bounds={bounds}
+          onClose={() => setMenuAt(null)}
+        />
+      )}
 
       <WindowContainer />
     </div>

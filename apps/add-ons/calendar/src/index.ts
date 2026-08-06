@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 import { Calendar as CalendarIcon } from 'lucide-react'
 import type { AddonManifest } from '@imbatranim/core'
+import { CalendarBackground } from './CalendarBackground'
 
 export const manifest: AddonManifest = {
   id: 'calendar',
@@ -40,4 +41,17 @@ export const manifest: AddonManifest = {
    * fit on one row.
    */
   minSize: { width: 520, height: 400 },
+  // Desktop-lifetime reminder firing (brief 93) — eager on purpose; pulls the
+  // watcher and query modules, not the lazy Calendar UI chunk.
+  background: CalendarBackground,
+  // Desktop widget (brief 96): today's agenda, reading the same events cache
+  // the background reminder service keeps warm.
+  widgets: [
+    {
+      id: 'agenda',
+      name: "Today's agenda",
+      component: lazy(() => import('./AgendaWidget').then((m) => ({ default: m.AgendaWidget }))),
+      defaultSize: { width: 230, height: 118 },
+    },
+  ],
 }

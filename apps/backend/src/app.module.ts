@@ -4,7 +4,6 @@ import { ConfigModule } from './config/config.module';
 import { DbModule } from './db/db.module';
 import { StickyNotesModule } from './modules/sticky-notes/sticky-notes.module';
 import { TodosModule } from './modules/todos/todos.module';
-import { NotesModule } from './modules/notes/notes.module';
 import { BookmarksModule } from './modules/bookmarks/bookmarks.module';
 import { SystemModule } from './modules/system/system.module';
 import { PtyModule } from './modules/pty/pty.module';
@@ -15,6 +14,7 @@ import { HttpProxyModule } from './modules/http-proxy/http-proxy.module';
 import { ArchiveModule } from './modules/archive/archive.module';
 import { ClockModule } from './modules/clock/clock.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { ScheduleModule } from './modules/schedule/schedule.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { LogsModule } from './modules/logs/logs.module';
 
@@ -40,7 +40,6 @@ const staticModules: DynamicModule[] = process.env.STATIC_ROOT
     AuthModule,
     StickyNotesModule,
     TodosModule,
-    NotesModule,
     BookmarksModule,
     SystemModule,
     PtyModule,
@@ -50,6 +49,7 @@ const staticModules: DynamicModule[] = process.env.STATIC_ROOT
     ArchiveModule,
     ClockModule,
     CalendarModule,
+    ScheduleModule,
     BackupModule,
   ],
 })

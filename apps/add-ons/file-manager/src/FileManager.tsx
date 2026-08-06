@@ -65,7 +65,7 @@ import {
   useWriteContentMutation,
   useUploadFileMutation,
 } from './queries/filesQueries'
-import { openApp } from '@imbatranim/core'
+import { openApp, recordRecentFile } from '@imbatranim/core'
 import { useIntentStore } from '@imbatranim/core'
 
 type MenuState = {
@@ -206,6 +206,8 @@ export function FileManager({ windowId }: { windowId: string }) {
     const appId = resolveOpenApp(root, entry.name)
     if (appId) {
       openApp(appId, { openPath: entry.path, root })
+      // OS-wide recents (brief 94): double-click/Enter is the main choke point.
+      recordRecentFile(root, entry.path, appId)
     }
   }
 
@@ -277,7 +279,12 @@ export function FileManager({ windowId }: { windowId: string }) {
     const file = makeBlankFile(kind, name)
     uploadMutation.mutate(
       { path: filePath, file },
-      { onSuccess: () => openApp(editorAppId(kind), { openPath: filePath, root }) }
+      {
+        onSuccess: () => {
+          openApp(editorAppId(kind), { openPath: filePath, root })
+          recordRecentFile(root, filePath, editorAppId(kind))
+        },
+      }
     )
   }
 
@@ -339,6 +346,27 @@ export function FileManager({ windowId }: { windowId: string }) {
         onRefresh: () => dirQuery.refetch(),
         onExtract: (entry) =>
           openApp('archive-manager', { action: 'extract', root, path: entry.path }),
+        onEditInPaint: (entry) => {
+          openApp('paint', { openPath: entry.path, root })
+          recordRecentFile(root, entry.path, 'paint')
+        },
+        onCompare: (() => {
+          // Exactly two files selected, the clicked entry one of them — the
+          // only state where "Compare" can mean something (brief 99).
+          if (!menu.entry || menu.entry.type !== 'file') return null
+          if (selected.size !== 2 || !selected.has(menu.entry.path)) return null
+          const files = (dirQuery.data ?? []).filter(
+            (e) => selected.has(e.path) && e.type === 'file'
+          )
+          if (files.length !== 2) return null
+          return () =>
+            openApp('diff', {
+              leftRoot: root,
+              leftPath: files[0].path,
+              rightRoot: root,
+              rightPath: files[1].path,
+            })
+        })(),
         onCompress: (entry) => {
           const paths =
             selected.has(entry.path) && selected.size > 1

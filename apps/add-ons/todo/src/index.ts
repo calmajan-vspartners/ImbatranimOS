@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 import { ListTodo } from 'lucide-react'
 import type { AddonManifest } from '@imbatranim/core'
+import { TodoBackground } from './TodoBackground'
 
 export const manifest: AddonManifest = {
   id: 'todo',
@@ -23,4 +24,7 @@ export const manifest: AddonManifest = {
    * themselves `flex-wrap` and were measured not to wrap even at 280.
    */
   minSize: { width: 300, height: 340 },
+  // Desktop-lifetime due-date announcements (brief 93) — eager on purpose;
+  // pulls the watcher and query modules, not the lazy Todo UI chunk.
+  background: TodoBackground,
 }

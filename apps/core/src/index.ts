@@ -59,6 +59,16 @@ export {
 // browsers that do not have them yet (brief 91)
 export { installMapGetOrInsert } from './lib/mapGetOrInsert'
 
+// Desktop-lifetime services (brief 93) — cross-tab occurrence claim for
+// anything fired from an AppConfig.background component
+export { claimScheduleOccurrence, type ScheduleDomain } from './lib/scheduleClaim'
+
+// OS-wide recent files (brief 94). The core choke points (file dialog, palette,
+// Start menu) record and read on their own; an add-on only needs these when its
+// open flow bypasses the dialog (Notepad's list) or it wants to self-heal a
+// stale entry it failed to reopen.
+export { recordRecentFile, removeRecentFile, type RecentFile } from './lib/recentFiles'
+
 // Shared add-on kit — one way to report a failed open/save (briefs 62-64)
 export {
   describeFileFailure,

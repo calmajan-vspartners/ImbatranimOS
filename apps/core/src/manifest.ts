@@ -27,10 +27,15 @@ import { manifest as calendar } from '@imbatranim/calendar'
 import { manifest as imageViewer } from '@imbatranim/image-viewer'
 import { manifest as mediaPlayer } from '@imbatranim/media-player'
 import { manifest as markdownEditor } from '@imbatranim/markdown-editor'
-import { manifest as codeEditor } from '@imbatranim/code-editor'
+import { manifest as codeEditor, diffManifest as diff } from '@imbatranim/code-editor'
 import { manifest as gitGui } from '@imbatranim/git-gui'
 import { manifest as restApiClient } from '@imbatranim/rest-api-client'
 import { manifest as archiveManager } from '@imbatranim/archive-manager'
+import {
+  minesweeperManifest as minesweeper,
+  solitaireManifest as solitaire,
+} from '@imbatranim/games'
+import { manifest as paint } from '@imbatranim/paint'
 import { manifest as logs } from '@imbatranim/logs'
 import type { AddonManifest, AppConfig } from './contract'
 import { COMMAND_SOURCES, registerCommandSource } from './shared/commands/CommandSourcesRegistry'
@@ -73,6 +78,10 @@ const MANIFESTS: AddonManifest[] = [
   mediaPlayer,
   markdownEditor,
   codeEditor,
+  diff,
+  minesweeper,
+  solitaire,
+  paint,
   gitGui,
   restApiClient,
   archiveManager,

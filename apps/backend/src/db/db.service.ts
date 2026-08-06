@@ -82,6 +82,19 @@ export class DbService implements OnModuleInit {
    * one).
    */
   migrate() {
+    // Brief 94: recent_files changed shape (root + app_id, UNIQUE(root, path)
+    // instead of UNIQUE(path)). SQLite cannot alter constraints, so an
+    // old-shape table is dropped and recreated by the block below. The rows
+    // are deliberately not migrated: they were Notepad's bare paths with no
+    // root — "recently opened" hints, not data — and brief 59 moved Notepad's
+    // default root out from under them, so their meaning is unrecoverable.
+    const recentCols = this.db
+      .prepare(`PRAGMA table_info(recent_files)`)
+      .all() as { name: string }[];
+    if (recentCols.length > 0 && !recentCols.some((c) => c.name === 'root')) {
+      this.db.exec(`DROP TABLE recent_files`);
+    }
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sticky_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,10 +199,29 @@ export class DbService implements OnModuleInit {
         UNIQUE(root, path)
       );
 
+      -- OS-wide recent files (Brief 94). Replaces Notepad's private recents:
+      -- every opener records (root, path, appId), and the Start menu, file
+      -- picker and palette consume. UNIQUE(root, path) makes reopening an
+      -- upsert of the timestamp; app_id remembers which app to reopen with.
       CREATE TABLE IF NOT EXISTS recent_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        path TEXT NOT NULL UNIQUE,
-        last_opened DATETIME DEFAULT CURRENT_TIMESTAMP
+        root TEXT NOT NULL,
+        path TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(root, path)
+      );
+
+      -- Scheduler claims (Brief 93): which alarm/reminder/due occurrences have
+      -- already produced a toast. The PRIMARY KEY makes "claim" an atomic
+      -- INSERT-or-lose, so with two desktop tabs polling, exactly one wins the
+      -- notification. Rows are dedupe state, not history — pruned after days.
+      CREATE TABLE IF NOT EXISTS schedule_fired (
+        domain TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        occurrence_ms INTEGER NOT NULL,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (domain, item_id, occurrence_ms)
       );
 
       -- Auth (Brief 10): single-user credential store. The CHECK (id = 1)

@@ -76,8 +76,16 @@ export function useDeleteWorldClockMutation() {
   })
 }
 
-export function useAlarmsQuery() {
-  return useQuery({ queryKey: ALARMS_KEY, queryFn: fetchAlarms })
+export function useAlarmsQuery(options?: { refetchIntervalMs?: number }) {
+  return useQuery({
+    queryKey: ALARMS_KEY,
+    queryFn: fetchAlarms,
+    // The background service (brief 93) keeps this cache warm for the watcher
+    // even with no Clock window open — and keeps polling while the tab is
+    // hidden, because that is exactly when an alarm must still ring.
+    refetchInterval: options?.refetchIntervalMs,
+    refetchIntervalInBackground: options?.refetchIntervalMs !== undefined,
+  })
 }
 
 export function useCreateAlarmMutation() {

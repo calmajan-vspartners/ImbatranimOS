@@ -2804,6 +2804,90 @@ Tests: backend unit **356 → 385**, frontend vitest **1032 → 1044** in a pack
 not exist this morning. e2e unchanged at 138. All 107 turbo tasks green. Zero new
 dependencies.
 
+## 2026-08-06 — Feature exploration: seven new ungrilled briefs (93-99)
+
+Charter: "do code exploration and a deep research; write a brief for new features
+or add-ons we should implement." A platform-capability map of the code plus an
+external landscape pass (Puter, daedalOS, AnuraOS, CasaOS/Umbrel) went into
+[wiki/feature-exploration-2026-08-06.md](wiki/feature-exploration-2026-08-06.md).
+
+The sharp finding: **the OS keeps building capabilities and giving them exactly
+one consumer** — the HTTP proxy (REST client only), content search (palette
+only), the recents table (Notepad only, with git-gui growing a parallel one),
+`desktopLayer` (sticky notes only), `commandSources` (2 of 23 apps). And Clock,
+Calendar and Todo each apologise in their own UI for the same missing core
+scheduler. So the sweep proposes mostly second consumers for existing seams,
+plus the two missing app categories: an image editor and games.
+
+New briefs, all ungrilled: **93** core reminder scheduler (desktop-lifetime; the
+SW variant stays gated on brief 50), **94** OS-wide recent files (one service,
+three consumers: Start menu / FilePicker / palette), **95** Paint (lift the
+snipping tool's annotation layer), **96** desktop widgets (generalise
+`desktopLayer`; clock / agenda / system sparkline), **97** auto-lock on idle
+(the cheap VPS security win), **98** Minesweeper + Solitaire (the
+identity-affirming tier every comparable ships; zero deps), **99** diff tool
+(Monaco's DiffEditor is already in the bundle; second manifest in the
+code-editor package).
+
+Kept out of brief form, with reasons on the wiki page: a cheap-wins list (more
+palette sources, find-in-files UI, hotkey-registry coverage), a grill-first tier
+(RSS reader, PWA installability, sound recorder, hex viewer, image wallpaper +
+custom accent as a decisions.md revisit, disk treemap, file share links vs
+"auth everywhere"), and an explicit no-relitigation pass over
+[wiki/real-os-gaps.md](wiki/real-os-gaps.md) — no emulators, no multi-user, no
+i18n, no email/sync. The sweep endorses the two standing todos
+(install-apps-from-github as the strategic add-on story, gated on 47→48 + a
+kill-list revisit; TOTP recovery codes).
+
+## 2026-08-06 — Briefs 93-99 BUILT: the exploration sweep shipped the same day
+
+Full-auto run in the proposed order (97 → 93 → 94 → 99 → 98 → 95 → 96), one
+commit per brief, every gate green at each commit. The desktop is **28 apps**
+(Diff, Minesweeper, Solitaire, Paint joined; Settings counted as ever), the
+eager bundle moved 121.5 → **122.1 KB gzip** (+0.6 for three background
+services, the widget host and five manifest entries — the lazy discipline
+held), backend tests 287 unit + **144 e2e** (3 new), frontend gained ~80
+tests across six packages. Two new packages (`games`, `paint`), zero new
+dependencies anywhere.
+
+The run's architectural yield is two new platform seams, both born from
+brief 93's implementation forcing a rethink. The brief proposed a backend
+read-model; the code refused it — alarm times and calendar epoch-ms carry
+**local wall-clock meaning and the container deliberately knows no timezone**
+— so occurrence math stayed client-side and the seam became general:
+`AppConfig.background`, a headless desktop-lifetime service the shell mounts
+for every enabled add-on. Clock/Calendar/Todo moved their tested watchers in;
+their three "only while this window is open" apologies are deleted. The
+backend got the one thing tabs cannot decide alone: `POST /api/schedule/claim`,
+an atomic INSERT-or-lose on (domain, item, occurrence) that fails open. The
+clock's minute-equality due check would skip alarms in throttled hidden tabs
+— found and replaced with a windowed `dueOccurrence` whose occurrence instant
+doubles as the claim key. The second seam is `AppConfig.widgets` (brief 96):
+hosted Win7-gadget-style widgets where core owns placement/drag/clamp/
+persistence and apps own content — the desktop also grew its first context
+menu to toggle them.
+
+Brief 94 promoted recents to `/api/files/recent` and deleted the two-route
+notes module (all it had left after brief 25). Brief 97's idle lock shipped
+at 15 min with the media inhibitor. Brief 99 put Monaco's DiffEditor in a
+window as a second manifest from the code-editor package — a pattern brief 98
+then reused for one `games` package exporting two apps. Brief 95's Paint kept
+the snipping tool separate on a real distinction (object-annotations vs
+bitmap) and built the 'Edit in Paint' pipeline instead.
+
+Found in my own work during the run, before commit: `useRegisteredHotkeys`
+captures handlers once per key set, so closures over state go stale — F2 in
+Solitaire would have dealt at the first render's difficulty forever; routed
+through refs in 98 and the trap then avoided in 95/96. Also a
+setState-inside-updater that would have double-pushed the undo stack under
+StrictMode.
+
+Deferred, recorded in the outcome notes: Solitaire free drag (click-to-place
+is the accessible model), Diff↔Git-GUI integration (`git show` is a new
+allowlist argument deserving brief-76-grade scrutiny), the missed-while-away
+digest (contradicts the apps' grilled stale-toast refusal), and brief 96's
+Settings duplicate list.
+
 ## 2026-08-06 — Brief 85: four virtual desktops, and two bugs that were already there
 
 24 apps share one browser tab with no second monitor to escape to. The compositor
