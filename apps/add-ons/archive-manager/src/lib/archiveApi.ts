@@ -1,5 +1,13 @@
 import { api } from '@imbatranim/core'
-import type { ArchiveFormat, CompressResult, DirEntry, ExtractResult } from '../types'
+import type {
+  ArchiveEntry,
+  ArchiveFormat,
+  ArchiveJob,
+  ArchiveListing,
+  CompressResult,
+  DirEntry,
+  ExtractResult,
+} from '../types'
 
 /** POST /api/archive/extract — unpack `path` into `dest` (jailed server-side). */
 export async function extractArchive(
@@ -71,4 +79,51 @@ export function errorMessage(err: unknown): string {
     if (typeof maybe.message === 'string') return maybe.message
   }
   return 'Operation failed'
+}
+
+// ---------------------------------------------------------------------------
+// Brief 78
+// ---------------------------------------------------------------------------
+
+/** GET /api/archive/list — read an archive's contents, extracting nothing. */
+export async function listArchive(root: string, path: string): Promise<ArchiveListing> {
+  const { data } = await api.get<ArchiveListing>('/archive/list', {
+    params: { root, path },
+  })
+  return data
+}
+
+/**
+ * POST /api/archive/extract-job — start an extraction and get an id to poll.
+ *
+ * `entries` extracts only those members. The backend re-validates every one of
+ * them through the same jail a full extract uses, and refuses any name the
+ * archive does not itself declare.
+ */
+export async function startExtractJob(
+  root: string,
+  path: string,
+  dest?: string,
+  entries?: string[]
+): Promise<{ id: string }> {
+  const { data } = await api.post<{ id: string }>('/archive/extract-job', {
+    root,
+    path,
+    dest,
+    entries,
+  })
+  return data
+}
+
+/** GET /api/archive/job/:id — poll a running extraction. */
+export async function fetchJob(id: string): Promise<ArchiveJob> {
+  const { data } = await api.get<ArchiveJob>(`/archive/job/${id}`)
+  return data
+}
+
+/** A short, human description of an entry's size. */
+export function entrySize(entry: ArchiveEntry): string {
+  if (entry.directory) return ''
+  if (entry.size === null) return '—'
+  return formatBytes(entry.size)
 }

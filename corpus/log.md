@@ -2519,3 +2519,72 @@ Tests: frontend vitest **916 → 1022** (106 new in a package that had zero), ba
 baseline was carried over from brief 74 rather than brief 75; the true figures are
 886 → 916, corrected in place. The "30 new" count was right, and no other number in
 that entry was affected.)*
+
+## 2026-08-05 — Brief 78: Archive Manager stops being a progress bar
+
+The most defensively written module in the repo got a new surface, and the whole job
+was making sure the new surface routes *through* the existing guards rather than
+around them. The shape is unchanged: same `execFile` with array args, same
+`resolveSafe` jail, same temp-dir-then-realpath-walk, same ratio caps.
+
+**The format question was checked, not guessed** — the brief said so explicitly,
+because this is the class of assumption that broke `ps` and `git`. Docker pulls are
+blocked here, so it was cleared the way brief 68 cleared `--no-same-owner`: busybox's
+own source plus `aports@3.22-stable main/busybox/busyboxconfig`, cross-read on
+`3.21-stable`. **The answer is asymmetric, which is exactly why a guess would have
+been wrong.** Reading uses busybox's *built-in* decompressors, and
+`CONFIG_FEATURE_SEAMLESS_GZ/_BZ2/_XZ/_LZMA` are all `=y` — so `.tar.xz` lists fine.
+Creating is a different mechanism entirely: tar `vfork`s and `execlp`s a separate
+compressor applet (`archival/tar.c:573-621`), and Alpine sets `CONFIG_GZIP=y`,
+`CONFIG_BZIP2=y`, but **`# CONFIG_XZ is not set`**. A `tar -cJf` would have died at
+exec time with a message about `xz` that says nothing about the real cause. So xz is
+offered for extraction only. (The brief's item asking to "add `.tar` and `.tgz`" was
+**half wrong** — `detectFormat` already had them.)
+
+**Browse-inside is the headline.** `GET /archive/list` reads a zip's central directory
+or runs `tar -tv`, and extracts nothing — proved by a test that snapshots the directory
+before and after, not by reading the code and believing it. The load-bearing choice:
+**a refused entry is reported, not hidden.** Every declared name goes through the same
+`resolveEntry` a real extraction uses, and a failure lands in `refused` with its reason
+rather than being quietly dropped. A listing that hid the dangerous entries would be a
+listing that lies about the file; the UI turns it into a banner naming them, so the user
+learns the archive is hostile *before* pressing anything.
+
+**Selective extraction is a new road into the zip-slip machinery**, since a selection is
+client input. Three guards, all tested. Each chosen name goes through the jail. A name
+the archive does not declare is refused outright instead of being handed to tar and
+hoped over. And **every** declared entry is still checked, not just the selected ones —
+otherwise not-selecting the bad entry *is* the bypass. Verified: a zip holding one safe
+file and one `../` entry is refused even when only the safe file is picked. Chosen tar
+members go after `--`, tested with an archive containing a member literally named
+`-rf.txt`.
+
+Progress is a **polled job, not a new transport** — a WebSocket for one feature would be
+a second realtime channel to secure, while an id plus a status endpoint reuses the guard
+that already exists. The id is a CSPRNG UUID rather than a counter, because it is the
+only thing naming a result; jobs are TTL-swept and capped. The failure path got as much
+attention as the progress: a job that dies minutes in reports `state: 'failed'` carrying
+the service's own sentence, instead of ending in silence.
+
+Non-UTF8 names are decoded lossily and the row is flagged **repaired** — deliberately
+not a CP437 guess, because the "names are UTF-8" flag is frequently wrong in the wild
+and a mis-guessed codepage yields a *different* wrong name with no warning attached. A
+replacement character is visibly wrong, which is the honest failure, and the repaired
+text is slash- and NUL-free so it cannot become a traversal the raw bytes were not.
+Encrypted zips are detected from the general-purpose bit and declined with the reason,
+rather than failing cryptically part-way through.
+
+Add-to-existing-archive was **dropped, with the reason recorded**: appending means either
+re-packing (which is "compress" with extra steps) or mutating the file in place, and both
+give up the property that a failed operation leaves the original untouched.
+
+Verified against real fixtures — a 43-entry zip, a `.tar.gz`, a `.tar.bz2`, and an
+`evil.zip` built with fflate containing `../../ESCAPED.txt` — through the production
+bundle on the real backend: listing extracted nothing, the traversal entry was reported
+then refused with nothing escaping anywhere, `../../etc/passwd` / `/etc/passwd` / an
+invented name were each refused, 2 of 43 files extracted meant exactly 2 on disk, the
+job reached 100% with its result, a failing job named its reason, an unknown id 404'd,
+a created archive re-opened, and all three new routes 401 without a session.
+
+Tests: backend unit **287 → 319**. Frontend vitest unchanged at 1022, e2e unchanged at
+138. All 103 turbo tasks green. Zero new dependencies.
