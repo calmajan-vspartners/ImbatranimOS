@@ -5,6 +5,11 @@ import { openAppLabel, resolveOpenApp } from './openWith'
  * The routing table had no tests, which is how `.pdf` came to point at the
  * 340-line viewer while the 3886-line suite sat unreachable (brief 65). These
  * pin the decisions that are easy to flip by accident and hard to notice.
+ *
+ * Since brief 81 the table itself lives in core, derived from each app's own
+ * `opens`; this file is a thin adapter over it. These stay because they assert
+ * the *file manager's* contract — the labels its menu shows and the behaviour its
+ * double-click depends on — from the outside.
  */
 describe('resolveOpenApp', () => {
   it('sends .pdf to norPDF, not the light viewer (brief 65)', () => {
@@ -40,11 +45,21 @@ describe('resolveOpenApp', () => {
     expect(resolveOpenApp('home', 'Book.XLSX')).toBe('sheets')
   })
 
-  it('returns null for an unmapped extension rather than guessing', () => {
-    // The caller shows "no app registered"; guessing an app that cannot read the
-    // file is worse than saying so.
+  it('FLIPPED by brief 81: a text-ish unmapped file no longer dead-ends', () => {
+    // This test used to assert `null` for both of these, and the caller then did
+    // nothing at all — double-clicking a `Makefile` was a dead click, which is
+    // the single most "broken OS" thing the file manager did. Text-ish files now
+    // fall back to the code editor.
+    expect(resolveOpenApp('home', 'Makefile')).toBe('code-editor')
+    expect(resolveOpenApp('home', 'nginx.conf')).toBe('code-editor')
+    expect(resolveOpenApp('home', '.env')).toBe('code-editor')
+  })
+
+  it('still returns null for an unknown BINARY, which is the honest answer', () => {
+    // …and the caller now opens the "Open with" chooser rather than swallowing
+    // the click. Guessing an app that cannot read the bytes is worse than asking.
     expect(resolveOpenApp('home', 'archive.dmg')).toBeNull()
-    expect(resolveOpenApp('home', 'Makefile')).toBeNull()
+    expect(resolveOpenApp('home', 'firmware.bin')).toBeNull()
   })
 })
 

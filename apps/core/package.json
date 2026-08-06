@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
-    "@imbatranim/logs": "*",
     "@tanstack/react-query": "^5.100.7",
     "@tanstack/react-virtual": "^3.14.6",
     "@use-gesture/react": "^10.3.1",

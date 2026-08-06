@@ -9,6 +9,7 @@ export const manifest: AddonManifest = {
   meta: ['markdown', 'md', 'editor', 'preview', 'write', 'docs'],
   icon: Hash,
   component: lazy(() => import('./MarkdownEditor').then((m) => ({ default: m.MarkdownEditor }))),
+  opens: ['md', 'markdown'],
   multiInstance: true,
   defaultSize: { width: 860, height: 620 },
   minSize: { width: 480, height: 360 },

@@ -34,6 +34,7 @@ import { ContextMenu } from './components/ContextMenu'
 import { FS_ROOTS } from './types'
 import type { FsEntry } from './types'
 import { resolveOpenApp } from './lib/openWith'
+import { OpenWithDialog } from './components/OpenWithDialog'
 import { buildMenuItems } from './lib/buildMenuItems'
 import {
   makeBlankFile,
@@ -112,6 +113,8 @@ export function FileManager({ windowId }: { windowId: string }) {
 
   // Rename state
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
+  /** The file whose "Open with" chooser is showing, if any (brief 81). */
+  const [openWithFor, setOpenWithFor] = useState<FsEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
   // Create folder dialog
@@ -200,15 +203,26 @@ export function FileManager({ windowId }: { windowId: string }) {
       navigate(entry.path)
       return
     }
-    // Extension → app routing lives in ./lib/openWith (shared by double-click
-    // and Enter). Viewers are root-aware and get `{ root }`; Notepad ignores it
-    // (Notes root only, enforced by the map's onlyRoots).
+    // Routing goes through core's association registry (brief 81): the user's
+    // choice, then whichever app declares the type, then a text fallback.
     const appId = resolveOpenApp(root, entry.name)
     if (appId) {
       openApp(appId, { openPath: entry.path, root })
       // OS-wide recents (brief 94): double-click/Enter is the main choke point.
       recordRecentFile(root, entry.path, appId)
+      return
     }
+    // Nothing claims it and it is not text — an unknown binary. Ask, rather
+    // than swallowing the click, which is what this did for every unmapped
+    // extension before brief 81 and is the single worst thing an OS can do to
+    // a double-click.
+    setOpenWithFor(entry)
+  }
+
+  /** Open one file with a specific app, and remember the choice if asked. */
+  function openEntryWith(entry: FsEntry, appId: string) {
+    openApp(appId, { openPath: entry.path, root })
+    recordRecentFile(root, entry.path, appId)
   }
 
   function handleRename(entry: FsEntry) {
@@ -332,6 +346,7 @@ export function FileManager({ windowId }: { windowId: string }) {
         root,
         hasClipboard: !!clipboard.clipboard,
         onOpen: handleOpen,
+        onOpenWith: (entry: FsEntry) => setOpenWithFor(entry),
         onDownload: (entry) => triggerDownload(root, entry),
         onRename: handleRename,
         onCopy: clipboard.copy,
@@ -827,6 +842,13 @@ export function FileManager({ windowId }: { windowId: string }) {
         </div>
       </Dialog>
 
+      {openWithFor && (
+        <OpenWithDialog
+          fileName={openWithFor.name}
+          onPick={(appId) => openEntryWith(openWithFor, appId)}
+          onClose={() => setOpenWithFor(null)}
+        />
+      )}
       {promptDialog}
 
       <PropertiesDialog

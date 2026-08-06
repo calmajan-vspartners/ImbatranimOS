@@ -9,6 +9,9 @@ export const manifest: AddonManifest = {
   meta: ['pdf', 'document', 'read', 'reader', 'view', 'search', 'annotate'],
   icon: FilePen,
   component: lazy(() => import('./NorPdf').then((m) => ({ default: m.NorPdf }))),
+  // Both PDF apps claim `.pdf`; registry order decides the default, and norPDF
+  // is registered first (brief 65). PDF Viewer stays reachable via Open with.
+  opens: ['pdf'],
   multiInstance: true,
   // 560 tall so it fits a 720px viewport with the taskbar; 720 could not, and
   // brief 52's clamp had to shrink it on every open.

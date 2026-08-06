@@ -9,6 +9,7 @@ export const manifest: AddonManifest = {
   meta: ['editor', 'markdown', 'text', 'write'],
   icon: FileText,
   component: lazy(() => import('./Notepad').then((m) => ({ default: m.Notepad }))),
+  opens: ['txt', 'log'],
   multiInstance: true,
   defaultSize: { width: 600, height: 500 },
   minSize: { width: 400, height: 300 },

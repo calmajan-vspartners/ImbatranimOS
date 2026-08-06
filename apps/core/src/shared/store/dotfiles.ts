@@ -1,3 +1,4 @@
+import { useAssociationStore } from '../registry/associations'
 import { useAddonStore } from './addonStore'
 import { useAppearanceStore, applyAppearance } from './appearanceStore'
 import { useDesktopStore } from './desktopStore'
@@ -25,6 +26,7 @@ export async function rehydrateDotfileStores(): Promise<void> {
     useWallpaperStore.persist.rehydrate(),
     useDesktopStore.persist.rehydrate(),
     useAddonStore.persist.rehydrate(),
+    useAssociationStore.persist.rehydrate(),
   ])
   const { theme, accent } = useAppearanceStore.getState()
   applyAppearance(theme, accent)

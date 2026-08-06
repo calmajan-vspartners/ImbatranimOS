@@ -9,6 +9,7 @@ export const manifest: AddonManifest = {
   meta: ['docs', 'document', 'word', 'docx', 'text', 'editor', 'write'],
   icon: FileText,
   component: lazy(() => import('./Docs').then((m) => ({ default: m.Docs }))),
+  opens: ['docx'],
   multiInstance: true,
   defaultSize: { width: 860, height: 680 },
   minSize: { width: 480, height: 380 },

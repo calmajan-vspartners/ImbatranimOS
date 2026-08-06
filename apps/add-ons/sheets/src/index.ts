@@ -9,6 +9,7 @@ export const manifest: AddonManifest = {
   meta: ['sheets', 'spreadsheet', 'excel', 'xlsx', 'csv', 'grid', 'table', 'formula'],
   icon: Table,
   component: lazy(() => import('./Sheets').then((m) => ({ default: m.Sheets }))),
+  opens: ['xlsx', 'xls', 'csv'],
   multiInstance: true,
   // 560 so it fits a 720px viewport with the taskbar. The walkthrough found the
   // bottom row clipped at short viewports; brief 52 clamps the window, and this

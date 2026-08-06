@@ -29,12 +29,21 @@ import { api } from './axios'
 /** Debounce for the write-through. Long enough to coalesce a drag, short enough to survive a close. */
 const WRITE_DEBOUNCE_MS = 400
 
-/** Keys that live on the server. Anything not in here is not a dotfile. */
+/**
+ * Keys that live on the server. Anything not in here is not a dotfile.
+ *
+ * Adding a store to this list is **not optional bookkeeping** — `writePref`
+ * silently drops anything absent, so a store wired to `prefsStorage` without an
+ * entry here persists to localStorage only and looks like it works right up
+ * until you sign in from a second browser. Brief 81's file associations shipped
+ * that way for exactly as long as it took to check the server copy.
+ */
 export const DOTFILE_KEYS = [
   'imbatranimos:appearance',
   'wallpaper-storage',
   'desktop-storage',
   'imbatranimos:addons',
+  'imbatranimos:file-associations',
 ] as const
 
 type Cache = Map<string, string>

@@ -3036,3 +3036,64 @@ prefs request is made while the lock screen is showing.
 
 Tests: backend unit **385 → 408**, frontend vitest **1071 → 1147**. e2e unchanged at
 141. All 115 turbo tasks green. Zero new dependencies. **Unblocks briefs 81 and 82.**
+
+## 2026-08-06 — Brief 81: default apps, and the end of the dead double-click
+
+Association moved out of a constant inside one add-on and into the manifests. Each
+app declares `opens?: string[]`; core derives ext → candidates from `APP_REGISTRY`
+and resolves **user override → declared candidate → text fallback → nothing**. The
+100-line `EXTENSION_APP_MAP` is deleted, so adding an app no longer means editing a
+different app — the coupling `manifest.ts` exists to avoid, and the reason brief 65's
+PDF mismatch sat unnoticed.
+
+`resolveOpener` returns *why* it chose, and that is what makes the UX honest.
+Text-ish files open in Code Editor; an unknown binary opens the **Open with**
+chooser with "No app claims this file type" at the top. The brief wanted a
+Properties card there first — one extra click to reach the only action it offers, so
+the chooser opens directly and Properties stays a right-click away.
+
+Text-ishness is **derived from what the text apps claim**, not hand-listed. The
+first cut listed extensions by hand, missed `.md`, and so reintroduced the exact
+dead click this brief exists to remove the moment Markdown Editor was disabled.
+`.pdf` needed pinning for the opposite reason: both PDF apps claim it and
+`pdf-viewer` is registered first, so "first candidate wins" would have quietly
+undone brief 65.
+
+**The bug only a second browser could see.** The override was wired to brief 49's
+`prefsStorage` and passed every same-tab check, reload included — while never
+leaving localStorage, because `writePref` silently drops any key absent from
+`DOTFILE_KEYS` and `imbatranimos:file-associations` was not in it.
+`rehydrateDotfileStores` was missing the store as well, so even with the key
+registered a fresh browser would have kept its import-time default. A same-tab
+reload cannot distinguish "dotfile" from "localStorage", which is exactly why it
+went unnoticed. Registering a store in `DOTFILE_KEYS` is load-bearing rather than
+bookkeeping, now said so in the code and pinned two ways: a unit test on the key,
+and a probe that sets the default in one browser profile and reads it in an empty
+one.
+
+Archives are the single **new** mapping, and it nearly shipped broken. Archive
+Manager drains a typed intent and ignored the generic `{ openPath, root }` payload
+every other opener gets, so a double-click launched it *idle and empty* — worse than
+a dead click, because it looks like the app is broken rather than the association.
+Fixed inside the app that owns the knowledge, mapping "open" onto brief 78's
+list-and-wait browse. The general rule: **`opens` is a promise that the app can act
+on the generic open payload**, and reading its intent handler is the check.
+
+Not built as brief 48's `system.intents` — 48 has not landed — so it ships as a core
+export shaped as free functions over a store, which 48 can re-export and delete
+without touching callers. Recorded debt, not a resolution.
+
+Also removed core's declared dependency on `@imbatranim/logs` (brief 84), the only
+add-on it declared, which made turbo print a circular-dependency warning on every
+build.
+
+Verified with three Playwright probes on a production bundle behind the real
+backend, 23 checks green: `.csv` → Sheets, `Dockerfile`/`nginx.conf` → Code Editor,
+`firmware.bin` → the chooser; Open-with once vs "always", the choice appearing in
+`/api/prefs` and surviving a reload; Settings listing the types, reporting
+`Reset all (1)` and clearing the server copy; a second empty profile on the same
+account opening `.md` in Code Editor; and a real `bundle.zip` double-click landing
+in Archive Manager **already listing** its two files.
+
+Frontend vitest **1147 → 1150**. Backend unit 408 and e2e 141 unchanged. All 115
+turbo tasks green. Zero new dependencies.

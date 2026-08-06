@@ -41,6 +41,22 @@ export type AppConfig = {
   defaultSize: { width: number; height: number }
   minSize: { width: number; height: number }
   /**
+   * Lowercase file extensions this app can open — the `.desktop` `MimeType=`
+   * analogue (brief 81).
+   *
+   * Declarative data, deliberately: core computes the extension → candidates
+   * table from `APP_REGISTRY`, so an app announces what it handles **in its own
+   * manifest** instead of the file manager keeping a list of everyone else's
+   * types. That list was the coupling `manifest.ts` exists to avoid, and it is
+   * why brief 65's PDF mismatch happened — the weaker app owned `.pdf` because
+   * the map said so and nobody looked.
+   *
+   * Order matters: when several apps claim an extension and the user has not
+   * chosen, the **first in registry order** wins. Extensionless names
+   * (`Dockerfile`, `Makefile`) are matched too — see `extensionOf`.
+   */
+  opens?: string[]
+  /**
    * Optional component painted on the **desktop**, beneath every window.
    *
    * The seam exists so Sticky Notes (brief 74) can put notes on the desktop

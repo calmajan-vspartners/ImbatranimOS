@@ -10,6 +10,7 @@ import {
   Copy,
   Scissors,
   Download,
+  AppWindow,
   FolderOpen,
   FileSpreadsheet,
   FileText,
@@ -42,6 +43,8 @@ export type BuildMenuItemsCtx = {
   onUpload: () => void
   onPaste: () => void
   onRefresh: () => void
+  /** Show the "Open with" chooser for this entry (brief 81). */
+  onOpenWith: (entry: FsEntry) => void
   /** Extract an archive file (Archive Manager). */
   onExtract: (entry: FsEntry) => void
   /** Compress the current selection (or this entry) to a .zip (Archive Manager). */
@@ -86,6 +89,7 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
     onUpload,
     onPaste,
     onRefresh,
+    onOpenWith,
     onExtract,
     onCompare,
     onEditInPaint,
@@ -139,8 +143,19 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
       label: entry.type === 'directory' ? 'Open' : openAppLabel(resolveOpenApp(root, entry.name)),
       icon: <FolderOpen size={13} />,
       onSelect: () => onOpen(entry),
-      disabled: entry.type === 'file' && !resolveOpenApp(root, entry.name),
+      // Never disabled for a file any more (brief 81): resolution always ends
+      // somewhere, and when it genuinely cannot, `onOpen` shows the chooser
+      // rather than nothing happening.
     },
+    ...(entry.type === 'file'
+      ? [
+          {
+            label: 'Open with…',
+            icon: <AppWindow size={13} />,
+            onSelect: () => onOpenWith(entry),
+          } as ContextMenuItem,
+        ]
+      : []),
     ...(entry.type === 'file'
       ? [
           {

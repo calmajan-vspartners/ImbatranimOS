@@ -36,6 +36,28 @@ interface Outcome {
 const POLL_MS = 400
 
 /**
+ * Accept the generic open payload as well as this app's own intents (brief 81).
+ *
+ * Since brief 81 the manifest declares `opens: ['zip', 'tar', …]`, so
+ * double-clicking an archive routes here through the same `{ openPath, root }`
+ * payload every other opener gets. Without this translation the app would have
+ * opened idle and empty — a double-click that technically launched something and
+ * did nothing, which is the exact failure brief 81 exists to remove.
+ *
+ * "Open" means **browse**, not extract: `action: 'extract'` with no `dest` is
+ * already the list-and-wait path brief 78 built.
+ */
+function normaliseIntent(raw: unknown): ArchiveIntent | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const it = raw as Record<string, unknown>
+  if (it.action === 'extract' || it.action === 'compress') return raw as ArchiveIntent
+  if (typeof it.openPath === 'string' && typeof it.root === 'string') {
+    return { action: 'extract', root: it.root, path: it.openPath }
+  }
+  return null
+}
+
+/**
  * Browse an archive, then extract all of it or just part of it.
  *
  * Brief 78 turned this from a progress window into a browser: an extract intent now
@@ -180,8 +202,8 @@ export function ArchiveManager({ windowId }: { windowId: string }) {
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    const intent = useIntentStore.getState().consumeIntent(windowId) as ArchiveIntent | undefined
-    if (intent?.action === 'extract' || intent?.action === 'compress') {
+    const intent = normaliseIntent(useIntentStore.getState().consumeIntent(windowId))
+    if (intent) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void run(intent)
     }

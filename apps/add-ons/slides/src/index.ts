@@ -9,6 +9,7 @@ export const manifest: AddonManifest = {
   meta: ['slides', 'powerpoint', 'pptx', 'presentation', 'deck', 'view', 'present', 'notes'],
   icon: Presentation,
   component: lazy(() => import('./Slides').then((m) => ({ default: m.Slides }))),
+  opens: ['pptx', 'ppt'],
   multiInstance: true,
   // 560 tall so it fits a 720px viewport with the taskbar; wider by default now
   // that a thumbnail rail takes 152px of it.
