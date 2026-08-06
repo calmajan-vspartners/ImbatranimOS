@@ -201,6 +201,29 @@ type WindowStore = {
   restoreLayout: () => void
 }
 
+/**
+ * The id of the top-most *visible* window, or null when none is visible.
+ * Single source of truth for "which window owns global keyboard focus" —
+ * WindowContainer chrome, the taskbar highlight and every window-scoped hotkey
+ * must agree on this, so they all read it here rather than each re-deriving it
+ * (some over all windows, some over visible ones, which used to disagree when
+ * the focused window was minimized).
+ */
+export function topVisibleWindowId(): string | null {
+  const { windows } = useWindowStore.getState()
+  let top: WindowInstance | null = null
+  for (const w of windows) {
+    if (!w.isVisible) continue
+    if (!top || w.zIndex > top.zIndex) top = w
+  }
+  return top?.id ?? null
+}
+
+/** True when `windowId` is the top-most visible window (owns global hotkeys). */
+export function isTopWindow(windowId: string): boolean {
+  return topVisibleWindowId() === windowId
+}
+
 export const useWindowStore = create<WindowStore>((set, get) => ({
   windows: [],
   preMaximizeStates: {},

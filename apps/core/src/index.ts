@@ -75,6 +75,12 @@ export {
 } from './shared/hooks/useElementSize'
 export { useOpenIntent } from './shared/hooks/useOpenIntent'
 export { useSaveHotkey } from './shared/hooks/useSaveHotkey'
+export {
+  useTopWindowKeydown,
+  type TopWindowKeydownOptions,
+} from './shared/hooks/useTopWindowKeydown'
+export { isTopWindow, topVisibleWindowId } from './shared/store/windowStore'
+export { isTextEntry } from './shared/hooks/shortcutRegistry'
 export { useUnsavedGuard } from './shared/hooks/useUnsavedGuard'
 export { useVirtualList } from './shared/hooks/useVirtualList'
 export type { VirtualList } from './shared/hooks/useVirtualList'

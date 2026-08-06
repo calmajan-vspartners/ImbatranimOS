@@ -3,12 +3,19 @@
   "envMode": "loose",
   "tasks": {
     "build": {
+      "dependsOn": ["^build"],
       "env": ["VITE_API_URL", "VITE_BASE"],
       "outputs": ["dist/**"]
     },
-    "lint": {},
-    "test": {},
-    "typecheck": {},
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^test"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
     "format:check": {},
     "dev": {
       "cache": false,
