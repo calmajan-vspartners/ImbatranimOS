@@ -104,6 +104,20 @@ describe('AuthService', () => {
       await auth.setup('correct-horse-battery');
       await expect(auth.beginTotpEnroll('wrong-password')).rejects.toThrow();
     });
+
+    it('rejects a replay of an already-accepted code (RFC 6238 §5.2)', async () => {
+      await auth.setup('correct-horse-battery');
+      const { secret } = await auth.beginTotpEnroll('correct-horse-battery');
+      // confirmTotp uses a pure validity check, so it does NOT consume the step
+      // the user is about to log in with.
+      auth.confirmTotp(generateSync({ secret }));
+
+      const code = generateSync({ secret });
+      // First use of the code is accepted...
+      expect(auth.verifyTotp(code)).toBe(true);
+      // ...and an immediate replay of the SAME code within its window is not.
+      expect(auth.verifyTotp(code)).toBe(false);
+    });
   });
 });
 
@@ -193,6 +207,12 @@ describe('AuthService.changePassword', () => {
       generateSync({ secret }),
     );
     expect(auth.totpEnabled()).toBe(true);
+    // TOTP is still enrolled and functional. The step-up above consumed the
+    // current code (replay protection, RFC 6238 §5.2), so simulate the next
+    // time window before re-verifying to prove the secret still works.
+    db.db
+      .prepare('UPDATE auth_user SET totp_last_step = NULL WHERE id = 1')
+      .run();
     expect(auth.verifyTotp(generateSync({ secret }))).toBe(true);
   });
 

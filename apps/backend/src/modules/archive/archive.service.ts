@@ -4,7 +4,7 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import { unzipSync, zipSync, type Unzipped, type Zippable } from 'fflate';
+import { unzip, zip, type Unzipped, type AsyncZippable } from 'fflate';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
@@ -133,10 +133,17 @@ export class ArchiveService {
     this.inspectZip(data);
 
     // (2) Inflate, then verify ACTUAL inflated sizes against the caps (defeats a
-    // header that lies about its size).
+    // header that lies about its size). Async `unzip` (not `unzipSync`): a large
+    // archive inflates in chunks off the main thread instead of blocking all
+    // HTTP + PTY for seconds. The size/ratio caps above still gate the work.
     let unzipped: Unzipped;
     try {
-      unzipped = unzipSync(data);
+      unzipped = await new Promise<Unzipped>((resolve, reject) => {
+        unzip(data, (err, out) => {
+          if (err) reject(err instanceof Error ? err : new Error(err));
+          else resolve(out);
+        });
+      });
     } catch {
       throw new BadRequestException('Corrupt or unreadable zip archive');
     }
@@ -436,7 +443,7 @@ export class ArchiveService {
     sources: { abs: string; rel: string }[],
     destAbs: string,
   ): Promise<CompressResult> {
-    const tree: Zippable = {};
+    const tree: AsyncZippable = {};
     let bytes = 0;
     let entries = 0;
 
@@ -478,7 +485,14 @@ export class ArchiveService {
       else await addFile(s.abs, name);
     }
 
-    const zipped = zipSync(tree);
+    // Async `zip` (not `zipSync`): deflating a large selection runs chunked off
+    // the main thread instead of blocking all HTTP + PTY for seconds.
+    const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+      zip(tree, (err, out) => {
+        if (err) reject(err instanceof Error ? err : new Error(err));
+        else resolve(out);
+      });
+    });
     await fs.writeFile(destAbs, zipped);
     return { dest: relative(dirname(destAbs), destAbs), entries, bytes };
   }

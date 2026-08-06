@@ -1,6 +1,6 @@
 import { SessionService } from './session.service';
 import { DbService } from '../../db/db.service';
-import { SESSION_COOKIE_NAME } from './auth.constants';
+import { SESSION_COOKIE_NAME, parseCookieHeader } from './auth.constants';
 import { makeConfig, makeTestDb } from './test-utils';
 
 describe('SessionService', () => {
@@ -70,6 +70,22 @@ describe('SessionService', () => {
 
     it('returns null when the cookie is absent', () => {
       expect(sessions.validateFromRequest({ headers: {} })).toBeNull();
+    });
+  });
+
+  describe('parseCookieHeader (malformed-value tolerance)', () => {
+    it('does not throw on a malformed percent-escape and keeps the raw value', () => {
+      // A stray `%` (e.g. from an unrelated cookie on the domain) makes
+      // decodeURIComponent throw URIError. Unguarded, that 500'd every response
+      // including the public /api/auth/status. It must fall back to the raw
+      // value and still parse the other cookies.
+      const parsed = parseCookieHeader('bad=%E0%A4%A; imb_session=abc123');
+      expect(parsed.bad).toBe('%E0%A4%A');
+      expect(parsed.imb_session).toBe('abc123');
+    });
+
+    it('still percent-decodes a well-formed value', () => {
+      expect(parseCookieHeader('k=a%20b').k).toBe('a b');
     });
   });
 });

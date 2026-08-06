@@ -1,10 +1,10 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Database from 'better-sqlite3';
 import type { Env } from '../config/env.schema';
 
 @Injectable()
-export class DbService implements OnModuleInit {
+export class DbService implements OnModuleInit, OnModuleDestroy {
   db: Database.Database;
 
   constructor(private readonly config: ConfigService<Env, true>) {}
@@ -13,6 +13,18 @@ export class DbService implements OnModuleInit {
     this.db = new Database(this.config.get('DB_PATH'));
     this.db.pragma('journal_mode = WAL');
     this.migrate();
+  }
+
+  /**
+   * Close the better-sqlite3 handle on shutdown so WAL is checkpointed and the
+   * file descriptor is released. Guarded against a double-close (shutdown hooks
+   * can fire more than once) — better-sqlite3 throws if `close()` is called on
+   * an already-closed handle.
+   */
+  onModuleDestroy() {
+    if (this.db?.open) {
+      this.db.close();
+    }
   }
 
   /**
@@ -247,6 +259,15 @@ export class DbService implements OnModuleInit {
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS idx_bookmark_groups_parent ON bookmark_groups(parent_id)',
     );
+
+    // TOTP replay protection (RFC 6238 §5.2): the highest time-step already
+    // accepted. A verify is rejected when its step <= this, so a code cannot be
+    // used twice within its window. NULL until the first successful verify.
+    try {
+      this.db.exec('ALTER TABLE auth_user ADD COLUMN totp_last_step INTEGER');
+    } catch {
+      // column already exists — safe to ignore
+    }
 
     this.backfillTodoPositions();
     this.backfillBookmarkPositions();

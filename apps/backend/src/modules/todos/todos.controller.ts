@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { TodosService } from './todos.service';
 import { CreateTodoDto } from './dto/create-todo.dto';
@@ -96,9 +97,15 @@ export class TodosController {
  * By hand rather than with `ParseIntPipe`, because absent must stay absent: "All
  * lists" sends nothing, and a pipe would either 400 or coerce it to 0 — and list 0
  * does not exist, so every todo would vanish.
+ *
+ * `undefined` is reserved for absent/empty ONLY. A present-but-invalid value
+ * (e.g. `listId=abc` or `listId=0`) throws rather than collapsing to
+ * `undefined` — otherwise `clearCompleted` would silently widen from "this list"
+ * to "ALL lists" and delete across every list.
  */
 function optionalId(value?: string): number | undefined {
   if (value === undefined || value === '') return undefined;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  throw new BadRequestException('listId must be a positive integer');
 }
