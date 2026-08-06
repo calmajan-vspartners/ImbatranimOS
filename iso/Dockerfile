@@ -6,8 +6,9 @@
 # is what lets it work in ordinary Docker on WSL2. (Privileged Docker is the
 # known-good fallback if a host ever rejects the fakeroot path.)
 #
-# Pinned to alpine:3.22 so the ISO's runtime packages (nodejs, chromium,
-# cage, seatd…) and the native node addons we compile here share one ABI.
+# Pinned to alpine:3.22 so the ISO's runtime packages (nodejs-current,
+# chromium, cage, seatd…) and the native node addons we compile here share one
+# ABI. nodejs-current is the Node 24 series on v3.22 (see the apk add below).
 FROM alpine:3.22
 
 # Build + image tooling.
@@ -20,14 +21,21 @@ FROM alpine:3.22
 #   mtools dosfstools  the EFI FAT boot image
 #   squashfs-tools    modloop + rootfs squashfs
 #   fakeroot          the unprivileged root-emulation path
-#   nodejs npm        build the production payload (musl, correct ABI)
+#   nodejs-current npm  build the production payload (musl, correct ABI).
+#                     nodejs-current (community) is the Node 24 series on the
+#                     v3.22 branch — matching the Docker image's
+#                     node:24.14.1-alpine and root package.json engines
+#                     (node >=24.14.1). Alpine's main `nodejs` (22.x) would ship
+#                     an appliance below the engines floor, so it is NOT used.
+#                     nodejs-current `provides` nodejs, so `npm` (which depends
+#                     on nodejs) resolves against it with no LTS pulled in.
 #   python3 make g++  native addons: better-sqlite3, node-pty, argon2
 RUN apk add --no-cache \
       alpine-sdk alpine-conf apk-tools \
       xorriso syslinux grub grub-efi mtools dosfstools \
       squashfs-tools fakeroot \
       bash sudo \
-      nodejs npm python3 make g++
+      nodejs-current npm python3 make g++
 
 # Unprivileged builder in the abuild group (abuild refuses to run as root).
 RUN adduser -D build && addgroup build abuild

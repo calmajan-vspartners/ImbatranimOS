@@ -24,12 +24,18 @@ services:
     volumes:
       - imbatranim-home:/home/imbatranim
     restart: unless-stopped
-    # Fronted by a Caddy reverse proxy (plain HTTP, no domain yet), so trust its
-    # X-Forwarded-* headers → login rate-limiting keys on the real client IP.
-    # COOKIE_SECURE stays false (there is no HTTPS yet); flip it to true once a
-    # TLS front-end exists.
-    environment:
-      - TRUST_PROXY=true
+    # Mirrors the Dockerfile HEALTHCHECK (the image already carries one); stated
+    # here too so `docker compose ps` reports health and the interval is tunable.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+    # This service publishes 8080 directly (no reverse proxy in front), so
+    # TRUST_PROXY MUST stay at its safe default (false). With it on, a direct
+    # client could forge X-Forwarded-For and defeat IP-based login
+    # rate-limiting. Only enable it behind a trusted TLS proxy that overwrites
+    # X-Forwarded-* — see the commented block below.
     # Auth defaults are plain-HTTP-safe (LAN/localhost works as-is). When a
     # TLS reverse proxy (see Caddyfile.example / README.md) fronts this, enable
     # secure cookies and proxy trust so the session cookie sticks over HTTPS
