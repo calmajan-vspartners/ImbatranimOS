@@ -79,7 +79,7 @@ export {
   useTopWindowKeydown,
   type TopWindowKeydownOptions,
 } from './shared/hooks/useTopWindowKeydown'
-export { isTopWindow, topVisibleWindowId } from './shared/store/windowStore'
+export { isTopWindow, topVisibleWindowId, useWindowVisible } from './shared/store/windowStore'
 export { isTextEntry } from './shared/hooks/shortcutRegistry'
 export { useUnsavedGuard } from './shared/hooks/useUnsavedGuard'
 export { useVirtualList } from './shared/hooks/useVirtualList'

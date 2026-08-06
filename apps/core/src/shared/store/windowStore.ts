@@ -227,6 +227,17 @@ export function isTopWindow(windowId: string): boolean {
 }
 
 /**
+ * Reactive hook: is this window currently on screen (not minimized)? Minimize
+ * is `display:none` with the component still mounted, so an app that polls
+ * (System Monitor) or animates can gate that work on visibility instead of
+ * running it forever behind a hidden window. Re-renders only when the boolean
+ * flips, since the selector returns a primitive.
+ */
+export function useWindowVisible(windowId: string): boolean {
+  return useWindowStore((s) => s.windows.find((w) => w.id === windowId)?.isVisible ?? false)
+}
+
+/**
  * A sane floating geometry to restore a maximized window to when its pre-max
  * state is gone (a layout restored while maximized keeps no pre-max entry).
  * Three-quarters of the usable desktop, centered, never below a usable floor.

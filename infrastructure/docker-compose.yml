@@ -59,14 +59,34 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:3001/api
+    # The ../apps bind mount shadows every workspace's image-installed
+    # node_modules, so each needs an anonymous volume to keep the container's
+    # own deps (per-package TS/eslint live here). This list must cover ALL
+    # add-ons — a partial list silently ran the hoisted toolchain for the rest.
     volumes:
       - ../apps:/app/apps
       - /app/apps/backend/node_modules
       - /app/apps/core/node_modules
+      - /app/apps/add-ons/archive-manager/node_modules
       - /app/apps/add-ons/bookmarks/node_modules
+      - /app/apps/add-ons/calculator/node_modules
+      - /app/apps/add-ons/calendar/node_modules
+      - /app/apps/add-ons/clock/node_modules
+      - /app/apps/add-ons/code-editor/node_modules
+      - /app/apps/add-ons/docs/node_modules
       - /app/apps/add-ons/file-manager/node_modules
+      - /app/apps/add-ons/git-gui/node_modules
+      - /app/apps/add-ons/image-viewer/node_modules
+      - /app/apps/add-ons/markdown-editor/node_modules
+      - /app/apps/add-ons/media-player/node_modules
+      - /app/apps/add-ons/norpdf/node_modules
       - /app/apps/add-ons/notepad/node_modules
+      - /app/apps/add-ons/pdf-viewer/node_modules
       - /app/apps/add-ons/repl-interpreter/node_modules
+      - /app/apps/add-ons/rest-api-client/node_modules
+      - /app/apps/add-ons/sheets/node_modules
+      - /app/apps/add-ons/slides/node_modules
+      - /app/apps/add-ons/snipping-tool/node_modules
       - /app/apps/add-ons/sticky-notes/node_modules
       - /app/apps/add-ons/system-monitor/node_modules
       - /app/apps/add-ons/todo/node_modules
