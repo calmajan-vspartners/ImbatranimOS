@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# TypeScript incremental build cache (e.g. backend tsc --noEmit -p ... with incremental:true)
+*.tsbuildinfo
