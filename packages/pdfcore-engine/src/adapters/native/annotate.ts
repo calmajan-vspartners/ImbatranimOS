@@ -1,4 +1,5 @@
 import {
+  PDFHexString,
   PDFName,
   PDFRef,
   PDFString,
@@ -67,8 +68,12 @@ export class NativeAnnotationWriter {
     // helpers below only when present so we never emit empty entries.
     const common = (rect: Rect): Record<string, unknown> => {
       const d: Record<string, unknown> = { Type: "Annot", Rect: rect };
-      if (ann.contents) d.Contents = PDFString.of(ann.contents);
-      if (ann.author) d.T = PDFString.of(ann.author);
+      // Text strings (`/Contents`, `/T`) go out as UTF-16BE hex strings:
+      // PDFString.of does NO escaping, so a literal `)` or `\` corrupts the
+      // object and chars >255 become mojibake. PDFHexString.fromText is
+      // escaping-proof and round-trips through decodeText() on reload.
+      if (ann.contents) d.Contents = PDFHexString.fromText(ann.contents);
+      if (ann.author) d.T = PDFHexString.fromText(ann.author);
       if (ann.opacity !== undefined) d.CA = ann.opacity;
       return d;
     };
@@ -289,7 +294,9 @@ export class NativeAnnotationWriter {
 
     const dict = common(bounds);
     dict.Subtype = "FreeText";
-    dict.Contents = PDFString.of(ann.text);
+    dict.Contents = PDFHexString.fromText(ann.text);
+    // `/DA` is ASCII by construction (a Tf/rg default-appearance string), so it
+    // stays a literal PDFString — it must NOT be hex-encoded.
     dict.DA = PDFString.of(`/Helv ${fmt(size)} Tf ${rgb(color)} rg`);
     dict.C = [color.r, color.g, color.b];
 
@@ -330,7 +337,7 @@ export class NativeAnnotationWriter {
     const bounds: Rect = [ann.at.x, ann.at.y, ann.at.x + size, ann.at.y + size];
     const dict = common(bounds);
     dict.Subtype = "Text";
-    dict.Contents = PDFString.of(ann.text);
+    dict.Contents = PDFHexString.fromText(ann.text);
     dict.Name = PDFName.of("Note");
     dict.Open = false;
     if (ann.color) dict.C = [ann.color.r, ann.color.g, ann.color.b];

@@ -9,6 +9,7 @@ import type { Sign } from "../capabilities/Sign.js";
 import type { Generate } from "../capabilities/Generate.js";
 import type { Platform } from "../platform/types.js";
 import { getPlatform, requirePlatform } from "../platform/registry.js";
+import { EncryptedDocument, type PdfEngineWarning } from "./errors.js";
 
 import type { DocumentMetadata, PageSize, PdfBytes } from "./types.js";
 
@@ -83,7 +84,18 @@ export class PdfDoc {
    * explicitly. Only `render` requires a platform; the rest are isomorphic.
    */
   static async load(bytes: PdfBytes, platform?: Platform): Promise<PdfDoc> {
-    const document = await PdfLibDocument.load(bytes);
+    let document: PdfLibDocument;
+    try {
+      document = await PdfLibDocument.load(bytes);
+    } catch (err) {
+      // The pdf-lib write-parse throws its own error types (e.g.
+      // EncryptedPDFError). Per errors.ts no backend error is re-thrown
+      // directly, so map the encrypted case to a typed engine error.
+      if (isEncryptedPdfError(err)) {
+        throw new EncryptedDocument(err instanceof Error ? err.message : undefined);
+      }
+      throw err;
+    }
     return new PdfDoc(bytes, document, platform ?? getPlatform());
   }
 
@@ -117,6 +129,14 @@ export class PdfDoc {
   /** Document Info-dictionary metadata. */
   metadata(): DocumentMetadata {
     return this.#document.metadata();
+  }
+
+  /**
+   * Non-fatal warnings raised while loading — e.g. the document carries a
+   * digital signature that a `save()` will invalidate. Empty for a clean load.
+   */
+  warnings(): readonly PdfEngineWarning[] {
+    return this.#document.warnings();
   }
 
   /**
@@ -191,4 +211,18 @@ export class PdfDoc {
   get generate(): Generate {
     return (this.#generate ??= new PdfLibGenerate(this.#document));
   }
+}
+
+/**
+ * Recognise pdf-lib's `EncryptedPDFError` without importing it, so we never
+ * re-throw a backend error type through the public surface. pdf-lib does not
+ * set `.name` on it (it stays "Error"), so match on the constructor name, with
+ * the message as a fallback.
+ */
+function isEncryptedPdfError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.constructor?.name === "EncryptedPDFError" ||
+    /is encrypted/i.test(err.message)
+  );
 }

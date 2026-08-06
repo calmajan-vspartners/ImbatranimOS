@@ -6,6 +6,24 @@
   "type": "module",
   "exports": {
     ".": {
+      "node": {
+        "types": "./src/index.node.ts",
+        "default": "./src/index.node.ts"
+      },
+      "browser": {
+        "types": "./src/index.browser.ts",
+        "default": "./src/index.browser.ts"
+      },
+      "default": {
+        "types": "./src/index.browser.ts",
+        "default": "./src/index.browser.ts"
+      }
+    },
+    "./node": {
+      "types": "./src/index.node.ts",
+      "default": "./src/index.node.ts"
+    },
+    "./browser": {
       "types": "./src/index.browser.ts",
       "default": "./src/index.browser.ts"
     }

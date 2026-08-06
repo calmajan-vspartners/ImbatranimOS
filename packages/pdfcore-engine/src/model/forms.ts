@@ -45,4 +45,15 @@ export class FormModel {
   get flattenAll(): boolean {
     return this.#flattenAll;
   }
+
+  /**
+   * Whether the model holds any staged work (value edits or queued flattens).
+   * The committer short-circuits when false so a merely-read Forms accessor
+   * never mutates the document on save (e.g. by creating an AcroForm).
+   */
+  hasWork(): boolean {
+    return (
+      this.#pending.size > 0 || this.#flattenAll || this.#flatten.size > 0
+    );
+  }
 }
