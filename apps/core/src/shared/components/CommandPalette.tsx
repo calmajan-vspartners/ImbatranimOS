@@ -9,16 +9,20 @@ import {
 } from '../commands/CommandSourcesRegistry'
 import { appsSource } from '../commands/appsSource'
 import { filesSource } from '../commands/filesSource'
+import { recentFilesSource } from '../commands/recentFilesSource'
 import { registerCommandSource, COMMAND_SOURCES } from '../commands/CommandSourcesRegistry'
 
 // Register the core-owned sources once (guard against HMR double-registration).
-// App-owned sources (bookmarks, notepad recent files) come from the add-on
-// manifests and are registered by src/manifest.ts.
+// App-owned sources (bookmarks) come from the add-on manifests and are
+// registered by src/manifest.ts.
 if (!COMMAND_SOURCES.find((s) => s.group === appsSource.group)) {
   registerCommandSource(appsSource)
 }
 if (!COMMAND_SOURCES.find((s) => s.group === filesSource.group)) {
   registerCommandSource(filesSource)
+}
+if (!COMMAND_SOURCES.find((s) => s.group === recentFilesSource.group)) {
+  registerCommandSource(recentFilesSource)
 }
 
 type Props = {

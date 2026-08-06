@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUp, File as FileIcon, Folder, HardDrive } from 'lucide-react'
+import { ArrowUp, File as FileIcon, Folder, HardDrive, History } from 'lucide-react'
 import { api } from '../../../lib/axios'
+import { useRecentFilesQuery } from '../../../lib/recentFiles'
 import { Button } from '../ui/Button'
 import { ScrollArea } from '../ui/ScrollArea'
 import { cn } from '../../../lib/cn'
@@ -48,6 +49,15 @@ export function FilePicker({
   const [dir, setDir] = useState('')
   const [showAll, setShowAll] = useState(false)
   const [name, setName] = useState(suggestedName ?? '')
+  // Recent tab (brief 94) — open mode only: picking a recent in save mode
+  // would be a disguised overwrite, and in directory mode it is meaningless.
+  const [showRecent, setShowRecent] = useState(false)
+  const { data: recentFiles } = useRecentFilesQuery()
+  const recent = useMemo(() => {
+    const all = recentFiles ?? []
+    if (!extensions || extensions.length === 0 || showAll) return all
+    return all.filter((f) => extensions.includes(f.path.split('.').pop()?.toLowerCase() ?? ''))
+  }, [recentFiles, extensions, showAll])
 
   // One piece of state tagged with the location it belongs to, rather than
   // separate entries/loading/error flags. `loading` is then derived, so the
@@ -102,9 +112,10 @@ export function FilePicker({
           <Button
             key={r.id}
             size="sm"
-            variant={r.id === root ? 'primary' : 'ghost'}
+            variant={r.id === root && !showRecent ? 'primary' : 'ghost'}
             className="h-5 gap-1 px-1.5"
             onClick={() => {
+              setShowRecent(false)
               setRoot(r.id)
               setDir('')
             }}
@@ -113,6 +124,17 @@ export function FilePicker({
             {r.label}
           </Button>
         ))}
+        {mode === 'open' && (
+          <Button
+            size="sm"
+            variant={showRecent ? 'primary' : 'ghost'}
+            className="h-5 gap-1 px-1.5"
+            onClick={() => setShowRecent(true)}
+          >
+            <History size={11} />
+            Recent
+          </Button>
+        )}
         <div className="w-px" />
         <Button
           size="sm"
@@ -130,7 +152,35 @@ export function FilePicker({
 
       <div className="min-h-0 flex-1">
         <ScrollArea className="h-full w-full">
-          {loading ? (
+          {showRecent && mode === 'open' ? (
+            recent.length === 0 ? (
+              <div className="text-on-surface-variant flex flex-col items-center justify-center gap-2 py-12">
+                <History size={32} strokeWidth={1} />
+                <span className="font-ui text-[12px]">Nothing opened recently</span>
+              </div>
+            ) : (
+              recent.map((f) => (
+                <button
+                  key={`${f.root}:${f.path}`}
+                  type="button"
+                  className={cn(
+                    'border-outline-variant flex w-full items-center gap-2 border-b px-2 py-1 text-left',
+                    'focus-visible:ring-primary outline-none focus-visible:ring-2 focus-visible:ring-inset',
+                    'hover:bg-surface-container-low'
+                  )}
+                  onClick={() => onPick({ root: f.root, path: f.path })}
+                >
+                  <FileIcon size={12} strokeWidth={1.5} className="shrink-0" />
+                  <span className="font-ui text-on-surface min-w-0 flex-1 truncate text-[12px]">
+                    {f.path.split('/').pop() ?? f.path}
+                  </span>
+                  <span className="font-ui text-on-surface-variant min-w-0 shrink truncate text-[10px]">
+                    {ROOTS.find((r) => r.id === f.root)?.label ?? f.root}/{f.path}
+                  </span>
+                </button>
+              ))
+            )
+          ) : loading ? (
             <div className="text-on-surface-variant font-ui p-4 text-center text-[12px]">
               Loading…
             </div>

@@ -6,11 +6,9 @@ import {
   deleteDirectory,
   deleteFile,
   fetchNotes,
-  fetchRecent,
   notesRootHasFiles,
   readFile,
   updateFile,
-  upsertRecent,
 } from '../api/notepadApi'
 import type { NotepadRoot } from '../lib/notepadRoot'
 
@@ -50,13 +48,6 @@ export function useNotesRootHasFilesQuery() {
   })
 }
 
-export function useRecentFilesQuery() {
-  return useQuery({
-    queryKey: ['notes', 'recent'],
-    queryFn: fetchRecent,
-  })
-}
-
 export function useCreateFileMutation() {
   return useMutation({
     mutationFn: ({ root, path, content }: { root: NotepadRoot; path: string; content?: string }) =>
@@ -82,7 +73,6 @@ export function useDeleteFileMutation() {
     mutationFn: ({ root, path }: { root: NotepadRoot; path: string }) => deleteFile(root, path),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notes', 'list'] })
-      queryClient.invalidateQueries({ queryKey: ['notes', 'recent'] })
     },
   })
 }
@@ -103,15 +93,6 @@ export function useDeleteDirectoryMutation() {
       deleteDirectory(root, path),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notes', 'list'] })
-    },
-  })
-}
-
-export function useUpsertRecentMutation() {
-  return useMutation({
-    mutationFn: upsertRecent,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notes', 'recent'] })
     },
   })
 }

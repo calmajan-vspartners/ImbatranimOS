@@ -5,13 +5,14 @@ import {
   api,
   notify,
   openApp,
+  recordRecentFile,
   useFileDialog,
   useIntentStore,
   useWindowStore,
 } from '@imbatranim/core'
 import { NoteEditor } from './components/NoteEditor'
 import { useNotepadStore, type OpenDoc } from './store/notepadStore'
-import { useNotesRootHasFilesQuery, useUpsertRecentMutation } from './queries/notepadQueries'
+import { useNotesRootHasFilesQuery } from './queries/notepadQueries'
 import {
   defaultRoot,
   formatBytes,
@@ -30,7 +31,6 @@ export function Notepad({ windowId }: { windowId: string }) {
   const setEditor = useNotepadStore((s) => s.setEditor)
   const clearEditor = useNotepadStore((s) => s.clearEditor)
   const openWindow = useWindowStore((s) => s.openWindow)
-  const upsertRecent = useUpsertRecentMutation()
 
   // Which root to offer first. Asked once per session; see `lib/notepadRoot.ts` for
   // why the answer depends on whether the legacy notes root still has anything in it.
@@ -76,9 +76,9 @@ export function Notepad({ windowId }: { windowId: string }) {
         setChecking(false)
       }
       setEditor(windowId, next)
-      upsertRecent.mutate(next.path)
+      recordRecentFile(next.root, next.path, 'notepad')
     },
-    [setEditor, windowId, upsertRecent]
+    [setEditor, windowId]
   )
 
   // Drain the one-shot open intent exactly once in a ref-guarded effect — never in a
@@ -133,7 +133,7 @@ export function Notepad({ windowId }: { windowId: string }) {
       { width: 400, height: 300 }
     )
     setEditor(newWindowId, next)
-    upsertRecent.mutate(next.path)
+    recordRecentFile(next.root, next.path, 'notepad')
   }
 
   if (doc) {

@@ -65,7 +65,7 @@ import {
   useWriteContentMutation,
   useUploadFileMutation,
 } from './queries/filesQueries'
-import { openApp } from '@imbatranim/core'
+import { openApp, recordRecentFile } from '@imbatranim/core'
 import { useIntentStore } from '@imbatranim/core'
 
 type MenuState = {
@@ -206,6 +206,8 @@ export function FileManager({ windowId }: { windowId: string }) {
     const appId = resolveOpenApp(root, entry.name)
     if (appId) {
       openApp(appId, { openPath: entry.path, root })
+      // OS-wide recents (brief 94): double-click/Enter is the main choke point.
+      recordRecentFile(root, entry.path, appId)
     }
   }
 
@@ -277,7 +279,12 @@ export function FileManager({ windowId }: { windowId: string }) {
     const file = makeBlankFile(kind, name)
     uploadMutation.mutate(
       { path: filePath, file },
-      { onSuccess: () => openApp(editorAppId(kind), { openPath: filePath, root }) }
+      {
+        onSuccess: () => {
+          openApp(editorAppId(kind), { openPath: filePath, root })
+          recordRecentFile(root, filePath, editorAppId(kind))
+        },
+      }
     )
   }
 
