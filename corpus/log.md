@@ -2736,3 +2736,70 @@ swap, and a watchdog here would be a worse version of it.
 
 Tests: frontend vitest **1022 → 1032** (10 new). Backend unchanged at 356 unit, 138
 e2e. All 103 turbo tasks green. Zero new dependencies.
+
+## 2026-08-06 — Brief 84: the machine gets a memory of itself
+
+`/var/log` is empty and nothing runs there — `entrypoint.sh` execs node as PID 1, so
+Nest's output goes to stdout where only `docker logs` sees it, which is to say nowhere
+at all on the kiosk ISO. "Was anyone trying to log in as me last week?" was
+unanswerable on a product whose README suggests exposing it to the internet.
+
+**The brief's own argument overruled the brief's own proposal.** It asks for a Nest
+logger transport writing JSONL. Two paragraphs earlier it says the thing that rules
+that out: *"an audit trail assembled from incidental log lines is not a trail."* A
+transport would pour every `RouterExplorer` mapping line into the file, pushing the
+events that matter out of the 2 MB rotation window faster, and swapping the global
+logger risks the stdout path the brief separately asks to preserve. So Nest's logging
+is untouched and `record()` is called on purpose at each site that matters. Backend
+errors come in through an exception filter that records **only 5xx** — a 404 is the
+system working, and logging refusals buries real incidents within minutes — and it
+extends `BaseExceptionFilter` and delegates, so no response changes. An audit trail
+that alters behaviour is a liability, not a record.
+
+**Never logging a secret is enforced, not promised.** Redaction lives inside
+`record()`, not at the call sites: a rule applied in one place is a rule, and a rule
+each caller has to remember is a leak waiting for the one caller who forgets. It
+denies by key name and errs towards dropping, including **`hash`** — an argon2 hash is
+not a password but it is the input to an offline cracking attempt, and a log file is a
+far easier thing to end up in a bug report than a database is. The failed-login site
+goes further and never hands the DTO to the logger at all. Verified against the
+running server: three refused sign-ins are in the file and neither the attempted nor
+the real password appears anywhere in it.
+
+Writes are **fire and forget** through a serialising queue, so a full disk cannot fail
+the request that triggered it — a login must not stop working because the audit log
+cannot be written; that turns a disk problem into a lockout. Reads walk **backwards in
+64 KB chunks**, filter the raw line before paying for a JSON parse, and stop the moment
+`limit` matches are in hand: a size cap is pointless if reading it needs the whole file
+in the heap. A line torn by a crash mid-append is skipped rather than poisoning the
+rest. Both routes are authed, and that is not boilerplate — log content names the
+addresses that tried to sign in and the files that were deleted, so an open read would
+be a reconnaissance endpoint for the exact attacker the log exists to catch.
+
+Brief 47's boundary makes **the browser a writer**, and it is handled as one: a DTO
+with an app id and 300 characters and nothing else, because a client-controlled object
+in a log file is log injection with no upside; a per-process budget so a render loop
+cannot fill the volume; and `source: 'client'` on the entry so it can never be read as
+something the server saw for itself. A request that also sent `source: 'server'` and
+`event: 'auth.login.ok'` had both silently dropped by the whitelisting pipe.
+
+**Two dependency bugs the tools caught, both real.** `@Global` on the logs module was
+*not enough* — the e2e suites build partial module graphs, and a global module that was
+never imported does not exist, so all twelve failed to boot. Modules whose providers
+require the logger now import it explicitly; services that unit tests construct with
+`new` take it `@Optional()` so rate limiting does not stop working because nothing is
+listening. Then core's eslint refused `RecentSignIns` importing `toSignIns` from the
+add-on — correctly: that inverts the dependency the composition root exists to keep
+one-way. The log's *shape* is a backend contract, so it moved into core; the
+presentation stayed in the app.
+
+Ships the **System Log** app (virtualized rows, level chips, debounced text filter,
+Follow, click-to-expand raw JSON, dotted events shown as English) with filtering done
+**server-side** — pulling the whole log down to filter in the browser would undo the
+point of a capped tail. And **Settings → Security → Recent sign-ins**, placed first in
+that section because "has anyone been trying to get in?" is the question people open
+Security to answer, with refusals shown beside successes.
+
+Tests: backend unit **356 → 385**, frontend vitest **1032 → 1044** in a package that did
+not exist this morning. e2e unchanged at 138. All 107 turbo tasks green. Zero new
+dependencies.

@@ -13,6 +13,8 @@ export type { CommandSource, CommandItem } from './shared/commands/CommandSource
 
 // HTTP + query plumbing
 export { api } from './lib/axios'
+export { toSignIns } from './shared/lib/systemLog'
+export type { LogEntry, LogLevel, LogSource, SignIn } from './shared/lib/systemLog'
 export { queryClient } from './lib/queryClient'
 
 // Styling helper

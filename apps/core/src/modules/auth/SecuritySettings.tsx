@@ -4,6 +4,7 @@ import { ShieldCheck, LockKeyhole, LogOut, KeyRound, Loader2 } from 'lucide-reac
 import { Button, Input } from '../../shared/components/ui'
 import { notify } from '../../shared/store/notificationStore'
 import { useAuthStore } from './store/authStore'
+import { RecentSignIns } from './RecentSignIns'
 import {
   changePassword,
   disableTotp,
@@ -128,6 +129,10 @@ export function SecuritySettings() {
       </div>
 
       <div className="space-y-6">
+        {/* Recent sign-ins — brief 84. First, because "has anyone been trying
+            to get in?" is the question people open this section to answer. */}
+        <RecentSignIns />
+
         {/* Two-factor authentication */}
         <div className="border-outline-variant bg-surface-container-low border p-4">
           <div className="mb-3 flex items-center justify-between">

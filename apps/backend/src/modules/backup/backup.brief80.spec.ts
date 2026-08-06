@@ -9,6 +9,7 @@ import { FilesService } from '../files/files.service';
 import { ArchiveService } from '../archive/archive.service';
 import { DbService } from '../../db/db.service';
 import { SessionService } from '../auth/session.service';
+import { LogService } from '../logs/log.service';
 import {
   BACKUP_METADATA,
   BackupService,
@@ -67,7 +68,11 @@ describe('BackupService — brief 80', () => {
     sessions = new SessionService(db, {
       get: () => 24,
     } as unknown as ConfigService<never, true>);
-    service = new BackupService(files, archive, db, sessions);
+    // A real LogService, initialised against the test home: brief 84 wired an
+    // audit line into restore, and a stub would hide it breaking.
+    const logs = new LogService();
+    await logs.onModuleInit();
+    service = new BackupService(files, archive, db, sessions, logs);
   });
 
   afterEach(async () => {

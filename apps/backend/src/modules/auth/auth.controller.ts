@@ -17,6 +17,7 @@ import { AuthService } from './auth.service';
 import { SessionService } from './session.service';
 import { ThrottleService } from './throttle.service';
 import { Public } from './public.decorator';
+import { LogService } from '../logs/log.service';
 import { SESSION_COOKIE_NAME, readSessionCookie } from './auth.constants';
 import {
   ChangePasswordDto,
@@ -34,6 +35,7 @@ export class AuthController {
     private readonly sessions: SessionService,
     private readonly throttle: ThrottleService,
     private readonly config: ConfigService<Env, true>,
+    private readonly logs: LogService,
   ) {}
 
   // ---- Public: unlock-screen surface ------------------------------------
@@ -65,6 +67,9 @@ export class AuthController {
     this.assertSetupToken(dto.token);
     await this.auth.setup(dto.password);
     this.issueSessionCookie(req, res);
+    this.logs.audit('auth.setup', 'The machine was claimed by its first user', {
+      ip: req.ip,
+    });
     return { ok: true };
   }
 
@@ -87,12 +92,27 @@ export class AuthController {
 
     if (!passwordOk || !totpOk) {
       this.throttle.recordFailure(key);
+      // Logged as `warn`, with the IP and NOTHING the caller typed. `dto` is
+      // never passed here: the redactor would strip `password`, but the safest
+      // secret is the one that was never handed to the logger in the first
+      // place. Which factor failed stays out of the log for the same reason it
+      // stays out of the response.
+      this.logs.record(
+        'warn',
+        'auth.login.failed',
+        'A sign-in attempt failed',
+        {
+          ip: key,
+          totpRequired: this.auth.totpEnabled(),
+        },
+      );
       // Generic message: do not reveal which factor failed.
       throw new UnauthorizedException('Invalid credentials');
     }
 
     this.throttle.reset(key);
     this.issueSessionCookie(req, res);
+    this.logs.audit('auth.login.ok', 'Signed in', { ip: key });
     return { ok: true };
   }
 
@@ -104,6 +124,7 @@ export class AuthController {
     const raw = readSessionCookie(req);
     if (raw) this.sessions.destroy(raw);
     res.clearCookie(SESSION_COOKIE_NAME, this.cookieClearOpts(req));
+    if (raw) this.logs.audit('auth.logout', 'Signed out', { ip: req.ip });
     return { ok: true };
   }
 
@@ -119,6 +140,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   enableTotp(@Body() dto: TotpTokenDto) {
     this.auth.confirmTotp(dto.token);
+    this.logs.audit(
+      'auth.totp.enabled',
+      'Two-factor authentication was turned on',
+    );
     return { ok: true, totpEnabled: true };
   }
 
@@ -126,6 +151,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async disableTotp(@Body() dto: DisableTotpDto) {
     await this.auth.disableTotp(dto.password);
+    // Warn, not info: turning a factor OFF is the half of this pair an intruder
+    // would want, and the one worth spotting in a review of last week.
+    this.logs.record(
+      'warn',
+      'auth.totp.disabled',
+      'Two-factor authentication was turned off',
+    );
     return { ok: true, totpEnabled: false };
   }
 
@@ -173,14 +205,26 @@ export class AuthController {
       // Only a failed *credential* check feeds the throttle. A rejected weak or
       // unchanged new password is the user fumbling their own form, and counting
       // it would let honest mistakes lock them out of their own machine.
-      if (err instanceof UnauthorizedException)
+      if (err instanceof UnauthorizedException) {
         this.throttle.recordFailure(key);
+        this.logs.record(
+          'warn',
+          'auth.password.failed',
+          'A password change was refused: the current password did not match',
+          { ip: key },
+        );
+      }
       throw err;
     }
 
     this.throttle.reset(key);
     this.sessions.destroyAll();
     this.issueSessionCookie(req, res);
+    this.logs.audit(
+      'auth.password.changed',
+      'The password was changed; every other session was signed out',
+      { ip: key },
+    );
     return { ok: true };
   }
 

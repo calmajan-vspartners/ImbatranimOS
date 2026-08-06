@@ -1,4 +1,10 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
+import { LogService } from '../logs/log.service';
 
 interface Attempt {
   count: number;
@@ -39,6 +45,13 @@ export class ThrottleService {
   private readonly attempts = new Map<string, Attempt>();
   private readonly global: Attempt = { count: 0, lockedUntil: 0 };
 
+  /**
+   * Optional so the existing specs, which construct this directly, keep working
+   * without a logger — the throttle's job is rate limiting, and it should not
+   * stop working because nothing is listening.
+   */
+  constructor(@Optional() private readonly logs?: LogService) {}
+
   /** Throws HTTP 429 with Retry-After if the key OR the app is locked out. */
   assertNotLocked(key: string): void {
     this.assertEntryNotLocked(this.global);
@@ -64,19 +77,50 @@ export class ThrottleService {
   /** Record a failed attempt and (past the threshold) extend the lockout. */
   recordFailure(key: string): void {
     const entry = this.attempts.get(key) ?? { count: 0, lockedUntil: 0 };
-    this.bumpLock(entry, this.FAIL_THRESHOLD);
+    const locked = this.bumpLock(entry, this.FAIL_THRESHOLD);
     this.attempts.set(key, entry);
-    this.bumpLock(this.global, this.GLOBAL_FAIL_THRESHOLD);
+    const globalLocked = this.bumpLock(this.global, this.GLOBAL_FAIL_THRESHOLD);
+
+    // Logged on the TRANSITION into a lockout, not on every failure past it:
+    // the failures themselves are already recorded by the login route, and a
+    // line per attempt would make a sustained attack push its own beginning out
+    // of the rotation window.
+    if (locked) {
+      this.logs?.record(
+        'warn',
+        'auth.throttle.locked',
+        'An address was locked out',
+        {
+          ip: key,
+          failures: entry.count,
+          lockedForSeconds: Math.ceil((entry.lockedUntil - Date.now()) / 1000),
+        },
+      );
+    }
+    if (globalLocked) {
+      this.logs?.record(
+        'error',
+        'auth.throttle.locked.global',
+        'Sign-in is locked app-wide after failures from many addresses',
+        { failures: this.global.count },
+      );
+    }
   }
 
-  /** Increment an attempt counter and, once over `threshold`, apply backoff. */
-  private bumpLock(entry: Attempt, threshold: number): void {
+  /**
+   * Increment an attempt counter and, once over `threshold`, apply backoff.
+   * Returns true when this call is the one that STARTED a lockout.
+   */
+  private bumpLock(entry: Attempt, threshold: number): boolean {
+    const wasLocked = entry.lockedUntil > Date.now();
     entry.count += 1;
     if (entry.count > threshold) {
       const over = entry.count - threshold - 1;
       const lock = Math.min(this.BASE_LOCK_MS * 2 ** over, this.MAX_LOCK_MS);
       entry.lockedUntil = Date.now() + lock;
+      return !wasLocked;
     }
+    return false;
   }
 
   /** Clear all failure state for a key (on successful login). */

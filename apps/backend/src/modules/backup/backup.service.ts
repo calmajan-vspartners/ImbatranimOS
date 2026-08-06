@@ -19,6 +19,7 @@ import { FilesService } from '../files/files.service';
 import { TRASH_DIR } from '../files/trash.service';
 import { ArchiveService, parseTarListLine } from '../archive/archive.service';
 import { SessionService } from '../auth/session.service';
+import { LogService } from '../logs/log.service';
 import type {
   BackupInfo,
   BackupManifest,
@@ -155,6 +156,7 @@ export class BackupService {
     private readonly archive: ArchiveService,
     private readonly db: DbService,
     private readonly sessions: SessionService,
+    private readonly logs: LogService,
   ) {}
 
   // ── shared ───────────────────────────────────────────────────────────────
@@ -332,6 +334,9 @@ export class BackupService {
         });
       });
 
+      this.logs.audit('backup.taken', 'A backup was downloaded', {
+        excluded: excluded.length,
+      });
       return {
         filename: this.filename(),
         stream: stdout,
@@ -485,6 +490,16 @@ export class BackupService {
 
       // The database last, and only once the tree it belongs to is in place.
       await this.installDatabase(home, upload.manifest);
+
+      // Recorded AFTER the swap, so the line exists only if it really happened
+      // — and it lands in the log the restore just brought in, which is the
+      // right place for it: this is the newest thing that machine did.
+      this.logs.record(
+        'warn',
+        'backup.restored',
+        'The home directory was restored from a backup',
+        { from: upload.manifest.createdAt, entries: restored.length },
+      );
 
       return {
         restored,

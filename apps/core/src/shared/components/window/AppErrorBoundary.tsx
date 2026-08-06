@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { api } from '../../../lib/axios'
 import { notify } from '../../store/notificationStore'
 import { shouldReportCrash } from './crashToastGuard'
 
@@ -58,6 +59,17 @@ export class AppErrorBoundary extends Component<Props, State> {
         level: 'error',
         appId,
       })
+      // Also into the system log (brief 84), so the crash is still findable
+      // tomorrow rather than only in a toast the user may have missed. Behind
+      // the same guard as the toast — a render loop should not become a
+      // request loop — and fire-and-forget, because failing to record a crash
+      // must not itself become an error.
+      void api
+        .post('/logs/client-error', {
+          appId,
+          message: (error.message || 'The app stopped unexpectedly.').slice(0, 300),
+        })
+        .catch(() => undefined)
     }
     // Still goes to the console: the toast is for the user, this is for whoever
     // is debugging, and the component stack is the useful half.

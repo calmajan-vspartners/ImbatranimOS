@@ -31,6 +31,7 @@ import { manifest as codeEditor } from '@imbatranim/code-editor'
 import { manifest as gitGui } from '@imbatranim/git-gui'
 import { manifest as restApiClient } from '@imbatranim/rest-api-client'
 import { manifest as archiveManager } from '@imbatranim/archive-manager'
+import { manifest as logs } from '@imbatranim/logs'
 import type { AddonManifest, AppConfig } from './contract'
 import { COMMAND_SOURCES, registerCommandSource } from './shared/commands/CommandSourcesRegistry'
 
@@ -75,6 +76,7 @@ const MANIFESTS: AddonManifest[] = [
   gitGui,
   restApiClient,
   archiveManager,
+  logs,
 ]
 
 export const APP_REGISTRY: AppConfig[] = MANIFESTS
