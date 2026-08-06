@@ -353,3 +353,48 @@ describe('brief 90 — the styles Univer can set now survive a save', () => {
     expect(cell(wb, 0, 1, 0)?.s).toBeUndefined()
   })
 })
+
+/**
+ * T0-3: a date cell must stay a *date* across a round-trip.
+ *
+ * The bug wrote a `Date` back as ISO TEXT under a date numFmt — Excel then saw a
+ * string, not a date, and could no longer sort, filter, or compute with it. A
+ * date is an Excel serial NUMBER plus a date format; both must survive.
+ *
+ * Built in-test with ExcelJS (an independent write of a real xlsx) rather than a
+ * committed fixture, so the whole open→save→reopen path is exercised directly.
+ */
+async function dateWorkbookBytes(when: Date, numFmt: string): Promise<ArrayBuffer> {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Dates')
+  const c = ws.getCell('A1')
+  c.value = when
+  c.numFmt = numFmt
+  const buf = await wb.xlsx.writeBuffer()
+  return buf as ArrayBuffer
+}
+
+describe('T0-3 — a date cell survives as a date, not ISO text', () => {
+  const WHEN = new Date(Date.UTC(2024, 0, 15))
+  // ExcelJS's own serial convention: 25569 = 1970-01-01 in the serial system.
+  const EXPECTED_SERIAL = 25569 + WHEN.getTime() / (24 * 3600 * 1000)
+
+  it('reads a date as a serial NUMBER, keeping the date number format', async () => {
+    const { workbook } = await parse(await dateWorkbookBytes(WHEN, 'yyyy-mm-dd'))
+    const c = cell(workbook, 0, 0, 0)
+    expect(typeof c?.v).toBe('number')
+    expect(c?.v).toBeCloseTo(EXPECTED_SERIAL, 6)
+    // Not the old ISO-string bug.
+    expect(typeof c?.v).not.toBe('string')
+    expect(c?.s).toMatchObject({ n: { pattern: 'yyyy-mm-dd' } })
+  })
+
+  it('stays a numeric date across parse → serialize → parse', async () => {
+    const wb = await roundTrip(await dateWorkbookBytes(WHEN, 'yyyy-mm-dd'))
+    const c = cell(wb, 0, 0, 0)
+    expect(typeof c?.v).toBe('number')
+    expect(c?.v).toBeCloseTo(EXPECTED_SERIAL, 6)
+    expect(c?.s).toMatchObject({ n: { pattern: 'yyyy-mm-dd' } })
+  })
+})

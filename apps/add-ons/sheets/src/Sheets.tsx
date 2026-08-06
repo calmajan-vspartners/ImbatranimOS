@@ -8,6 +8,7 @@ import {
   notify,
   reportFileFailure,
   uploadFileBytes,
+  useConfirm,
   useFileDialog,
   useOpenIntent,
   useSaveHotkey,
@@ -29,6 +30,7 @@ export function Sheets({ windowId }: { windowId: string }) {
   // "open one from Files". The pick latches into the same store
   // useOpenIntent reads, so the existing load path runs unchanged.
   const { openFile, fileDialog } = useFileDialog(windowId)
+  const { confirm, confirmDialog } = useConfirm()
   const pickFile = () => void openFile({ extensions: ['xlsx', 'csv'] })
   const containerRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<SheetEngine | null>(null)
@@ -119,6 +121,27 @@ export function Sheets({ windowId }: { windowId: string }) {
     if (!engine || !source || saving) return
     const snapshot = engine.snapshot()
     if (!snapshot) return
+
+    // CSV holds a single sheet, and `univerToCsv` writes only the first — so a
+    // multi-sheet workbook saved to .csv silently drops every other sheet. Say
+    // so and get explicit consent before proceeding (the promised warning that
+    // was never built): a quiet save that discards sheets is exactly the kind of
+    // data loss this app must not do.
+    if (isCsv && (snapshot.sheetOrder?.length ?? 0) > 1) {
+      const count = snapshot.sheetOrder.length
+      const firstId = snapshot.sheetOrder[0]
+      const firstName = snapshot.sheets?.[firstId]?.name ?? 'the first sheet'
+      const ok = await confirm({
+        title: 'CSV saves one sheet only',
+        message: `This workbook has ${count} sheets, but a CSV file holds only one. Saving will write "${firstName}" and discard the other ${count - 1}. To keep every sheet, save it as an .xlsx file instead.`,
+        confirmLabel: 'Save first sheet only',
+        destructive: true,
+      })
+      // Cancel leaves `dirty` armed and the file untouched — the workbook still
+      // differs from disk, so the Save button and close guard stay active.
+      if (!ok) return
+    }
+
     // Record the edit counter at snapshot time. If the user edits while the
     // serialize+upload is in flight the counter advances, so we must NOT clear
     // dirty on resolve — those edits aren't in the bytes we uploaded.
@@ -147,7 +170,7 @@ export function Sheets({ windowId }: { windowId: string }) {
     } finally {
       setSaving(false)
     }
-  }, [source, saving, isCsv])
+  }, [source, saving, isCsv, confirm])
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
   useSaveHotkey(windowId, handleSave)
@@ -223,6 +246,7 @@ export function Sheets({ windowId }: { windowId: string }) {
           </div>
         )}
       </div>
+      {confirmDialog}
     </div>
   )
 }

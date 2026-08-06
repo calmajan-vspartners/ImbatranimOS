@@ -9,6 +9,8 @@
  * - **`<canvas>`** — its bitmap is not part of the DOM, so it serialises as an empty box.
  * - **`<video>`** — the current frame is not markup either.
  * - **cross-origin `<img>`** — drawing one taints the canvas, so the rasterizer omits it.
+ * - **scrolled panes** — `html-to-image` does not carry a pane's scroll offset onto its
+ *   clone, so a scrolled area is re-rendered from its top and the shot shows the wrong rows.
  *
  * A screenshot tool that silently drops part of the screen is worse than one that says so,
  * which is why this exists: the region is scanned, and the capture is annotated with what
@@ -20,7 +22,7 @@
 
 export type Rect = { x: number; y: number; width: number; height: number }
 
-export type LossyKind = 'canvas' | 'video' | 'crossOriginImage'
+export type LossyKind = 'canvas' | 'video' | 'crossOriginImage' | 'scrolled'
 
 /** One element that may not have survived the raster. */
 export type LossyElement = { kind: LossyKind; rect: Rect }
@@ -30,6 +32,7 @@ const LABELS: Record<LossyKind, [singular: string, plural: string]> = {
   canvas: ['1 canvas element', 'canvas elements'],
   video: ['1 video', 'videos'],
   crossOriginImage: ['1 cross-origin image', 'cross-origin images'],
+  scrolled: ['1 scrolled area', 'scrolled areas'],
 }
 
 /** Do two rects share any area? Touching edges do not count. */
@@ -76,7 +79,12 @@ export function describeLossy(summary: {
   })
   const list =
     parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
-  return `This region contained ${list}. Their content may not appear in the image — a DOM capture re-renders the markup rather than reading the screen.`
+  // A scrolled pane is a different failure from an empty box: the pixels are
+  // there, just from the wrong offset, so it gets its own sentence.
+  const scrollNote = summary.byKind.scrolled
+    ? ' A scrolled area is re-rendered from its top, so rows below the fold may appear in place of what is on screen.'
+    : ''
+  return `This region contained ${list}. Their content may not appear in the image — a DOM capture re-renders the markup rather than reading the screen.${scrollNote}`
 }
 
 /** True for an image served by another origin, which taints the raster canvas. */
@@ -108,6 +116,21 @@ export function scanLossyElements(root: ParentNode = document): LossyElement[] {
       isCrossOrigin((node as HTMLImageElement).currentSrc || (node as HTMLImageElement).src)
     ) {
       out.push({ kind: 'crossOriginImage', rect })
+    }
+  }
+  // Scrolled panes: `html-to-image` renders them from their top, so anything a
+  // user scrolled to is captured wrong with no other signal. The page's own
+  // root scroll is excluded — the region is in viewport coordinates, so the
+  // document scroll is already accounted for.
+  for (const node of root.querySelectorAll<HTMLElement>('*')) {
+    if (node === document.documentElement || node === document.body) continue
+    if (node.closest('[data-snip-overlay]')) continue
+    if (node.scrollTop > 0 || node.scrollLeft > 0) {
+      const box = node.getBoundingClientRect()
+      out.push({
+        kind: 'scrolled',
+        rect: { x: box.x, y: box.y, width: box.width, height: box.height },
+      })
     }
   }
   return out

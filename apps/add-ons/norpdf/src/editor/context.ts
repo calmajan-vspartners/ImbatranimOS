@@ -28,6 +28,7 @@ const NOOP: EditorController = {
   deleteAnnotation: async () => {},
   addedIds: new Set<string>(),
   syncRaster: async () => {},
+  saveToDisk: async () => {},
   busy: false,
 }
 

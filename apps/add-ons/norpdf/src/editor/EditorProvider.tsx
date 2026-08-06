@@ -14,15 +14,32 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 import type { AnnotationSpec, Color, SignatureMark } from '@pdfcore/engine'
+import { notify, uploadFileBytes } from '@imbatranim/core'
 import { useReader } from '../app/context'
 import { EditorContext } from './context'
 import type { AnnotateTool, EditorController } from './types'
 
 const DEFAULT_COLOR: Color = { r: 0.95, g: 0.72, b: 0.2 } // saffron marker
 
+const msgOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/** Download bytes as a `.pdf` — the fallback when a document has no OS home. */
+function downloadBytes(bytes: Uint8Array, name: string): void {
+  const buf = bytes.slice().buffer
+  const blob = new Blob([buf], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name.replace(/\.pdf$/i, '') || 'document'}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
 export function EditorProvider({ children }: { children: ReactNode }): JSX.Element {
   const ctrl = useReader()
-  const { doc, reloadDocument } = ctrl
+  const { doc, docName, saveTarget, reloadDocument, markDirty, markSaved } = ctrl
 
   const [tool, setToolState] = useState<AnnotateTool>('select')
   const [color, setColor] = useState<Color>(DEFAULT_COLOR)
@@ -62,9 +79,11 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       // Overlay-only preview: the mark renders in the SVG overlay, driven by the
       // addedIds change — no raster re-key (which would flash the canvas).
       setAddedIds((prev) => new Set(prev).add(id))
+      // An unsaved edit — arm the close guard and the Save button.
+      markDirty()
       return id
     },
-    [doc]
+    [doc, markDirty]
   )
 
   const syncRaster = useCallback(async () => {
@@ -75,10 +94,52 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       await reloadDocument()
       // Everything is baked into the fresh raster now.
       setAddedIds(new Set())
+      // Baked in memory, but not yet written to disk — still a dirty document.
+      markDirty()
     } finally {
       setBusy(false)
     }
-  }, [doc, reloadDocument])
+  }, [doc, reloadDocument, markDirty])
+
+  /**
+   * The primary Save. Serialise the document and WRITE IT BACK to the OS file it
+   * came from, then run the SAME reload+clear path `syncRaster` uses so the
+   * overlay and the baked raster stay in sync (T1-1 + T1-2). Falls back to a
+   * download for a document with no OS home.
+   */
+  const saveToDisk = useCallback(async () => {
+    if (!doc) return
+    setBusy(true)
+    try {
+      const bytes = await doc.save()
+      if (saveTarget) {
+        await uploadFileBytes(saveTarget.root, saveTarget.path, bytes, docName || 'document.pdf')
+      } else {
+        downloadBytes(bytes, docName)
+      }
+      // Re-read from the saved bytes and drop the overlay marks — they are baked
+      // into the raster now, so leaving them in `addedIds` would double-render
+      // each mark (baked + overlay) and send its delete down the overlay-only
+      // branch. This is exactly what `syncRaster` does after a bake.
+      await reloadDocument()
+      setAddedIds(new Set())
+      markSaved()
+      notify({
+        appId: 'norpdf',
+        level: 'success',
+        title: saveTarget ? 'Saved' : 'Saved a copy',
+        body: saveTarget
+          ? `“${docName}” written back to disk.`
+          : 'This document has no file to write back to, so a copy was downloaded.',
+      })
+    } catch (err) {
+      // `dirty` is deliberately left armed: the bytes did not land, so the
+      // document still differs from disk and the close guard must stay on.
+      notify({ appId: 'norpdf', level: 'error', title: 'Save failed', body: msgOf(err) })
+    } finally {
+      setBusy(false)
+    }
+  }, [doc, saveTarget, docName, reloadDocument, markSaved])
 
   const deleteAnnotation = useCallback(
     async (id: string) => {
@@ -94,8 +155,14 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
           return next
         })
       } else {
-        // Already baked into the raster — re-rasterise without it.
-        await syncRaster()
+        // Already baked into the raster — re-rasterise without it. `syncRaster`
+        // can reject (save/reload failure); surface it rather than let it become
+        // an unhandled rejection with no user feedback (M6).
+        try {
+          await syncRaster()
+        } catch (err) {
+          notify({ appId: 'norpdf', level: 'error', title: 'Delete failed', body: msgOf(err) })
+        }
       }
     },
     [doc, addedIds, syncRaster]
@@ -118,7 +185,9 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
         // Fill a specific AcroForm signature field, then bake it into the raster.
         doc.sign.fillSignatureField(signFieldName, mark)
         setSignFieldName(null)
-        void syncRaster()
+        void syncRaster().catch((err) =>
+          notify({ appId: 'norpdf', level: 'error', title: 'Sign failed', body: msgOf(err) })
+        )
         return
       }
       // Arm the Sign tool: the next drag on a page places the mark.
@@ -151,6 +220,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       deleteAnnotation,
       addedIds,
       syncRaster,
+      saveToDisk,
       busy,
     }),
     [
@@ -170,6 +240,7 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
       deleteAnnotation,
       addedIds,
       syncRaster,
+      saveToDisk,
       busy,
     ]
   )

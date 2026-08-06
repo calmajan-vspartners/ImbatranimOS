@@ -83,6 +83,13 @@ export interface EditorController {
    * Used after forms edits / organize ops so the canvas reflects them.
    */
   syncRaster: () => Promise<void>
-  /** True while {@link syncRaster} (or an organize op) is running. */
+  /**
+   * The primary Save: serialise the document and WRITE IT BACK to the OS file it
+   * was opened from (`uploadFileBytes`), then reload + clear {@link addedIds} so
+   * the overlay and the baked raster stay in sync. Falls back to a download for a
+   * document with no OS home. Clears the dirty flag on success.
+   */
+  saveToDisk: () => Promise<void>
+  /** True while {@link syncRaster} / {@link saveToDisk} (or an organize op) is running. */
   busy: boolean
 }

@@ -377,7 +377,7 @@ export function RestApiClient(_props: { windowId: string }) {
         <CurlDialog
           mode={dialog === 'curl-import' ? 'import' : 'export'}
           request={{ method, url, headers, body }}
-          onImport={(parsed) => loadRequest({ ...parsed, bodyMode: 'text' })}
+          onImport={(parsed) => loadRequest(parsed)}
           onClose={() => setDialog(null)}
         />
       )}

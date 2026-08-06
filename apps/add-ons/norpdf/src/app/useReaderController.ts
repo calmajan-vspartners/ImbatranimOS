@@ -10,10 +10,19 @@
  *  • After an in-place annotation edit, call `bumpRenderEpoch()` to re-render.
  *  • After a structural edit + `await doc.save()`, call `reloadDocument()`.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PdfDoc } from '@pdfcore/engine'
 import type { DocumentMetadata, OutlineNode } from '@pdfcore/engine'
-import type { FitMode, PageDim, PanelTab, ReaderController, SearchState, ViewMode } from './types'
+import { useUnsavedGuard } from '@imbatranim/core'
+import type {
+  FitMode,
+  PageDim,
+  PanelTab,
+  ReaderController,
+  SaveTarget,
+  SearchState,
+  ViewMode,
+} from './types'
 
 /** Points → CSS px factor at 100% ("actual size", 72pt/in vs 96px/in). */
 const ACTUAL = 96 / 72
@@ -31,9 +40,11 @@ const EMPTY_SEARCH: SearchState = {
   ran: false,
 }
 
-export function useReaderController(): ReaderController {
+export function useReaderController(windowId: string): ReaderController {
   const [doc, setDoc] = useState<PdfDoc | null>(null)
   const [docName, setDocName] = useState('')
+  const [saveTarget, setSaveTarget] = useState<SaveTarget | null>(null)
+  const [dirty, setDirty] = useState(false)
   const [pageCount, setPageCount] = useState(0)
   const [metadata, setMetadata] = useState<DocumentMetadata | null>(null)
   const [outline, setOutline] = useState<OutlineNode[]>([])
@@ -56,10 +67,32 @@ export function useReaderController(): ReaderController {
   const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH)
   const [renderEpoch, setRenderEpoch] = useState(0)
 
+  // A monotonic open id, so a slow earlier open cannot clobber a newer one. Each
+  // `openBytes` claims the next id and only adopts / reports failure if it is
+  // still the latest when its `PdfDoc.load` resolves (L2).
+  const openIdRef = useRef(0)
+
+  // Latest search state, read outside the `setSearch` updater in
+  // `reloadDocument` — running a search inside an updater double-fires under
+  // StrictMode (L7).
+  const searchRef = useRef(search)
+  useEffect(() => {
+    searchRef.current = search
+  }, [search])
+
+  const markDirty = useCallback(() => setDirty(true), [])
+  const markSaved = useCallback(() => setDirty(false), [])
+
+  // Reflect the filename + a dirty marker in the window title and warn before
+  // closing with unsaved edits — the save spine every other editor uses.
+  useUnsavedGuard(windowId, dirty, docName)
+
   /* ── Load a document from an engine PdfDoc ─────────────────────────────── */
-  const adopt = useCallback((loaded: PdfDoc, name: string) => {
+  const adopt = useCallback((loaded: PdfDoc, name: string, target: SaveTarget | null) => {
     setDoc(loaded)
     setDocName(name)
+    setSaveTarget(target)
+    setDirty(false)
     const count = loaded.pageCount()
     setPageCount(count)
     setMetadata(loaded.metadata())
@@ -80,18 +113,24 @@ export function useReaderController(): ReaderController {
   }, [])
 
   const openBytes = useCallback(
-    async (bytes: Uint8Array, name: string) => {
+    async (bytes: Uint8Array, name: string, target: SaveTarget | null = null) => {
+      const openId = ++openIdRef.current
       setLoading(true)
       setError(null)
       try {
         const loaded = await PdfDoc.load(bytes)
-        adopt(loaded, name)
+        // A newer open started while this one was loading — drop this result so
+        // the slower, older document can't replace the newer one.
+        if (openId !== openIdRef.current) return
+        adopt(loaded, name, target)
       } catch (err) {
+        if (openId !== openIdRef.current) return
         setDoc(null)
         setPageCount(0)
+        setSaveTarget(null)
         setError(`Could not open “${name}”: ${err instanceof Error ? err.message : String(err)}`)
       } finally {
-        setLoading(false)
+        if (openId === openIdRef.current) setLoading(false)
       }
     },
     [adopt]
@@ -105,7 +144,7 @@ export function useReaderController(): ReaderController {
     [openBytes]
   )
 
-  const save = useCallback(async () => {
+  const exportCopy = useCallback(async () => {
     if (!doc) return
     try {
       const bytes = await doc.save()
@@ -253,16 +292,17 @@ export function useReaderController(): ReaderController {
     } catch {
       setOutline([])
     }
-    // Re-run any active search against the new bytes.
-    setSearch((s) => {
-      if (s.ran && s.query.trim()) void runSearch(s.query)
-      return s
-    })
+    // Re-run any active search against the new bytes. Read the latest search
+    // from a ref and act on it OUTSIDE any `setSearch` updater — kicking off a
+    // search inside an updater double-fires under StrictMode (L7).
+    const current = searchRef.current
+    if (current.ran && current.query.trim()) void runSearch(current.query)
     setRenderEpoch((e) => e + 1)
   }, [doc, runSearch])
 
   return useMemo<ReaderController>(
     () => ({
+      windowId,
       doc,
       docName,
       pageCount,
@@ -272,7 +312,11 @@ export function useReaderController(): ReaderController {
       reportPageDim,
       openFile,
       openBytes,
-      save,
+      exportCopy,
+      saveTarget,
+      dirty,
+      markDirty,
+      markSaved,
       loading,
       error,
       currentPage,
@@ -303,6 +347,7 @@ export function useReaderController(): ReaderController {
       reloadDocument,
     }),
     [
+      windowId,
       doc,
       docName,
       pageCount,
@@ -312,7 +357,11 @@ export function useReaderController(): ReaderController {
       reportPageDim,
       openFile,
       openBytes,
-      save,
+      exportCopy,
+      saveTarget,
+      dirty,
+      markDirty,
+      markSaved,
       loading,
       error,
       currentPage,
