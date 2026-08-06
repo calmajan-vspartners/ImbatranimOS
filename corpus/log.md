@@ -2946,6 +2946,32 @@ Tests: frontend vitest **1044 → 1071** (19 on the store, 8 on the hotkey match
 Backend unchanged at 385 unit, 138 e2e. All 107 turbo tasks green. Zero new
 dependencies.
 
+## 2026-08-06 — Browser walkthrough of briefs 93-99: all verified live
+
+Ran the production build for real (backend serving the built desktop on
+:8080, scratch home volume) and drove it with headless Chromium. Verified
+end-to-end, with screenshots: first-run wizard and lock screen; **an alarm
+firing as a toast with the Clock app never opened** (claim `{claimed:true}`,
+firedPatch and the schedule_fired row all stamped at the occurrence's exact
+second); widgets added from the desktop context menu, dragged with a live
+preview and the position persisted; Minesweeper's first click flooding 36
+cells; Solitaire dealing and drawing; Paint drawing a stroke and saving a
+real PNG into the home volume; that PNG then appearing in Start → Recent;
+two files selected in the File Manager showing Compare and opening a
+rendered Monaco diff with Save right armed; the Auto-lock control live in
+Settings → Security.
+
+Every failure the first pass reported turned out to be the test script, not
+the OS (a `text=Start` selector for an icon-only button, ctrl+right-click
+toggling the selection before the menu opened, a wrong localStorage key).
+**One real, bounded caveat surfaced:** an alarm created from *outside* the
+app — another device or raw API — for less than ~60s in the future can be
+missed entirely: the background service's cache refetches every 60s, and a
+one-shot occurrence more than 90s stale refuses to late-fire by design.
+In-app creation invalidates the cache immediately, so normal use is
+unaffected. Recorded here rather than fixed: tightening it means either a
+faster poll (chatty) or server push (the killed daemon's shape).
+
 ## 2026-08-06 — Brief 49: the session becomes per-tab, the config becomes an account
 
 The grilled split from the layering session, finally built: **a session is per-tab
