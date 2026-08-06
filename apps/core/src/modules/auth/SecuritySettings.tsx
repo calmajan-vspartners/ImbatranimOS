@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
 import { ShieldCheck, LockKeyhole, LogOut, KeyRound, Loader2 } from 'lucide-react'
-import { Button, Input } from '../../shared/components/ui'
+import { Button, Input, Select } from '../../shared/components/ui'
 import { notify } from '../../shared/store/notificationStore'
+import { useSecurityStore, type IdleLockMinutes } from '../../shared/store/securityStore'
 import { useAuthStore } from './store/authStore'
 import {
   changePassword,
@@ -29,6 +30,8 @@ function errMessage(err: unknown, fallback: string): string {
 export function SecuritySettings() {
   const totpEnabled = useAuthStore((s) => s.totpEnabled)
   const refresh = useAuthStore((s) => s.refresh)
+  const idleLockMinutes = useSecurityStore((s) => s.idleLockMinutes)
+  const setIdleLockMinutes = useSecurityStore((s) => s.setIdleLockMinutes)
 
   const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(null)
   const [code, setCode] = useState('')
@@ -302,6 +305,29 @@ export function SecuritySettings() {
               delete the data volume, which erases the account and its files — so keep a backup.
             </p>
           </div>
+        </div>
+
+        {/* Auto-lock after idle (brief 97) */}
+        <div className="border-outline-variant bg-surface-container-low flex items-center justify-between gap-4 border p-4">
+          <div>
+            <p className="text-on-surface text-sm font-medium">Auto-lock</p>
+            <p className="font-content text-on-surface-variant mt-0.5 text-[11px]">
+              Return to the lock screen after a period with no activity. A playing video or audio
+              track holds the lock.
+            </p>
+          </div>
+          <Select
+            aria-label="Auto-lock after"
+            className="w-40"
+            value={String(idleLockMinutes)}
+            onValueChange={(v) => setIdleLockMinutes(Number(v) as IdleLockMinutes)}
+            options={[
+              { value: '0', label: 'Never' },
+              { value: '5', label: 'After 5 minutes' },
+              { value: '15', label: 'After 15 minutes' },
+              { value: '30', label: 'After 30 minutes' },
+            ]}
+          />
         </div>
 
         {/* Session */}

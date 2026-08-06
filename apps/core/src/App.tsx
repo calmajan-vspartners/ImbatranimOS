@@ -10,6 +10,7 @@ import { ToastHost } from './shared/components/notifications'
 import { useDocumentedShortcuts, useRegisteredHotkeys } from './shared/hooks/useRegisteredHotkeys'
 import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay'
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
+import { useIdleLock } from './shared/hooks/useIdleLock'
 
 export default function App() {
   const wallpaper = useWallpaperStore((s) => s.wallpaper)
@@ -131,6 +132,8 @@ export default function App() {
 
   // 4c: keyboard window management (Alt+Tab, Mod+W, Mod+M, Mod+Enter)
   useWindowHotkeys()
+  // Auto-lock after idle (brief 97) — Settings → Security owns the timeout.
+  useIdleLock()
   // ── /SWARM:S4 layout restore boot ──────────────────────────────────────────
 
   return (
