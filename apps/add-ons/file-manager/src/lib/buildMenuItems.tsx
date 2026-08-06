@@ -1,6 +1,7 @@
 import {
   FileDiff,
   FolderPlus,
+  Palette,
   Clipboard,
   Upload,
   Trash2,
@@ -51,10 +52,15 @@ export type BuildMenuItemsCtx = {
    * the builder shows the item exactly when the action can mean something.
    */
   onCompare: (() => void) | null
+  /** Open a bitmap in Paint (brief 95) — an Edit verb beside the viewer's Open. */
+  onEditInPaint: (entry: FsEntry) => void
 }
 
 /** Archive files the "Extract here" item is offered for. */
 const ARCHIVE_RE = /\.(zip|tar\.gz|tgz|tar)$/i
+
+/** Bitmaps Paint can edit (brief 95) — the viewer keeps the double-click. */
+const PAINTABLE_RE = /\.(png|jpe?g|gif|webp|bmp)$/i
 
 /**
  * Pure builder for the right-click context menu descriptor tree. Same two-mode
@@ -82,6 +88,7 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
     onRefresh,
     onExtract,
     onCompare,
+    onEditInPaint,
     onCompress,
   } = ctx
 
@@ -140,6 +147,15 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
             label: 'Download',
             icon: <Download size={13} />,
             onSelect: () => onDownload(entry),
+          } as ContextMenuItem,
+        ]
+      : []),
+    ...(entry.type === 'file' && PAINTABLE_RE.test(entry.name)
+      ? [
+          {
+            label: 'Edit in Paint',
+            icon: <Palette size={13} />,
+            onSelect: () => onEditInPaint(entry),
           } as ContextMenuItem,
         ]
       : []),

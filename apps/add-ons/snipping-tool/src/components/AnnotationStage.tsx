@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Grid2x2,
+  Palette,
   Pencil,
   Save,
   Square,
@@ -14,7 +15,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import { cn } from '@imbatranim/core'
+import { cn, openApp } from '@imbatranim/core'
 import type { Annotation, Point, Tool } from '../types'
 import { saveScreenshot, screenshotFilename } from '../api/screenshotApi'
 import { isWorthKeeping, normalizeRect, pixelateBlockSize } from '../lib/annotationGeometry'
@@ -295,6 +296,13 @@ export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
       return 'Copied to clipboard'
     })
 
+  // Brief 95: the two apps are a pipeline — annotate here, edit properly there.
+  const onEditInPaint = () =>
+    doExit(() => {
+      openApp('paint', { dataUrl: canvasRef.current!.toDataURL('image/png') })
+      return Promise.resolve('Opened in Paint')
+    })
+
   const onDownload = () =>
     doExit(async () => {
       const blob = await toBlob(canvasRef.current!)
@@ -414,6 +422,14 @@ export function AnnotationStage({ image, notice, onBack, onClose }: Props) {
             )}
           >
             <Copy size={14} strokeWidth={1.75} /> Copy
+          </button>
+          <button
+            title="Edit in Paint"
+            onClick={onEditInPaint}
+            disabled={busy}
+            className={cn(tbBtn, 'w-auto gap-1.5 px-2.5 text-[12px] font-semibold')}
+          >
+            <Palette size={14} strokeWidth={1.75} /> Edit in Paint
           </button>
           <button
             title="Download to this device"

@@ -35,6 +35,7 @@ import {
   minesweeperManifest as minesweeper,
   solitaireManifest as solitaire,
 } from '@imbatranim/games'
+import { manifest as paint } from '@imbatranim/paint'
 import type { AddonManifest, AppConfig } from './contract'
 import { COMMAND_SOURCES, registerCommandSource } from './shared/commands/CommandSourcesRegistry'
 
@@ -79,6 +80,7 @@ const MANIFESTS: AddonManifest[] = [
   diff,
   minesweeper,
   solitaire,
+  paint,
   gitGui,
   restApiClient,
   archiveManager,

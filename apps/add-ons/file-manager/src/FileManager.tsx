@@ -346,6 +346,10 @@ export function FileManager({ windowId }: { windowId: string }) {
         onRefresh: () => dirQuery.refetch(),
         onExtract: (entry) =>
           openApp('archive-manager', { action: 'extract', root, path: entry.path }),
+        onEditInPaint: (entry) => {
+          openApp('paint', { openPath: entry.path, root })
+          recordRecentFile(root, entry.path, 'paint')
+        },
         onCompare: (() => {
           // Exactly two files selected, the clicked entry one of them — the
           // only state where "Compare" can mean something (brief 99).
