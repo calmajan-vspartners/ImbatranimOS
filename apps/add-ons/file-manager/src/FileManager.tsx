@@ -346,6 +346,23 @@ export function FileManager({ windowId }: { windowId: string }) {
         onRefresh: () => dirQuery.refetch(),
         onExtract: (entry) =>
           openApp('archive-manager', { action: 'extract', root, path: entry.path }),
+        onCompare: (() => {
+          // Exactly two files selected, the clicked entry one of them — the
+          // only state where "Compare" can mean something (brief 99).
+          if (!menu.entry || menu.entry.type !== 'file') return null
+          if (selected.size !== 2 || !selected.has(menu.entry.path)) return null
+          const files = (dirQuery.data ?? []).filter(
+            (e) => selected.has(e.path) && e.type === 'file'
+          )
+          if (files.length !== 2) return null
+          return () =>
+            openApp('diff', {
+              leftRoot: root,
+              leftPath: files[0].path,
+              rightRoot: root,
+              rightPath: files[1].path,
+            })
+        })(),
         onCompress: (entry) => {
           const paths =
             selected.has(entry.path) && selected.size > 1

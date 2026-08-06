@@ -1,4 +1,5 @@
 import {
+  FileDiff,
   FolderPlus,
   Clipboard,
   Upload,
@@ -44,6 +45,12 @@ export type BuildMenuItemsCtx = {
   onExtract: (entry: FsEntry) => void
   /** Compress the current selection (or this entry) to a .zip (Archive Manager). */
   onCompress: (entry: FsEntry) => void
+  /**
+   * Compare the two selected files in the Diff tool (brief 99). Non-null only
+   * when exactly two files are selected and the clicked entry is one of them —
+   * the builder shows the item exactly when the action can mean something.
+   */
+  onCompare: (() => void) | null
 }
 
 /** Archive files the "Extract here" item is offered for. */
@@ -74,6 +81,7 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
     onPaste,
     onRefresh,
     onExtract,
+    onCompare,
     onCompress,
   } = ctx
 
@@ -132,6 +140,15 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
             label: 'Download',
             icon: <Download size={13} />,
             onSelect: () => onDownload(entry),
+          } as ContextMenuItem,
+        ]
+      : []),
+    ...(entry.type === 'file' && onCompare
+      ? [
+          {
+            label: 'Compare',
+            icon: <FileDiff size={13} />,
+            onSelect: onCompare,
           } as ContextMenuItem,
         ]
       : []),
