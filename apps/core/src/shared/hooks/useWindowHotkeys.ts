@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useWindowStore } from '../store/windowStore'
+import { nextWorkspace, useWindowStore } from '../store/windowStore'
 import { useRegisteredHotkeys } from './useRegisteredHotkeys'
 
 /**
@@ -19,13 +19,24 @@ export function useWindowHotkeys(): void {
   const hideWindow = useWindowStore((s) => s.hideWindow)
   const maximizeWindow = useWindowStore((s) => s.maximizeWindow)
   const restoreWindow = useWindowStore((s) => s.restoreWindow)
-  const getWindows = () => useWindowStore.getState().windows
+  /**
+   * The windows these hotkeys may act on: visible, and **on the workspace you
+   * are looking at** (brief 85).
+   *
+   * The workspace half applies to all four bindings, not just Alt+Tab. Without
+   * it `Ctrl+W` would close, and `Ctrl+M` would minimise, whatever happens to
+   * hold the highest z-index anywhere — quite possibly a window on another
+   * desktop that the user cannot see and did not mean.
+   */
+  const getCandidates = () => {
+    const { windows, activeWorkspace } = useWindowStore.getState()
+    return windows.filter((w) => w.isVisible && w.workspaceId === activeWorkspace)
+  }
 
   const bindings = useMemo(
     () => ({
       cycle: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
+        const visible = getCandidates()
         if (visible.length === 0) return
         const maxZ = Math.max(...visible.map((w) => w.zIndex))
         const focused = visible.find((w) => w.zIndex === maxZ)
@@ -40,8 +51,7 @@ export function useWindowHotkeys(): void {
       },
 
       close: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
+        const visible = getCandidates()
         if (visible.length === 0) return
         const maxZ = Math.max(...visible.map((w) => w.zIndex))
         const focused = visible.find((w) => w.zIndex === maxZ)
@@ -49,17 +59,28 @@ export function useWindowHotkeys(): void {
       },
 
       minimise: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
+        const visible = getCandidates()
         if (visible.length === 0) return
         const maxZ = Math.max(...visible.map((w) => w.zIndex))
         const focused = visible.find((w) => w.zIndex === maxZ)
         if (focused) hideWindow(focused.id)
       },
 
+      // Workspace switching, wrapping at both ends — ← from 1 lands on 4, which
+      // is what makes two adjacent workspaces one keypress apart in either
+      // direction rather than three.
+      prevWorkspace: () => {
+        const { activeWorkspace, setActiveWorkspace } = useWindowStore.getState()
+        setActiveWorkspace(nextWorkspace(activeWorkspace, -1))
+      },
+
+      nextWorkspace: () => {
+        const { activeWorkspace, setActiveWorkspace } = useWindowStore.getState()
+        setActiveWorkspace(nextWorkspace(activeWorkspace, 1))
+      },
+
       maximise: () => {
-        const windows = getWindows()
-        const visible = windows.filter((w) => w.isVisible)
+        const visible = getCandidates()
         if (visible.length === 0) return
         const maxZ = Math.max(...visible.map((w) => w.zIndex))
         const focused = visible.find((w) => w.zIndex === maxZ)
@@ -105,6 +126,20 @@ export function useWindowHotkeys(): void {
       description: 'Maximise or restore the focused window',
       scope: 'Window management',
       handler: bindings.maximise,
+    },
+    {
+      id: 'workspace.prev',
+      keys: 'ctrl+alt+left',
+      description: 'Go to the previous workspace',
+      scope: 'Window management',
+      handler: bindings.prevWorkspace,
+    },
+    {
+      id: 'workspace.next',
+      keys: 'ctrl+alt+right',
+      description: 'Go to the next workspace',
+      scope: 'Window management',
+      handler: bindings.nextWorkspace,
     },
   ])
 }

@@ -3,10 +3,55 @@ import { v4 as uuidv4 } from 'uuid'
 
 export type SnapRegion = 'left' | 'right' | 'top' | 'tl' | 'tr' | 'bl' | 'br'
 
+// ── Workspaces (brief 85) ─────────────────────────────────────────────────────
+
+/**
+ * How many virtual desktops there are.
+ *
+ * Fixed at four rather than dynamic. Add/remove is where this gets expensive —
+ * naming, reordering, and deciding what happens to the windows on a workspace
+ * you delete — for very little gain on a single-user desktop that has no second
+ * monitor to escape to in the first place.
+ */
+export const WORKSPACE_COUNT = 4
+export const WORKSPACE_IDS = [1, 2, 3, 4] as const
+export type WorkspaceId = (typeof WORKSPACE_IDS)[number]
+
+/**
+ * Force any number into a real workspace.
+ *
+ * Load-bearing rather than defensive: a persisted layout from a build with a
+ * different count, or a hand-edited localStorage value, must never leave a
+ * window on a workspace no pip can reach. The brief's hard invariant is that no
+ * window can become unreachable, and this is where that is enforced.
+ */
+export function clampWorkspace(value: unknown): WorkspaceId {
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n) || n < 1) return 1
+  return (n > WORKSPACE_COUNT ? WORKSPACE_COUNT : n) as WorkspaceId
+}
+
+/** Which workspaces currently hold at least one window. */
+export function workspaceOccupancy(
+  windows: { workspaceId: WorkspaceId }[]
+): Record<WorkspaceId, number> {
+  const out = { 1: 0, 2: 0, 3: 0, 4: 0 } as Record<WorkspaceId, number>
+  for (const w of windows) out[clampWorkspace(w.workspaceId)]++
+  return out
+}
+
+/** Step from `current` by `delta`, wrapping — so ← from 1 lands on 4. */
+export function nextWorkspace(current: WorkspaceId, delta: number): WorkspaceId {
+  const zero = (current - 1 + delta) % WORKSPACE_COUNT
+  return (((zero + WORKSPACE_COUNT) % WORKSPACE_COUNT) + 1) as WorkspaceId
+}
+
 export type WindowInstance = {
   id: string
   appId: string
   title: string
+  /** Which virtual desktop this window lives on (brief 85). Never undefined. */
+  workspaceId: WorkspaceId
   isVisible: boolean
   isMaximized: boolean
   position: { x: number; y: number }
@@ -65,6 +110,18 @@ export function clampToDesktop(
 export type PersistedWindow = {
   appId: string
   title: string
+  /**
+   * Persisted, despite the brief listing it as out of scope.
+   *
+   * The brief calls workspace assignment "session state" and says a new tab
+   * starts fresh on workspace 1 — but window layout **is already persisted
+   * here**, geometry and all, and restored on boot. Leaving `workspaceId` out
+   * would mean a reload silently collapses every workspace onto 1, destroying
+   * the arrangement the feature exists to create, with no warning. That is
+   * worse than either option the brief weighed. This is not brief 49's dotfile
+   * question: it is the window layout, and the window layout already persists.
+   */
+  workspaceId?: WorkspaceId
   position: { x: number; y: number }
   size: { width: number; height: number }
   isMaximized: boolean
@@ -74,11 +131,36 @@ export type PersistedWindow = {
 }
 
 const LAYOUT_STORAGE_KEY = 'imbatranimos:window-layout'
+const ACTIVE_WORKSPACE_KEY = 'imbatranimos:active-workspace'
+
+/**
+ * Remember which workspace was on screen.
+ *
+ * Without this, a reload of a session whose windows live on workspace 3 lands on
+ * an empty workspace 1 — which reads as "everything is gone" even though nothing
+ * is, and is the single most alarming way this feature could fail.
+ */
+export function saveActiveWorkspace(id: WorkspaceId): void {
+  try {
+    localStorage.setItem(ACTIVE_WORKSPACE_KEY, String(id))
+  } catch {
+    // quota exceeded or private mode — silently skip
+  }
+}
+
+export function loadActiveWorkspace(): WorkspaceId {
+  try {
+    return clampWorkspace(localStorage.getItem(ACTIVE_WORKSPACE_KEY) ?? 1)
+  } catch {
+    return 1
+  }
+}
 
 export function saveLayout(windows: WindowInstance[]): void {
   const data: PersistedWindow[] = windows.map((w) => ({
     appId: w.appId,
     title: w.title,
+    workspaceId: w.workspaceId,
     position: w.position,
     size: w.size,
     isMaximized: w.isMaximized,
@@ -166,6 +248,8 @@ export function detectSnapRegion(pointerX: number, pointerY: number): SnapRegion
 
 type WindowStore = {
   windows: WindowInstance[]
+  /** The workspace currently on screen (brief 85). */
+  activeWorkspace: WorkspaceId
   preMaximizeStates: Record<string, PreMaximizeState>
   preSnapStates: Record<string, PreMaximizeState>
   // A window may veto its own close (e.g. an editor with unsaved changes). The
@@ -195,6 +279,10 @@ type WindowStore = {
   updatePosition: (id: string, position: { x: number; y: number }) => void
   updateSize: (id: string, size: { width: number; height: number }) => void
   getOrderedWindows: () => WindowInstance[]
+  /** Ordered windows on one workspace — defaults to the active one. */
+  getWorkspaceWindows: (workspaceId?: WorkspaceId) => WindowInstance[]
+  setActiveWorkspace: (workspaceId: WorkspaceId) => void
+  moveWindowToWorkspace: (id: string, workspaceId: WorkspaceId) => void
   snapWindow: (id: string, region: SnapRegion) => void
   unsnap: (id: string) => void
   persistLayout: () => void
@@ -203,6 +291,7 @@ type WindowStore = {
 
 export const useWindowStore = create<WindowStore>((set, get) => ({
   windows: [],
+  activeWorkspace: 1,
   preMaximizeStates: {},
   preSnapStates: {},
   closeGuards: {},
@@ -243,6 +332,8 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
       id,
       appId,
       title,
+      // A new window belongs to the desktop you are looking at.
+      workspaceId: get().activeWorkspace,
       isVisible: true,
       isMaximized: false,
       position: { x, y },
@@ -367,10 +458,26 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
   focusWindow: (id) => {
     const { nextZIndex } = get()
-    set((state) => ({
-      windows: state.windows.map((w) => (w.id === id ? { ...w, zIndex: nextZIndex } : w)),
-      nextZIndex: state.nextZIndex + 1,
-    }))
+    set((state) => {
+      const target = state.windows.find((w) => w.id === id)
+      // Focusing a window on another workspace SWITCHES to it (brief 85).
+      //
+      // This is the invariant "no window can become unreachable", enforced at
+      // the one place every caller funnels through: the taskbar, Alt+Tab,
+      // `openApp` re-focusing a single-instance app, and a notification click.
+      // Without it, clicking a toast raised by an app on workspace 3 would
+      // raise the z-index of a window you cannot see and appear to do nothing.
+      const activeWorkspace =
+        target && target.workspaceId !== state.activeWorkspace
+          ? target.workspaceId
+          : state.activeWorkspace
+      if (activeWorkspace !== state.activeWorkspace) saveActiveWorkspace(activeWorkspace)
+      return {
+        windows: state.windows.map((w) => (w.id === id ? { ...w, zIndex: nextZIndex } : w)),
+        nextZIndex: state.nextZIndex + 1,
+        activeWorkspace,
+      }
+    })
   },
 
   updatePosition: (id, position) => {
@@ -387,6 +494,46 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
   getOrderedWindows: () => {
     return [...get().windows].sort((a, b) => a.zIndex - b.zIndex)
+  },
+
+  /**
+   * A workspace-aware variant rather than a change to `getOrderedWindows`.
+   *
+   * Existing callers mean "every window" and must keep meaning it — the add-on
+   * manager and the palette act on apps, and a store method that quietly starts
+   * returning a subset is the kind of change that breaks them silently.
+   */
+  getWorkspaceWindows: (workspaceId) => {
+    const target = workspaceId ?? get().activeWorkspace
+    return [...get().windows]
+      .filter((w) => w.workspaceId === target)
+      .sort((a, b) => a.zIndex - b.zIndex)
+  },
+
+  setActiveWorkspace: (workspaceId) => {
+    const next = clampWorkspace(workspaceId)
+    saveActiveWorkspace(next)
+    set({ activeWorkspace: next })
+  },
+
+  /**
+   * Move a window, and follow it.
+   *
+   * Following is deliberate: silently relocating the window the user is looking
+   * at, leaving them staring at the space where it used to be, is disorienting
+   * and reads as a bug. Focus follows too, so the window is usable on arrival.
+   */
+  moveWindowToWorkspace: (id, workspaceId) => {
+    const next = clampWorkspace(workspaceId)
+    const { nextZIndex } = get()
+    saveActiveWorkspace(next)
+    set((state) => ({
+      windows: state.windows.map((w) =>
+        w.id === id ? { ...w, workspaceId: next, isVisible: true, zIndex: nextZIndex } : w
+      ),
+      nextZIndex: state.nextZIndex + 1,
+      activeWorkspace: next,
+    }))
   },
 
   snapWindow: (id, region) => {
@@ -471,6 +618,9 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
       isVisible: p.isVisible,
       zIndex: p.zIndex,
       snapState: p.snapState,
+      // A layout written before brief 85 has no workspace; clamp defaults it to
+      // 1 rather than leaving `undefined`, which would filter to nowhere.
+      workspaceId: clampWorkspace(p.workspaceId),
     }))
 
     set({
@@ -478,6 +628,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
       nextZIndex: maxZ + 1,
       preMaximizeStates: {},
       preSnapStates: {},
+      activeWorkspace: loadActiveWorkspace(),
     })
   },
 }))

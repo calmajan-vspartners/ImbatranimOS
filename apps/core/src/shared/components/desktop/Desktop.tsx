@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { DesktopIcon } from './DesktopIcon'
-import { APP_REGISTRY } from '../../registry/registry'
 import { useEnabledApps } from '../../registry/enabledApps'
-import { TASKBAR_HEIGHT, useWindowStore } from '../../store/windowStore'
+import { TASKBAR_HEIGHT } from '../../store/windowStore'
 import { useDesktopStore } from '../../store/desktopStore'
+import { openApp } from '../../intents/openApp'
 import { layoutIcons } from './layoutIcons'
 import type { Wallpaper } from '../../store/wallpaperStore'
 import { WindowContainer } from '../window/WindowContainer'
@@ -36,7 +36,6 @@ const WALLPAPER_STYLES: Record<Wallpaper, React.CSSProperties> = {
 }
 
 export function Desktop({ wallpaper }: DesktopProps) {
-  const openWindow = useWindowStore((s) => s.openWindow)
   const enabledApps = useEnabledApps()
   const iconPositions = useDesktopStore((s) => s.iconPositions)
   const updateIconPosition = useDesktopStore((s) => s.updateIconPosition)
@@ -96,10 +95,17 @@ export function Desktop({ wallpaper }: DesktopProps) {
     }
   }, [appIdsKey, setAutoPositions])
 
+  /**
+   * Launch through the shared `openApp`, not `openWindow` directly.
+   *
+   * This called `openWindow` unconditionally, which skipped the single-instance
+   * rule that `openApp` exists to enforce — double-clicking Calculator twice
+   * gave you two Calculators. Merely untidy before workspaces; with them the
+   * duplicate opens on whichever desktop you happen to be on while the original
+   * sits invisible on another, so the app looks lost. Found by brief 85's probe.
+   */
   function handleOpen(appId: string) {
-    const app = APP_REGISTRY.find((a) => a.id === appId)
-    if (!app) return
-    openWindow(app.id, app.name, app.defaultSize, app.minSize)
+    openApp(appId)
   }
 
   return (

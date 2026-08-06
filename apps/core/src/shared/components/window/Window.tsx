@@ -19,6 +19,11 @@ type WindowProps = {
   minSize: { width: number; height: number }
   children: React.ReactNode
   isFocused: boolean
+  /**
+   * False when this window lives on a workspace that is not on screen. It is
+   * still mounted — see the `display` rule below.
+   */
+  onActiveWorkspace?: boolean
 }
 
 type ResizeHandleProps = {
@@ -131,6 +136,7 @@ export const Window = React.memo(function Window({
   minSize,
   children,
   isFocused,
+  onActiveWorkspace = true,
 }: WindowProps) {
   const instance = useWindowStore((s) => s.windows.find((w) => w.id === windowId))
   const closeWindow = useWindowStore((s) => s.closeWindow)
@@ -238,7 +244,10 @@ export const Window = React.memo(function Window({
             width: instance.size.width,
             height: instance.size.height,
             zIndex: instance.zIndex,
-            display: instance.isVisible ? 'flex' : 'none',
+            // Hidden, not unmounted, for a window that is minimised OR on
+            // another workspace — same mechanism, same reason: the app keeps
+            // its sockets, its buffers and its scroll position.
+            display: instance.isVisible && onActiveWorkspace ? 'flex' : 'none',
             flexDirection: 'column',
             fontFamily: "'Space Grotesk', sans-serif",
           }}

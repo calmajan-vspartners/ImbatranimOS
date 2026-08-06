@@ -2803,3 +2803,61 @@ Security to answer, with refusals shown beside successes.
 Tests: backend unit **356 → 385**, frontend vitest **1032 → 1044** in a package that did
 not exist this morning. e2e unchanged at 138. All 107 turbo tasks green. Zero new
 dependencies.
+
+## 2026-08-06 — Brief 85: four virtual desktops, and two bugs that were already there
+
+24 apps share one browser tab with no second monitor to escape to. The compositor
+already owned z-order, focus and the window list, so this is mostly a filter over
+state that exists — which is exactly why the interesting parts were the three places
+the obvious implementation is wrong.
+
+**Switching must hide windows, not unmount them.** Filtering the list in
+`WindowContainer` looks identical and would tear down the Terminal's PTY socket,
+discard an editor's unsaved buffer and restart every in-flight request, once per
+switch. A window on an inactive workspace uses the same `display:none` a *minimised*
+window already used. Verified rather than reasoned about: a digit typed into the
+Calculator on workspace 2 is still on its display after switching to 1 and back.
+
+**The brief was wrong about persistence, and wrong in the invisible direction.** It
+calls workspace assignment "session state" and puts persistence out of scope — but
+the window layout is *already* persisted to localStorage and restored on boot,
+geometry and all. Omitting `workspaceId` would silently collapse four workspaces onto
+one on every reload, destroying the arrangement the feature exists to create with no
+error and nothing to undo. That is worse than either option the brief weighed. The
+active workspace is persisted too: reloading a session whose windows all live on
+workspace 3 and landing on an empty workspace 1 reads as "everything is gone".
+`clampWorkspace` is where the hard invariant lives — a hand-edited `workspaceId: 47`
+lands on 4, not nowhere.
+
+**Focus follows the window**, which is where "reachable" actually is. One change to
+`focusWindow`, at the single place the taskbar, Alt+Tab, `openApp` and notification
+clicks all funnel through. Without it, clicking a toast raised by an app on another
+desktop raises the z-index of a window you cannot see and appears to do nothing.
+
+Then the probe found **two bugs that predate this brief entirely**.
+
+`Ctrl+Alt+←` did not fire, and the cause was that **no `ctrl+…` binding had ever
+worked off a mac**. The matcher computes `modPressed = mac ? metaKey : ctrlKey` and
+then rejected any event with the mod key held when the binding did not say `mod` — so
+on Linux and Windows an explicit `ctrl+` binding was refused by the very key it asked
+for. Invisible for as long as it existed, because every binding in the OS used `mod`.
+Fixed, with eight tests on the matcher itself.
+
+And **desktop icons and the Start menu both bypassed the single-instance rule**. Each
+had grown its own three-line "open an app" calling `openWindow` directly, skipping the
+check `intents/openApp.ts` exists to enforce. Before workspaces that was untidy — two
+Calculators stacked on one desktop. With them it is much worse: the duplicate opens on
+whichever desktop you are on while the original sits invisible on another, so the app
+looks lost and the pip counts lie. Both now call the shared `openApp`.
+
+Smaller calls, all stated in the brief's outcome: all four window hotkeys are scoped to
+the active workspace rather than just Alt+Tab (the same selector drives `Ctrl+W`, which
+could otherwise close something you cannot see); focus is computed per-workspace;
+moving a window un-minimises it on arrival; switching wraps in both directions; empty
+pips stay visible with an occupancy dot; and the taskbar context menu stays local
+rather than being promoted to core, since this is the second use and the rule is to
+promote on the third.
+
+Tests: frontend vitest **1044 → 1071** (19 on the store, 8 on the hotkey matcher).
+Backend unchanged at 385 unit, 138 e2e. All 107 turbo tasks green. Zero new
+dependencies.

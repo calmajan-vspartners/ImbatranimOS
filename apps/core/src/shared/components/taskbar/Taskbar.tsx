@@ -1,37 +1,59 @@
 import { useState, useRef, useMemo } from 'react'
 import { Search } from 'lucide-react'
 import { cn } from '../../../lib/cn'
-import { useWindowStore } from '../../store/windowStore'
+import { useWindowStore, type WorkspaceId } from '../../store/windowStore'
 import { usePaletteStore } from '../../store/paletteStore'
 import { APP_REGISTRY } from '../../registry/registry'
+import { openApp } from '../../intents/openApp'
 import { Logo } from '../brand/Logo'
 import { StartMenu } from './StartMenu'
 import { Tray } from './Tray'
+import { WorkspacePips } from './WorkspacePips'
+import { TaskbarContextMenu } from './TaskbarContextMenu'
 
 export const TASKBAR_HEIGHT = 44
 
 export function Taskbar() {
   const windows = useWindowStore((s) => s.windows)
-  const openWindow = useWindowStore((s) => s.openWindow)
   const showWindow = useWindowStore((s) => s.showWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
   const focusWindow = useWindowStore((s) => s.focusWindow)
+  const closeWindow = useWindowStore((s) => s.closeWindow)
+  const moveWindowToWorkspace = useWindowStore((s) => s.moveWindowToWorkspace)
+  const activeWorkspace = useWindowStore((s) => s.activeWorkspace)
   const openPalette = usePaletteStore((s) => s.openPalette)
 
   const [startOpen, setStartOpen] = useState(false)
   const startBtnRef = useRef<HTMLButtonElement>(null)
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
 
-  // The focused window is the topmost visible one.
+  // Only the current workspace's windows get a button — that is what a taskbar
+  // per virtual desktop means. The others are reachable through their pip.
+  const visibleWindows = useMemo(
+    () => windows.filter((w) => w.workspaceId === activeWorkspace),
+    [windows, activeWorkspace]
+  )
+
+  // The focused window is the topmost visible one ON THIS WORKSPACE. Computed
+  // from the filtered list, or a window on another desktop would keep the focus
+  // ring here while being nowhere on screen.
   const focusedId = useMemo(() => {
-    const visible = windows.filter((w) => w.isVisible)
+    const visible = visibleWindows.filter((w) => w.isVisible)
     if (visible.length === 0) return null
     return visible.reduce((top, w) => (w.zIndex > top.zIndex ? w : top)).id
-  }, [windows])
+  }, [visibleWindows])
 
-  function openApp(appId: string) {
-    const app = APP_REGISTRY.find((a) => a.id === appId)
-    if (!app) return
-    openWindow(app.id, app.name, app.defaultSize, app.minSize)
+  const menuWindow = menu ? windows.find((w) => w.id === menu.id) : undefined
+
+  /**
+   * Start-menu launch, through the shared `openApp`.
+   *
+   * Was `openWindow` directly, which bypassed the single-instance check — see
+   * the same fix in `Desktop.tsx`. Two launchers had each grown their own
+   * three-line version of "open an app", and both were missing the rule.
+   */
+  function launchApp(appId: string) {
+    openApp(appId)
   }
 
   function handleTaskClick(id: string) {
@@ -85,7 +107,7 @@ export function Taskbar() {
         <StartMenu
           anchorRef={startBtnRef}
           onClose={() => setStartOpen(false)}
-          onOpenApp={openApp}
+          onOpenApp={launchApp}
         />
       )}
 
@@ -106,7 +128,7 @@ export function Taskbar() {
 
       {/* Running-window buttons */}
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1.5">
-        {windows.map((win) => {
+        {visibleWindows.map((win) => {
           const app = APP_REGISTRY.find((a) => a.id === win.appId)
           const Icon = app?.icon
           const isFocused = win.id === focusedId
@@ -115,6 +137,10 @@ export function Taskbar() {
             <button
               key={win.id}
               onClick={() => handleTaskClick(win.id)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setMenu({ id: win.id, x: e.clientX, y: e.clientY })
+              }}
               title={win.title}
               className={cn(
                 'relative flex h-[34px] max-w-[168px] min-w-[44px] shrink-0 items-center gap-2 px-2.5 outline-none',
@@ -147,10 +173,34 @@ export function Taskbar() {
         })}
       </div>
 
+      <WorkspacePips />
+
       {/* System tray */}
       <div className="border-outline-variant flex items-stretch border-l">
         <Tray />
       </div>
+
+      {menu && menuWindow && (
+        <TaskbarContextMenu
+          x={menu.x}
+          y={menu.y}
+          windowTitle={menuWindow.title}
+          currentWorkspace={menuWindow.workspaceId}
+          onMoveToWorkspace={(id: WorkspaceId) => {
+            moveWindowToWorkspace(menu.id, id)
+            setMenu(null)
+          }}
+          onMinimize={() => {
+            hideWindow(menu.id)
+            setMenu(null)
+          }}
+          onClose={() => {
+            closeWindow(menu.id)
+            setMenu(null)
+          }}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }

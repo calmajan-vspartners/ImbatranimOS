@@ -15,6 +15,8 @@ export function WindowContainer() {
   // is done below in useMemo instead, keyed off the stable array reference.
   const windows = useWindowStore((s) => s.windows)
 
+  const activeWorkspace = useWindowStore((s) => s.activeWorkspace)
+
   const orderedWindows = useMemo(
     () =>
       windows
@@ -23,21 +25,37 @@ export function WindowContainer() {
           appId: w.appId,
           zIndex: w.zIndex,
           isVisible: w.isVisible,
+          workspaceId: w.workspaceId,
         }))
         .sort((a, b) => a.zIndex - b.zIndex),
     [windows]
   )
-  const maxZIndex = windows.length > 0 ? Math.max(...windows.map((w) => w.zIndex)) : 0
+  // Focus is per-workspace: the top window of the workspace you are looking at,
+  // not the top window overall. Otherwise switching to workspace 2 would leave
+  // its frontmost window unfocused because something on workspace 1 outranks it.
+  const maxZIndex = windows
+    .filter((w) => w.workspaceId === activeWorkspace)
+    .reduce((acc, w) => Math.max(acc, w.zIndex), 0)
 
   return (
     <>
+      {/*
+        EVERY window is rendered, on every workspace — a window on an inactive
+        workspace is hidden with `display:none`, exactly as a minimised one is,
+        NOT unmounted. Filtering the list here would look identical and be
+        badly wrong: switching workspaces would tear down the Terminal's PTY
+        socket, throw away an editor's unsaved buffer, and restart every
+        in-flight request, once per switch. Real virtual desktops hide windows;
+        they do not close them.
+      */}
       {orderedWindows.map((w) => (
         <WindowSlot
           key={w.id}
           windowId={w.id}
           app={APP_REGISTRY.find((a) => a.id === w.appId)}
           appId={w.appId}
-          isFocused={w.zIndex === maxZIndex && w.isVisible}
+          isFocused={w.zIndex === maxZIndex && w.isVisible && w.workspaceId === activeWorkspace}
+          onActiveWorkspace={w.workspaceId === activeWorkspace}
         />
       ))}
     </>
@@ -62,11 +80,13 @@ function WindowSlot({
   app,
   appId,
   isFocused,
+  onActiveWorkspace,
 }: {
   windowId: string
   app: AppConfig | undefined
   appId: string
   isFocused: boolean
+  onActiveWorkspace: boolean
 }) {
   const closeWindow = useWindowStore((s) => s.closeWindow)
   const [remountKey, setRemountKey] = useState(0)
@@ -79,7 +99,12 @@ function WindowSlot({
   const appName = app?.name ?? appId
 
   return (
-    <Window windowId={windowId} minSize={minSize} isFocused={isFocused}>
+    <Window
+      windowId={windowId}
+      minSize={minSize}
+      isFocused={isFocused}
+      onActiveWorkspace={onActiveWorkspace}
+    >
       {AppComponent ? (
         <AppErrorBoundary
           // Bumping the key remounts the boundary AND the app beneath it, which

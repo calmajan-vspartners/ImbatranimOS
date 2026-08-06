@@ -21,7 +21,7 @@ interface ParsedKey {
   key: string
 }
 
-function parseBinding(binding: string): ParsedKey {
+export function parseBinding(binding: string): ParsedKey {
   const parts = binding.toLowerCase().split('+')
   const key = parts[parts.length - 1]
   const mod = parts.includes('mod')
@@ -31,13 +31,19 @@ function parseBinding(binding: string): ParsedKey {
   return { mod, alt, shift, ctrl, key }
 }
 
-function eventMatchesBinding(e: KeyboardEvent, parsed: ParsedKey): boolean {
+/** Exported for the spec — the matcher is where the modifier subtleties live. */
+export function eventMatchesBinding(e: KeyboardEvent, parsed: ParsedKey): boolean {
   const mac = isMac()
 
   // mod = Cmd on mac, Ctrl elsewhere
   const modPressed = mac ? e.metaKey : e.ctrlKey
   if (parsed.mod && !modPressed) return false
-  if (!parsed.mod && modPressed) return false
+  // `!parsed.ctrl` is load-bearing, and its absence was a real bug: off a mac,
+  // `mod` IS ctrl, so an explicit `ctrl+…` binding was rejected here by the
+  // very key it asked for. Every `ctrl+` binding was therefore dead on Linux
+  // and Windows — invisible until brief 85 wanted `ctrl+alt+left`, because
+  // until then every binding in the OS used `mod`.
+  if (!parsed.mod && !parsed.ctrl && modPressed) return false
 
   // explicit ctrl (not mod alias)
   if (parsed.ctrl && !e.ctrlKey) return false
