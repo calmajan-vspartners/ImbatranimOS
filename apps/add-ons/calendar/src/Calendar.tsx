@@ -11,7 +11,6 @@ import {
   uploadFileBytes,
   useFileDialog,
 } from '@imbatranim/core'
-import { useCalendarReminders } from './reminders'
 import { buildMonthGrid, buildWeekDays } from './dateUtils'
 import { EventDialog } from './EventDialog'
 import { MonthView } from './views/MonthView'
@@ -75,8 +74,6 @@ function visibleRange(anchor: Dayjs, view: ViewMode): [number, number] {
 // Window contract: ComponentType<{ windowId: string }>. Single-instance app, and
 // the file dialog is modal within it, so there is no per-window state to key on.
 export function Calendar({ windowId: _windowId }: { windowId: string }) {
-  useCalendarReminders()
-
   const { data: events, isPending, isError } = useEventsQuery()
   const createEvent = useCreateEventMutation()
   const patchEvent = usePatchEventMutation()
@@ -396,7 +393,7 @@ export function Calendar({ windowId: _windowId }: { windowId: string }) {
 
       <div className="border-outline-variant bg-surface-container-low text-on-surface-variant flex h-6 shrink-0 items-center gap-1.5 border-t px-2 text-[10px]">
         <Info size={11} />
-        Reminders only fire while this window is open — no background delivery. Events are saved in
+        Reminders fire while the desktop is open — this window can be closed. Events are saved in
         your computer.
       </div>
 

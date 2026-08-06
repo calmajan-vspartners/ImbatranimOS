@@ -168,7 +168,7 @@ export function Timer() {
 
       <div className="border-outline-variant bg-surface-container-low flex items-center justify-between gap-2 border-t px-3 py-2">
         <p className="font-ui text-on-surface-variant text-[10px]">
-          Timers run only while this window is open.
+          Timers keep running while the desktop is open, even with this window closed.
         </p>
         <Button
           variant="default"

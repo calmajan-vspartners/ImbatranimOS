@@ -1,15 +1,14 @@
 import { useEffect } from 'react'
-import { notify } from '@imbatranim/core'
+import { claimScheduleOccurrence, notify } from '@imbatranim/core'
 import { dueLabel, isDateOnly } from './due'
 import { peekTodos } from './queries/todosQueries'
 
 /**
  * Tells you once when a todo falls due.
  *
- * The same shape as Clock's and Calendar's watchers, with the same honest limit:
- * it only fires while this window is open, because there is no background
- * delivery. The real fix is the shared core scheduler, and no half-scheduler is
- * built here — the status bar says so rather than the app pretending.
+ * The same shape as Clock's and Calendar's watchers. Since brief 93 it is
+ * mounted by `TodoBackground` (the manifest's desktop-lifetime service), so due
+ * todos announce themselves while the desktop is open — no Todo window needed.
  *
  * The trigger is the due instant itself, not "N minutes before": a todo has a
  * deadline, not a start time, so there is nothing to warn ahead of. A date-only
@@ -44,6 +43,9 @@ export function useTodoReminders(): void {
       const now = Date.now()
       for (const todo of peekTodos()) {
         if (todo.completed || todo.dueAt === null) continue
+        // Narrowed copy: the claim callbacks below close over it, and TS cannot
+        // carry the null-guard across the async boundary on the mutable field.
+        const dueAt = todo.dueAt
 
         if (isDateOnly(todo.dueAt)) {
           // Due some time today: say so the first time we notice, rather than at
@@ -53,11 +55,16 @@ export function useTodoReminders(): void {
           const key = `${todo.id}:today`
           if (notified.has(key)) continue
           remember(key)
-          notify({
-            title: 'Due today',
-            body: todo.text,
-            appId: 'todo',
-            level: todo.priority ? 'warning' : 'info',
+          // Cross-tab dedupe (brief 93): keyed on the due instant, so an edited
+          // due date announces again and an unchanged one cannot double-toast.
+          void claimScheduleOccurrence('todo', `${todo.id}:today`, dueAt).then((claimed) => {
+            if (!claimed) return
+            notify({
+              title: 'Due today',
+              body: todo.text,
+              appId: 'todo',
+              level: todo.priority ? 'warning' : 'info',
+            })
           })
           continue
         }
@@ -66,11 +73,14 @@ export function useTodoReminders(): void {
         const key = `${todo.id}:${todo.dueAt}`
         if (notified.has(key)) continue
         remember(key)
-        notify({
-          title: 'Task due',
-          body: `${todo.text} · ${dueLabel(todo.dueAt, now)}`,
-          appId: 'todo',
-          level: todo.priority ? 'warning' : 'info',
+        void claimScheduleOccurrence('todo', `${todo.id}:due`, dueAt).then((claimed) => {
+          if (!claimed) return
+          notify({
+            title: 'Task due',
+            body: `${todo.text} · ${dueLabel(dueAt, now)}`,
+            appId: 'todo',
+            level: todo.priority ? 'warning' : 'info',
+          })
         })
       }
     }

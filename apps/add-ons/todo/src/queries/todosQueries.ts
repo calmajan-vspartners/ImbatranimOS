@@ -59,8 +59,16 @@ function reportFailure(action: string): void {
   })
 }
 
-export function useTodosQuery(scope: Scope) {
-  return useQuery({ queryKey: todosKey(scope), queryFn: () => fetchTodos(scope) })
+export function useTodosQuery(scope: Scope, options?: { refetchIntervalMs?: number }) {
+  return useQuery({
+    queryKey: todosKey(scope),
+    queryFn: () => fetchTodos(scope),
+    // The background service (brief 93) keeps the all-todos cache warm for the
+    // due-date watcher even with no Todo window open — including hidden tabs,
+    // where a due toast still has to land.
+    refetchInterval: options?.refetchIntervalMs,
+    refetchIntervalInBackground: options?.refetchIntervalMs !== undefined,
+  })
 }
 
 export function useListsQuery() {

@@ -232,9 +232,9 @@ export function Alarms() {
       <div className="border-outline-variant bg-surface-container-low flex items-start gap-2 border-y px-3 py-2">
         <Info size={12} strokeWidth={2} className="text-on-surface-variant mt-0.5 shrink-0" />
         <p className="font-ui text-on-surface-variant text-[11px]">
-          Alarms only fire while this Clock window stays open — there is no background/OS-level
-          alarm. Closing the window (or the tab) silences it. The alarms themselves are saved in
-          your computer, so they are the same from any browser you open it in.
+          Alarms fire while the desktop is open — this window can be closed. Closing the browser tab
+          silences them. The alarms themselves are saved in your computer, so they are the same from
+          any browser you open it in.
         </p>
       </div>
 

@@ -39,6 +39,22 @@ export type AppConfig = {
    *   only where the user has actually put something.
    */
   desktopLayer?: ComponentType | LazyExoticComponent<ComponentType>
+  /**
+   * Optional headless **desktop-lifetime service** (brief 93): mounted by the
+   * shell from login to tab close, whether or not any of the app's windows are
+   * open, and unmounted when the add-on is disabled.
+   *
+   * The seam exists so Clock alarms, Calendar reminders and Todo due dates can
+   * fire without their windows being open — the three apps used to apologise
+   * for exactly this. Contract for anything mounted here:
+   *
+   * - It renders nothing (`return null`); it exists for effects.
+   * - It must be cheap: one slow interval, no per-frame work, no WebSockets.
+   * - Anything user-visible it produces goes through `notify(...)`, and any
+   *   occurrence-shaped notification must be claimed first (see
+   *   `claimScheduleOccurrence`) so a second desktop tab does not double-toast.
+   */
+  background?: ComponentType
 }
 
 export type AddonManifest = AppConfig & {

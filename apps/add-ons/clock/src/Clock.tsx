@@ -6,7 +6,6 @@ import { Stopwatch } from './tabs/Stopwatch'
 import { Timer } from './tabs/Timer'
 import { Alarms } from './tabs/Alarms'
 import { RingingBanner } from './components/RingingBanner'
-import { useClockNotifications } from './useClockNotifications'
 import { useClockStore } from './clockStore'
 import { ALARMS_KEY, WORLD_CLOCKS_KEY } from './queries/clockQueries'
 import { migrateLegacyClockState } from './migrateLegacyClock'
@@ -41,10 +40,6 @@ export function Clock({ windowId: _windowId }: { windowId: string }) {
   const [tab, setTab] = useState<Tab>('clock')
   const ringingCount = useClockStore((s) => s.ringing.length)
   const runningTimers = useClockStore((s) => s.timers.filter((t) => t.running).length)
-
-  // Mounted at the root so alarms/timers keep firing across tab switches —
-  // cleared automatically on unmount (window close).
-  useClockNotifications()
 
   // One-time hand-over of any pre-brief-71 localStorage state. Guarded twice: a
   // module-level flag here, and the server refusing to import into a non-empty

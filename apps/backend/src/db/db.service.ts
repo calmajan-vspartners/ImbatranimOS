@@ -136,6 +136,18 @@ export class DbService implements OnModuleInit {
         last_opened DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- Scheduler claims (Brief 93): which alarm/reminder/due occurrences have
+      -- already produced a toast. The PRIMARY KEY makes "claim" an atomic
+      -- INSERT-or-lose, so with two desktop tabs polling, exactly one wins the
+      -- notification. Rows are dedupe state, not history — pruned after days.
+      CREATE TABLE IF NOT EXISTS schedule_fired (
+        domain TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        occurrence_ms INTEGER NOT NULL,
+        fired_at INTEGER NOT NULL,
+        PRIMARY KEY (domain, item_id, occurrence_ms)
+      );
+
       -- Auth (Brief 10): single-user credential store. The CHECK (id = 1)
       -- enforces "single user" at the schema level — at most one row.
       CREATE TABLE IF NOT EXISTS auth_user (

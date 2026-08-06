@@ -18,8 +18,16 @@ export function invalidateEvents(): void {
   void queryClient.invalidateQueries({ queryKey: EVENTS_KEY })
 }
 
-export function useEventsQuery() {
-  return useQuery({ queryKey: EVENTS_KEY, queryFn: fetchEvents })
+export function useEventsQuery(options?: { refetchIntervalMs?: number }) {
+  return useQuery({
+    queryKey: EVENTS_KEY,
+    queryFn: fetchEvents,
+    // The background service (brief 93) keeps this cache warm for the reminder
+    // watcher even with no Calendar window open — and keeps polling while the
+    // tab is hidden, because that is exactly when a reminder must still fire.
+    refetchInterval: options?.refetchIntervalMs,
+    refetchIntervalInBackground: options?.refetchIntervalMs !== undefined,
+  })
 }
 
 export function useCreateEventMutation() {

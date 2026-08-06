@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import dayjs from 'dayjs'
-import { notify } from '@imbatranim/core'
+import { claimScheduleOccurrence, notify } from '@imbatranim/core'
 import { expandOccurrences } from './recurrence'
 import { peekEvents } from './queries/calendarQueries'
 
@@ -53,9 +53,9 @@ function remember(key: string): void {
 /**
  * Fires a `notify(...)` toast once per occurrence when `now` crosses
  * `start - reminderMinutes`. Runs a single ~1/min interval for as long as this hook
- * stays mounted — reminders only fire while the Calendar window is open in this tab;
- * there is no background/service-worker delivery, which the status bar says. Mount
- * this exactly once, from the root Calendar component.
+ * stays mounted. Since brief 93 it is mounted by `CalendarBackground` (the
+ * manifest's desktop-lifetime service), so reminders fire while the desktop is
+ * open — no Calendar window required. Mount it exactly once.
  *
  * Events come from the react-query cache rather than through a hook, because this
  * callback lives outside React's render cycle and must not re-subscribe every minute.
@@ -75,13 +75,19 @@ export function useCalendarReminders(): void {
           const key = `${event.id}:${occurrence.occurrenceDate}`
           if (notified.has(key)) continue
           remember(key)
-          notify({
-            title: event.title,
-            body: event.allDay
-              ? `Today · ${dayjs(occurrence.start).format('MMM D')}`
-              : `Starting at ${dayjs(occurrence.start).format('HH:mm')}`,
-            appId: 'calendar',
-            level: 'info',
+          // Cross-tab dedupe (brief 93): the trigger instant is derived from
+          // stored fields, so every tab computes the same claim key and exactly
+          // one of them toasts.
+          void claimScheduleOccurrence('calendar', String(event.id), trigger).then((claimed) => {
+            if (!claimed) return
+            notify({
+              title: event.title,
+              body: event.allDay
+                ? `Today · ${dayjs(occurrence.start).format('MMM D')}`
+                : `Starting at ${dayjs(occurrence.start).format('HH:mm')}`,
+              appId: 'calendar',
+              level: 'info',
+            })
           })
         }
       }

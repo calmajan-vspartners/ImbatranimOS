@@ -57,6 +57,10 @@ export {
 // browsers that do not have them yet (brief 91)
 export { installMapGetOrInsert } from './lib/mapGetOrInsert'
 
+// Desktop-lifetime services (brief 93) — cross-tab occurrence claim for
+// anything fired from an AppConfig.background component
+export { claimScheduleOccurrence, type ScheduleDomain } from './lib/scheduleClaim'
+
 // Shared add-on kit — one way to report a failed open/save (briefs 62-64)
 export {
   describeFileFailure,

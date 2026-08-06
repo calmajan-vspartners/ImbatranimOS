@@ -70,24 +70,76 @@ export type SchedulableAlarm = {
 }
 
 /**
- * Why an alarm is ringing right now, or `null` if it is not.
+ * How late a scheduled alarm may fire and still count. Hidden tabs throttle
+ * intervals to ~1/min, so a tick can land just *after* an alarm's minute; the
+ * window lets that tick catch the occurrence rather than skip the alarm. Wide
+ * enough for the worst throttle, narrow enough that reopening a desktop hours
+ * later does not ring stale alarms.
+ */
+export const LATE_FIRE_WINDOW_MS = 90_000
+
+export type DueOccurrence = {
+  reason: 'snooze' | 'scheduled'
+  /**
+   * The instant the alarm names (or the snooze deadline) — NOT the tick that
+   * observed it. Stable across tabs, so it doubles as the cross-tab claim key
+   * (brief 93), and it is what `firedPatch` should record.
+   */
+  occurrenceMs: number
+}
+
+/**
+ * The occurrence that makes this alarm ring, given that the previous check ran
+ * at `sinceMs` — or `null`. Window-based rather than minute-equality so a
+ * throttled background tick that lands at 07:00:45 (or 07:01:20) still catches
+ * a 07:00 alarm instead of skipping it.
  *
  * A pending snooze suppresses the scheduled time: snoozing at 07:00:10 must not
  * re-ring at 07:00:11 just because the wall clock still reads 07:00.
  */
-export function dueReason(alarm: SchedulableAlarm, now: Date): 'snooze' | 'scheduled' | null {
+export function dueOccurrence(
+  alarm: SchedulableAlarm,
+  now: Date,
+  sinceMs: number
+): DueOccurrence | null {
   if (!alarm.enabled) return null
 
   if (alarm.snoozedUntil !== null) {
-    return now.getTime() >= alarm.snoozedUntil ? 'snooze' : null
+    return now.getTime() >= alarm.snoozedUntil
+      ? { reason: 'snooze', occurrenceMs: alarm.snoozedUntil }
+      : null
   }
 
-  if (alarm.time !== currentHHmm(now)) return null
-  if (alarm.lastFiredAt === minuteKey(now)) return null
-  // An unrepeated alarm rings at the next occurrence of its time, whatever day
-  // that is; a repeating one only on the days it names.
-  if (alarm.days !== NO_REPEAT && !repeatsOn(alarm.days, dayIndex(now))) return null
-  return 'scheduled'
+  const nowMs = now.getTime()
+  const [hh, mm] = alarm.time.split(':').map(Number)
+  // The alarm's instant on `now`'s day — or the day before, so a tick just past
+  // midnight still sees a 23:59 alarm that fell inside its window.
+  for (const dayOffset of [0, -1]) {
+    const day = new Date(now)
+    day.setDate(day.getDate() + dayOffset)
+    const occurrence = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hh, mm, 0, 0)
+    const occurrenceMs = occurrence.getTime()
+
+    if (occurrenceMs <= sinceMs || occurrenceMs > nowMs) continue
+    if (nowMs - occurrenceMs > LATE_FIRE_WINDOW_MS) continue
+    // An unrepeated alarm rings at the next occurrence of its time, whatever day
+    // that is; a repeating one only on the days it names.
+    if (alarm.days !== NO_REPEAT && !repeatsOn(alarm.days, dayIndex(occurrence))) continue
+    if (alarm.lastFiredAt === minuteKey(occurrence)) continue
+    return { reason: 'scheduled', occurrenceMs }
+  }
+  return null
+}
+
+/**
+ * Why an alarm is ringing right now, or `null` — the single-instant view of
+ * `dueOccurrence`, scoped to `now`'s own minute (the shape the in-window tests
+ * and the ring banner reason about).
+ */
+export function dueReason(alarm: SchedulableAlarm, now: Date): 'snooze' | 'scheduled' | null {
+  const minuteStart = new Date(now)
+  minuteStart.setSeconds(0, 0)
+  return dueOccurrence(alarm, now, minuteStart.getTime() - 1)?.reason ?? null
 }
 
 /** How long a snooze lasts. One value, so the button label cannot drift from it. */
