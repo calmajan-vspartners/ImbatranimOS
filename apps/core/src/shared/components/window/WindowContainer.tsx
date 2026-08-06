@@ -1,8 +1,10 @@
-import { Suspense, memo, useCallback, useState } from 'react'
+import { Suspense, memo, useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { topVisibleWindowId, useWindowStore } from '../../store/windowStore'
 import { Window } from './Window'
 import { APP_REGISTRY, type AppConfig } from '../../registry/registry'
+import { SystemProvider } from '@imbatranim/ui'
+import { createSystemHandle } from '../../../system/createSystemHandle'
 import { AppErrorBoundary } from './AppErrorBoundary'
 import { AppErrorFallback } from './AppErrorFallback'
 
@@ -118,6 +120,10 @@ const WindowSlot = memo(function WindowSlot({
   const reload = useCallback(() => setRemountKey((k) => k + 1), [])
   const close = useCallback(() => closeWindow(windowId), [closeWindow, windowId])
 
+  // One handle per (app, window) mount, stable across renders — hooks key
+  // their effects on it, and a fresh object per render would re-bind them all.
+  const system = useMemo(() => createSystemHandle(appId, windowId), [appId, windowId])
+
   const AppComponent = app?.component
   const minSize = app?.minSize ?? { width: 240, height: 180 }
   const appName = app?.name ?? appId
@@ -144,15 +150,20 @@ const WindowSlot = memo(function WindowSlot({
           {/* Inside the boundary on purpose: a lazy chunk that fails to load
               throws, and that is a crash the user should see handled the same
               way as any other. */}
-          <Suspense
-            fallback={
-              <div className="text-on-surface-variant flex h-full items-center justify-center p-3 text-sm">
-                Loading…
-              </div>
-            }
-          >
-            <AppComponent windowId={windowId} />
-          </Suspense>
+          {/* The seam (brief 48): the compositor hands the app its one
+              connection to the OS here. Scoped to this app in this window —
+              `system.window.*` cannot address anything else. */}
+          <SystemProvider system={system}>
+            <Suspense
+              fallback={
+                <div className="text-on-surface-variant flex h-full items-center justify-center p-3 text-sm">
+                  Loading…
+                </div>
+              }
+            >
+              <AppComponent windowId={windowId} />
+            </Suspense>
+          </SystemProvider>
         </AppErrorBoundary>
       ) : (
         <div className="text-on-surface-variant p-3 text-sm">Unknown app: {appId}</div>

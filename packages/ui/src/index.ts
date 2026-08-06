@@ -48,3 +48,56 @@ export type { LogEntry, LogLevel, LogSource, SignIn } from './lib/systemLog'
 // future sandboxed world each app bundles its own; in-process everyone shares
 // this one, exactly as before the split.
 export { queryClient } from './queryClient'
+
+// ── The protocol (brief 48) ──────────────────────────────────────────────────
+// `system.ts` is the spec; the provider/context pair is how the compositor
+// injects a handle and how apps + SDK hooks reach it.
+export { PROTOCOL_VERSION } from './system'
+export type {
+  FileChoice,
+  OpenerCandidate,
+  OpenerResolution,
+  PickOpenOptions,
+  PickSaveOptions,
+  ScheduleDomain,
+  ShortcutBinding,
+  ShortcutDoc,
+  ShortcutScope,
+  SystemAppearance,
+  SystemAppearanceState,
+  SystemEvent,
+  SystemEventMap,
+  SystemFs,
+  SystemHandle,
+  SystemHttp,
+  SystemHttpRequestConfig,
+  SystemHttpResponse,
+  SystemIntents,
+  SystemNotifyInput,
+  SystemNotifyLevel,
+  SystemSchedule,
+  SystemShortcuts,
+  SystemWindow,
+} from './system'
+export { SystemProvider, useSystem } from './systemContext'
+
+// Capability-consuming SDK hooks — the old core hooks, re-homed onto the
+// handle. No windowId arguments: the handle already knows its window.
+export {
+  reportFileFailure,
+  reportFileRefusal,
+  useDocumentedShortcuts,
+  useRegisteredHotkeys,
+  useSaveHotkey,
+  useSystemAppearance,
+  useTopWindowKeydown,
+  useUnsavedGuard,
+  useWindowVisible,
+  type TopWindowKeydownOptions,
+} from './hooks/systemHooks'
+export {
+  useFileDialog,
+  useOpenIntent,
+  resetOpenedFilesForTest,
+  type OpenedFile,
+} from './hooks/openIntent'

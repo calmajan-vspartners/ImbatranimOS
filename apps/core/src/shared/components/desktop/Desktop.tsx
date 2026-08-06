@@ -8,6 +8,7 @@ import { layoutIcons } from './layoutIcons'
 import type { Wallpaper } from '../../store/wallpaperStore'
 import { WindowContainer } from '../window/WindowContainer'
 import { WidgetLayer } from './WidgetLayer'
+import { WindowlessSystemProvider } from '../../../system/WindowlessSystemProvider'
 import { DesktopContextMenu } from './DesktopContextMenu'
 import { useElementSize } from '../../hooks/useElementSize'
 
@@ -171,7 +172,11 @@ export function Desktop({ wallpaper }: DesktopProps) {
       <div className="pointer-events-none absolute inset-0">
         <Suspense fallback={null}>
           {desktopLayers.map(({ id, Layer }) => (
-            <Layer key={id} />
+            // Windowless handle (brief 48): a desktop layer belongs to its app
+            // but to no window, exactly like a background service.
+            <WindowlessSystemProvider key={id} appId={id}>
+              <Layer />
+            </WindowlessSystemProvider>
           ))}
         </Suspense>
       </div>

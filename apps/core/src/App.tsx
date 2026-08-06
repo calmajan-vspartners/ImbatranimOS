@@ -13,6 +13,7 @@ import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
 import { useIdleLock } from './shared/hooks/useIdleLock'
 import { runStartupApps } from './shared/lib/startup'
+import { FilePortalHost } from './system/filePortal'
 
 export default function App() {
   const wallpaper = useWallpaperStore((s) => s.wallpaper)
@@ -153,6 +154,8 @@ export default function App() {
       <Taskbar />
       {/* Notification toasts (bottom-right, above the taskbar) */}
       <ToastHost />
+      {/* The OS file portal (brief 48): system.fs.pick* renders here, once. */}
+      <FilePortalHost />
       {/* Desktop-lifetime add-on services — alarms/reminders fire without windows */}
       <BackgroundServices />
       <ShortcutsOverlay />

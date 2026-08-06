@@ -1,4 +1,5 @@
 import { Suspense, useMemo, useRef } from 'react'
+import { WindowlessSystemProvider } from '../../../system/WindowlessSystemProvider'
 import { X } from 'lucide-react'
 import { useWidgetStore, type PlacedWidget } from '../../store/widgetStore'
 import { clampWidget } from './widgetGeometry'
@@ -87,7 +88,10 @@ function WidgetFrame({
       </button>
       <Suspense fallback={null}>
         <div className="h-full w-full overflow-hidden">
-          <Component />
+          {/* Windowless handle (brief 48): a widget belongs to its app, not a window. */}
+          <WindowlessSystemProvider appId={widget.appId}>
+            <Component />
+          </WindowlessSystemProvider>
         </div>
       </Suspense>
     </div>
