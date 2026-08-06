@@ -52,7 +52,19 @@ export function buildTree(groups: BookmarkGroup[]): TreeNode[] {
       })
       .map((group) => ({ group, children: build(group.id, depth + 1), depth }))
 
-  return build(null, 0)
+  const roots = build(null, 0)
+  // A *pure* cycle (A→B→A, both present) has no member parented at `null`, so the
+  // walk above never reaches it and both folders vanish (L5). Surface any group the
+  // walk never visited as a root — the same "wrong place beats silently dropped"
+  // choice as a dangling parentId. `seen` still bounds the recursion, so a cycle
+  // stays finite. `groups` order is stable, so this is deterministic.
+  for (const group of groups) {
+    if (seen.has(group.id)) continue
+    seen.add(group.id)
+    roots.push({ group, children: build(group.id, 1), depth: 0 })
+  }
+
+  return roots
 }
 
 /**

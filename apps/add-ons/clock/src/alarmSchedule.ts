@@ -60,6 +60,39 @@ export function minuteKey(now: Date): string {
   return `${now.toDateString()} ${currentHHmm(now)}`
 }
 
+/**
+ * The guard key for an alarm's *scheduled* minute on `now`'s day — the same
+ * string `minuteKey` yields at the scheduled minute, but built from the alarm's
+ * configured time rather than the current clock. The catch-up (below) may ring an
+ * alarm several minutes after its minute; keying the guard on the scheduled
+ * minute rather than `now` is what still lets it ring exactly once.
+ */
+function scheduledKey(alarm: SchedulableAlarm, now: Date): string {
+  return `${now.toDateString()} ${alarm.time}`
+}
+
+/** The scheduled instant of an alarm on `now`'s local day. */
+function scheduledInstant(alarm: SchedulableAlarm, now: Date): number {
+  const [h, m] = alarm.time.split(':').map(Number)
+  const d = new Date(now)
+  d.setHours(h ?? 0, m ?? 0, 0, 0)
+  return d.getTime()
+}
+
+/**
+ * How long after its scheduled minute an alarm may still catch up and ring.
+ *
+ * A background tab is throttled to ~1-minute ticks and a slept machine may not
+ * tick at all, so a check can land minutes after the exact minute (07:03 for a
+ * 07:00 alarm). Firing on `now >= scheduled` within this window — the same
+ * timestamp-comparison the timer (`now >= endAt`) and snooze (`now >=
+ * snoozedUntil`) already use — rings it once on the next tick instead of dropping
+ * it. Bounded so a machine slept for hours does not resurrect a stale morning
+ * alarm in the afternoon; the daily repeat cycle is 24h, so an hour is safely
+ * inside it.
+ */
+export const ALARM_CATCHUP_MS = 60 * 60 * 1000
+
 /** Just the fields the decision reads — keeps the tests free of API shape. */
 export type SchedulableAlarm = {
   time: string
@@ -82,8 +115,12 @@ export function dueReason(alarm: SchedulableAlarm, now: Date): 'snooze' | 'sched
     return now.getTime() >= alarm.snoozedUntil ? 'snooze' : null
   }
 
-  if (alarm.time !== currentHHmm(now)) return null
-  if (alarm.lastFiredAt === minuteKey(now)) return null
+  // Fire from the scheduled instant onward, catching up a throttled or slept tab
+  // that only ticked after the exact minute, rather than requiring an exact HH:mm
+  // match that a missed tick would skip entirely.
+  const elapsed = now.getTime() - scheduledInstant(alarm, now)
+  if (elapsed < 0 || elapsed > ALARM_CATCHUP_MS) return null
+  if (alarm.lastFiredAt === scheduledKey(alarm, now)) return null
   // An unrepeated alarm rings at the next occurrence of its time, whatever day
   // that is; a repeating one only on the days it names.
   if (alarm.days !== NO_REPEAT && !repeatsOn(alarm.days, dayIndex(now))) return null
@@ -105,7 +142,9 @@ export function firedPatch(
   alarm: SchedulableAlarm,
   now: Date
 ): { lastFiredAt: string; snoozedUntil: null; enabled?: false } {
-  const patch = { lastFiredAt: minuteKey(now), snoozedUntil: null } as const
+  // Record the *scheduled* minute, not `now`: a catch-up ring at 07:03 must mark
+  // the 07:00 occurrence so `dueReason` does not ring it again on the next tick.
+  const patch = { lastFiredAt: scheduledKey(alarm, now), snoozedUntil: null } as const
   return alarm.days === NO_REPEAT ? { ...patch, enabled: false } : patch
 }
 

@@ -98,6 +98,48 @@ export function replaceAll(
   return { text: out, count: matches.length }
 }
 
+export type MinimalEdit = {
+  /** Start of the replaced span in the original string. */
+  start: number
+  /** End of the replaced span in the original string. */
+  end: number
+  /** Text to put in its place — empty for a pure deletion. */
+  insert: string
+}
+
+/**
+ * The smallest contiguous replacement that turns `before` into `after`.
+ *
+ * Needed to apply a Replace / Replace-all through `execCommand('insertText')`
+ * instead of a `value` assignment: setting `textarea.value` (what a React state
+ * update does) wipes the browser's native undo stack, so a single Replace would
+ * cost the user every prior undo step (L8). Applying the change as a selection
+ * plus insert keeps it inside that stack — which requires knowing the exact span
+ * that changed, computed here by trimming the common prefix and suffix.
+ */
+export function minimalEdit(before: string, after: string): MinimalEdit {
+  if (before === after) return { start: 0, end: 0, insert: '' }
+
+  let prefix = 0
+  const maxPrefix = Math.min(before.length, after.length)
+  while (prefix < maxPrefix && before[prefix] === after[prefix]) prefix++
+
+  let suffix = 0
+  const maxSuffix = maxPrefix - prefix
+  while (
+    suffix < maxSuffix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix++
+  }
+
+  return {
+    start: prefix,
+    end: before.length - suffix,
+    insert: after.slice(prefix, after.length - suffix),
+  }
+}
+
 /**
  * 1-based line and column for a caret offset.
  *

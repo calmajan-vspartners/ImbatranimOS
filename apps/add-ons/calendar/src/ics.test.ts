@@ -76,6 +76,20 @@ describe('writing', () => {
     expect(prop(ics, 'SUMMARY')).toBe(title)
   })
 
+  it('folds on octets and never splits a surrogate pair (L7)', () => {
+    // Emoji are 4 UTF-8 octets and one code point built from a surrogate pair.
+    // Folding by UTF-16 units would exceed 75 octets and could sever a pair.
+    const title = '😀'.repeat(60)
+    const ics = eventsToIcs([event({ title })], NOW)
+    const enc = new TextEncoder()
+    for (const line of ics.split('\r\n')) {
+      expect(enc.encode(line).length).toBeLessThanOrEqual(75)
+      // A severed surrogate becomes U+FFFD on encode; the round-trip below also
+      // proves no pair was split.
+    }
+    expect(prop(ics, 'SUMMARY')).toBe(title)
+  })
+
   it('writes a reminder as a VALARM', () => {
     const ics = eventsToIcs([event({ reminderMinutes: 15 })], NOW)
     expect(ics).toContain('BEGIN:VALARM')

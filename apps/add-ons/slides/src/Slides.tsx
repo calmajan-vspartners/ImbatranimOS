@@ -26,6 +26,7 @@ import {
   useElementSize,
   useFileDialog,
   useOpenIntent,
+  useTopWindowKeydown,
 } from '@imbatranim/core'
 import { renderPptx } from './engine/pptx'
 import { extractNotes } from './engine/notes'
@@ -176,47 +177,37 @@ export function Slides({ windowId }: { windowId: string }) {
   const next = useCallback(() => goTo(current + 1), [goTo, current])
   const prev = useCallback(() => goTo(current - 1), [goTo, current])
 
-  // Keyboard navigation, scoped so it cannot fire while another window is on top
-  // or while the user is typing somewhere. Bound directly rather than through the
-  // shortcut registry: these only exist while a deck is open, and a row that
-  // appears and vanishes with a window is worse than no row.
-  useEffect(() => {
+  // Keyboard navigation, genuinely scoped to the top-most slides window and
+  // skipped while the user is typing — via core's `useTopWindowKeydown`, not a
+  // bare `window.addEventListener`, which fired for every window at once and stole
+  // arrows/Space/PageUp-Down OS-wide despite the comment that claimed otherwise
+  // (T2-1). Bound directly rather than through the shortcut registry: these only
+  // exist while a deck is open, and a row that appears and vanishes with a window
+  // is worse than no row.
+  useTopWindowKeydown(windowId, (e) => {
     if (!source || slideCount === 0) return
-    function onKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable === true)
-      ) {
-        return
-      }
-      switch (e.key) {
-        case 'ArrowRight':
-        case 'PageDown':
-        case ' ':
-          e.preventDefault()
-          next()
-          break
-        case 'ArrowLeft':
-        case 'PageUp':
-          e.preventDefault()
-          prev()
-          break
-        case 'Home':
-          e.preventDefault()
-          goTo(0)
-          break
-        case 'End':
-          e.preventDefault()
-          goTo(slideCount - 1)
-          break
-      }
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'PageDown':
+      case ' ':
+        e.preventDefault()
+        next()
+        break
+      case 'ArrowLeft':
+      case 'PageUp':
+        e.preventDefault()
+        prev()
+        break
+      case 'Home':
+        e.preventDefault()
+        goTo(0)
+        break
+      case 'End':
+        e.preventDefault()
+        goTo(slideCount - 1)
+        break
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [source, slideCount, next, prev, goTo])
+  })
 
   // ── Presenter mode ──────────────────────────────────────────────────────────
 

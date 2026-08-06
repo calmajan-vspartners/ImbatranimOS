@@ -165,7 +165,9 @@ export function Notepad({ windowId }: { windowId: string }) {
 
       <button
         className="font-ui text-[10px] underline"
-        onClick={() => handleOpenInNewWindow({ root: initialRoot ?? 'home', path: 'untitled.txt' })}
+        onClick={() =>
+          handleOpenInNewWindow({ root: initialRoot ?? 'home', path: 'untitled.txt', isNew: true })
+        }
       >
         or start a new file in a new window
       </button>

@@ -37,9 +37,14 @@ export function useClockNotifications(): void {
         // while the PATCH is still in flight.
         const patch = firedPatch(alarm, now)
         applyAlarmPatchLocally(alarm.id, patch)
+        // Invalidate only on success. A failed PATCH followed by a refetch would
+        // overwrite the local fired-guard with the server's un-rung row, and the
+        // alarm would ring again on every tick (L2). Keeping the local write means
+        // the guard survives, at the cost of a marked-rung state the server has
+        // not yet persisted — the right trade for "do not re-ring in a loop".
         void patchAlarm(alarm.id, patch)
+          .then(() => invalidateAlarms())
           .catch(() => undefined)
-          .finally(() => invalidateAlarms())
 
         useClockStore.getState().ringAlarm({
           alarmId: alarm.id,

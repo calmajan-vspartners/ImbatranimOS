@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { queryClient } from '@imbatranim/core'
+import { notify, queryClient } from '@imbatranim/core'
 import {
   createAlarm,
   createWorldClock,
@@ -43,6 +43,22 @@ export function applyAlarmPatchLocally(id: number, patch: AlarmPatch): void {
   queryClient.setQueryData<Alarm[]>(ALARMS_KEY, (old) =>
     old?.map((a) => (a.id === id ? { ...a, ...patch } : a))
   )
+}
+
+/**
+ * Surface an optimistic-update rollback to the user.
+ *
+ * A rejected PATCH/DELETE silently springs the row back to its old state, which
+ * reads as the app ignoring the click — the same gap todo and bookmarks close
+ * with a `notify` on failure (L3).
+ */
+function reportFailure(action: string): void {
+  notify({
+    title: `Could not ${action}`,
+    body: 'The change was not saved. Your alarms have been put back the way they were.',
+    appId: 'clock',
+    level: 'error',
+  })
 }
 
 export function useWorldClocksQuery() {
@@ -101,6 +117,7 @@ export function usePatchAlarmMutation() {
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ALARMS_KEY, ctx.previous)
+      reportFailure('save that alarm')
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ALARMS_KEY }),
   })
@@ -117,6 +134,7 @@ export function useDeleteAlarmMutation() {
     },
     onError: (_err, _id, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ALARMS_KEY, ctx.previous)
+      reportFailure('delete that alarm')
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ALARMS_KEY }),
   })

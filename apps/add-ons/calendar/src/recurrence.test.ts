@@ -243,6 +243,21 @@ describe('termination', () => {
     const out = expandOccurrences(e, at('2026-07-06T00:00'), at('2060-01-01T00:00'))
     expect(out).toHaveLength(MAX_OCCURRENCES)
   })
+
+  it('still expands an old no-end rule into the current window (T1-5)', () => {
+    // A daily rule that started ~800 days before the visible range would, with an
+    // index-based cap, exhaust MAX_OCCURRENCES on occurrences BEFORE the window and
+    // yield nothing at all. It must produce the full current month instead.
+    const start = at('2024-05-01T09:00')
+    // 2024-05-01 is >800 days before the 2026-08 window below.
+    const e = event({ start, end: start + 30 * 60_000, recurrence: rule({ freq: 'daily' }) })
+    const monthStart = '2026-08-01T00:00'
+    const monthEnd = '2026-09-01T00:00'
+    const out = dates(e, monthStart, monthEnd)
+    expect(out).toHaveLength(31)
+    expect(out[0]).toBe('2026-08-01')
+    expect(out[out.length - 1]).toBe('2026-08-31')
+  })
 })
 
 describe('exceptions', () => {

@@ -36,10 +36,18 @@ export function buildWeekDays(anchor: Dayjs): Dayjs[] {
   return Array.from({ length: 7 }, (_, i) => start.add(i, 'day'))
 }
 
-/** Minutes elapsed since local midnight of the day containing `ms`. */
+/**
+ * Wall-clock minutes into the day for `ms` — `hour*60 + minute`.
+ *
+ * NOT elapsed minutes since midnight: the week grid is 24 fixed-height slots of
+ * one wall-hour each, positioned by hour label. On a DST day, elapsed minutes and
+ * wall-clock minutes diverge by an hour (a 23- or 25-hour day), which would place
+ * or size events an hour off and overflow the grid. Positioning from the wall
+ * components keeps events aligned with the hour labels they sit beside.
+ */
 export function minutesSinceMidnight(ms: number): number {
   const d = dayjs(ms)
-  return d.diff(d.startOf('day'), 'minute')
+  return d.hour() * 60 + d.minute()
 }
 
 export function formatHourLabel(hour: number): string {

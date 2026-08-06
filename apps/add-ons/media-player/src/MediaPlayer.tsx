@@ -174,6 +174,7 @@ export function MediaPlayer({ windowId }: { windowId: string }) {
         {kind && activePath ? (
           <TrackStage
             key={activePath}
+            windowId={windowId}
             root={source.root}
             path={activePath}
             kind={kind}

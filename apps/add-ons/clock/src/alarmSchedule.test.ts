@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ALARM_CATCHUP_MS,
   EVERY_DAY,
   NO_REPEAT,
   WEEKDAYS,
@@ -81,11 +82,22 @@ describe('minuteKey', () => {
 })
 
 describe('dueReason', () => {
-  it('fires at its minute, for the whole minute, until it is marked', () => {
+  it('fires from its minute onward, and not before', () => {
     expect(dueReason(alarm(), monday0700)).toBe('scheduled')
     expect(dueReason(alarm(), new Date(2026, 6, 20, 7, 0, 59))).toBe('scheduled')
     expect(dueReason(alarm(), new Date(2026, 6, 20, 6, 59, 59))).toBeNull()
-    expect(dueReason(alarm(), new Date(2026, 6, 20, 7, 1, 0))).toBeNull()
+  })
+
+  it('catches up when a throttled or slept tab ticks after the minute (T1-7)', () => {
+    // The bug: an exact HH:mm match meant a tick that landed at 07:03 (never at
+    // 07:00) skipped the alarm entirely. It must ring on the next tick instead.
+    expect(dueReason(alarm(), new Date(2026, 6, 20, 7, 3, 0))).toBe('scheduled')
+    // …once. Marking the scheduled minute stops the following ticks re-ringing it.
+    const rung = alarm({ lastFiredAt: minuteKey(monday0700) })
+    expect(dueReason(rung, new Date(2026, 6, 20, 7, 3, 0))).toBeNull()
+    // …but only within the bounded window: a machine slept for hours must not
+    // resurrect the stale morning alarm.
+    expect(dueReason(alarm(), new Date(monday0700.getTime() + ALARM_CATCHUP_MS + 1000))).toBeNull()
   })
 
   it('does not fire twice inside the same minute', () => {

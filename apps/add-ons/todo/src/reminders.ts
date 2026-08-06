@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { notify } from '@imbatranim/core'
-import { dueLabel, isDateOnly } from './due'
+import { dueLabel, isDateOnly, startOfDay } from './due'
 import { peekTodos } from './queries/todosQueries'
 
 /**
@@ -47,8 +47,11 @@ export function useTodoReminders(): void {
 
         if (isDateOnly(todo.dueAt)) {
           // Due some time today: say so the first time we notice, rather than at
-          // 23:59 when it is already too late to act on.
-          const startOfDue = todo.dueAt - 86_399_999
+          // 23:59 when it is already too late to act on. Use the calendar
+          // start-of-day rather than subtracting a fixed 86,399,999 ms — a DST day
+          // is 23 or 25 hours long, so the fixed offset lands an hour off local
+          // midnight and the morning window opens or closes on the wrong day (L1).
+          const startOfDue = startOfDay(todo.dueAt)
           if (now < startOfDue || now > todo.dueAt) continue
           const key = `${todo.id}:today`
           if (notified.has(key)) continue

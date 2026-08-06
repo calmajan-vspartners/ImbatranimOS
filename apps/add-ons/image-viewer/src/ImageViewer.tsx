@@ -115,9 +115,18 @@ export function ImageViewer({ windowId }: { windowId: string }) {
           .filter((e) => e.type === 'file' && isImagePath(e.name))
           .sort((a, b) => a.name.localeCompare(b.name))
         if (cancelled) return
-        setSiblings(images)
         const i = images.findIndex((e) => e.path === source.path)
-        setIndex(i >= 0 ? i : 0)
+        if (i >= 0) {
+          setSiblings(images)
+          setIndex(i)
+        } else {
+          // The opened file is not among the folder's images (deleted, renamed, or
+          // not itself an image). Show the opened path alone — falling back through
+          // `currentPath` to `source.path` — rather than silently displaying
+          // `images[0]` while the counter claims "1 / N" (L6).
+          setSiblings([])
+          setIndex(0)
+        }
       } catch (err) {
         console.error('[image-viewer] failed to list folder', err)
         if (!cancelled) setSiblings([])

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, CheckCheck, ListPlus, Plus, Trash2, X } from 'lucide-react'
 import { ScrollArea, cn, notify, useConfirm, usePrompt } from '@imbatranim/core'
 import { TodoRow } from './TodoRow'
+import { hasHiddenSelection, pruneSelection } from './bulkSelection'
 import { dueAtFromInput, isOverdue } from './due'
 import { SORT_LABELS, SORT_MODES, canReorder, sortTodos } from './sort'
 import { useTodoReminders } from './reminders'
@@ -86,6 +87,16 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
   }
 
   const visible = useMemo(() => sortTodos(items, sort), [items, sort])
+
+  // Confine the bulk selection to visible rows. A filter/list switch (or a reload)
+  // changes what is on screen, so without this a bulk Delete/Complete could act on
+  // a task the user can no longer see (M2). Adjusted during render — the house
+  // idiom here — and converges: after pruning, nothing hidden remains selected.
+  const visibleIds = useMemo(() => new Set(visible.map((t) => t.id)), [visible])
+  if (hasHiddenSelection(selected, visibleIds)) {
+    setSelected(pruneSelection(selected, visibleIds))
+  }
+
   const reorderable = canReorder(sort)
   // Only meaningful when the loaded scope can contain completed todos — the Active
   // tab has never seen them, so counting its rows would always give 0.

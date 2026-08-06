@@ -34,6 +34,14 @@ export function DesktopNote({ note, bounds, onPatch, onDelete }: DesktopNoteProp
   const [content, setContent] = useState(note.content)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The typed-but-not-yet-persisted value, so the debounce can be FLUSHED (not
+  // just cancelled) when the note unmounts. Latest `onPatch`/`note.id` are kept in
+  // a ref because the unmount cleanup runs with the mount-time closure (M7).
+  const pending = useRef<string | null>(null)
+  const latest = useRef({ id: note.id, onPatch })
+  useEffect(() => {
+    latest.current = { id: note.id, onPatch }
+  })
 
   // Resync when the note changes underneath us (another window edited it) —
   // state adjustment during render rather than an effect, the house idiom.
@@ -73,8 +81,11 @@ export function DesktopNote({ note, bounds, onPatch, onDelete }: DesktopNoteProp
   const handleContent = useCallback(
     (value: string) => {
       setContent(value)
+      pending.current = value
       if (debounce.current) clearTimeout(debounce.current)
       debounce.current = setTimeout(() => {
+        debounce.current = null
+        pending.current = null
         onPatch(note.id, { content: value })
       }, SAVE_DEBOUNCE_MS)
     },
@@ -84,6 +95,13 @@ export function DesktopNote({ note, bounds, onPatch, onDelete }: DesktopNoteProp
   useEffect(
     () => () => {
       if (debounce.current) clearTimeout(debounce.current)
+      // Flush the last ≤800ms of typing instead of dropping it: taking the note off
+      // the desktop or pressing Back unmounts this component, and merely clearing
+      // the timer lost whatever had not yet been persisted (M7).
+      if (pending.current !== null) {
+        latest.current.onPatch(latest.current.id, { content: pending.current })
+        pending.current = null
+      }
     },
     []
   )
