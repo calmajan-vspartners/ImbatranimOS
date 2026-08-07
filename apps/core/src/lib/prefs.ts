@@ -29,6 +29,10 @@ import { api } from './axios'
 /** Debounce for the write-through. Long enough to coalesce a drag, short enough to survive a close. */
 const WRITE_DEBOUNCE_MS = 400
 
+/** Backoff for a failed flush: 5s, doubling, capped (brief 109). */
+const RETRY_BASE_MS = 5_000
+const RETRY_MAX_MS = 60_000
+
 /**
  * Keys that live on the server. Anything not in here is not a dotfile.
  *
@@ -55,6 +59,15 @@ const pendingWrites = new Map<string, string>()
 let writeTimer: ReturnType<typeof setTimeout> | undefined
 let hydrated = false
 let hydrating: Promise<void> | null = null
+
+// Durability state (brief 109). A batch stays queued until the server confirms
+// it, so a blip cannot silently discard a change the UI already shows.
+let inFlight = false
+let flushAgain = false
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+let retryDelay = RETRY_BASE_MS
+/** True after a 401: the writes are fine, the session is not. Wait for re-auth. */
+let waitingForAuth = false
 
 function readLocal(key: string): string | null {
   try {
@@ -150,22 +163,131 @@ export function writePref(key: string, value: string): void {
   writeTimer = setTimeout(flushPrefs, WRITE_DEBOUNCE_MS)
 }
 
+/** HTTP status of a rejected axios call, when there is one. */
+function statusOf(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } } | undefined)?.response?.status
+}
+
+/** Report an unrecoverable save failure once, without importing the store eagerly. */
+function reportSaveFailure(): void {
+  void import('../shared/store/notificationStore').then(({ useNotificationStore }) => {
+    useNotificationStore.getState().notify({
+      title: "Couldn't save your settings",
+      body: 'The server refused the change. It has been discarded — try again.',
+      level: 'error',
+    })
+  })
+}
+
 /**
  * Push any pending writes now.
  *
  * Called on a debounce, and again when the tab is hidden or unloading — a
  * wallpaper changed two hundred milliseconds before closing the tab should not
  * be the one change that does not stick.
+ *
+ * Durability (brief 109): the batch is NOT cleared before the request. It used
+ * to be, and the rejection was swallowed, so one blip lost the write forever —
+ * and worse, `hydratePrefs` merges server-over-local, so the change looked
+ * applied (the localStorage mirror lied) until the next sign-in snapped it back
+ * to the stale server copy. Entries now leave the queue only on confirmation,
+ * and only if no newer value arrived meanwhile (newest write always wins).
  */
 export function flushPrefs(): void {
   if (writeTimer !== undefined) {
     clearTimeout(writeTimer)
     writeTimer = undefined
   }
+  if (retryTimer !== undefined) {
+    clearTimeout(retryTimer)
+    retryTimer = undefined
+  }
+  if (pendingWrites.size === 0) return
+  // Keeping entries queued during the request means a second flush could
+  // double-send; this guard replaces the accidental protection the old
+  // clear-before-PUT provided.
+  if (inFlight) {
+    flushAgain = true
+    return
+  }
+
+  const sent = new Map(pendingWrites)
+  const entries = [...sent].map(([key, value]) => ({ key, value }))
+  inFlight = true
+  waitingForAuth = false
+
+  void api
+    .put('/prefs', { entries })
+    .then(() => {
+      // Only retire what was actually sent: a key rewritten mid-flight keeps
+      // its newer value queued for the next flush.
+      for (const [key, value] of sent) {
+        if (pendingWrites.get(key) === value) pendingWrites.delete(key)
+      }
+      retryDelay = RETRY_BASE_MS
+    })
+    .catch((err: unknown) => {
+      const status = statusOf(err)
+      if (status === 401) {
+        // Not a bad write — a dead session. Hold the batch; re-auth re-flushes
+        // (AuthGate calls flushPrefs on the authenticated transition).
+        waitingForAuth = true
+        return
+      }
+      if (status !== undefined && status >= 400 && status < 500) {
+        // The server saying no permanently. Retrying a malformed batch would
+        // loop forever, so drop it and say so once.
+        for (const [key, value] of sent) {
+          if (pendingWrites.get(key) === value) pendingWrites.delete(key)
+        }
+        reportSaveFailure()
+        return
+      }
+      // 5xx or network: keep the batch and back off.
+      retryTimer = setTimeout(flushPrefs, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+    })
+    .finally(() => {
+      inFlight = false
+      if (flushAgain) {
+        flushAgain = false
+        flushPrefs()
+      }
+    })
+}
+
+/**
+ * The unload flush.
+ *
+ * `beforeunload` + a plain XHR was an aspiration, not a behaviour: browsers
+ * routinely abort in-flight XHR as the page goes away. `fetch(..., {keepalive:
+ * true})` is the one transport the browser promises to finish. (Not
+ * `sendBeacon`: it is POST-only, and reshaping a PUT API for a transport quirk
+ * is backwards.) Keepalive caps in-flight bodies at 64 KiB — dotfile batches
+ * are small JSON, comfortably inside it.
+ *
+ * Entries stay queued regardless: the page cannot observe the outcome, and a
+ * bfcache resurrection simply retries.
+ */
+export function flushPrefsKeepalive(): void {
   if (pendingWrites.size === 0) return
   const entries = [...pendingWrites].map(([key, value]) => ({ key, value }))
-  pendingWrites.clear()
-  void api.put('/prefs', { entries }).catch(() => undefined)
+  try {
+    void fetch(`${import.meta.env.VITE_API_URL}/prefs`, {
+      method: 'PUT',
+      credentials: 'include',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries }),
+    }).catch(() => undefined)
+  } catch {
+    // Nothing useful to do while the page is going away.
+  }
+}
+
+/** True while a batch is held back waiting for the session to come back. */
+export function prefsWaitingForAuth(): boolean {
+  return waitingForAuth
 }
 
 /**
@@ -198,6 +320,17 @@ export function resetPrefsForTest(): void {
   hydrating = null
   if (writeTimer !== undefined) clearTimeout(writeTimer)
   writeTimer = undefined
+  if (retryTimer !== undefined) clearTimeout(retryTimer)
+  retryTimer = undefined
+  inFlight = false
+  flushAgain = false
+  retryDelay = RETRY_BASE_MS
+  waitingForAuth = false
+}
+
+/** Test seam: what is still queued for the server. */
+export function pendingPrefsForTest(): Record<string, string> {
+  return Object.fromEntries(pendingWrites)
 }
 
 /** Test seam: what the mirror currently holds. */

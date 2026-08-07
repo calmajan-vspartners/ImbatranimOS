@@ -133,7 +133,10 @@ describe('PrefsService — brief 49', () => {
 
   it('an empty batch is a no-op, not a wipe', () => {
     controller.put({ entries: [{ key: 'k', value: 'v' }] });
-    expect(controller.put({ entries: [] })).toEqual({ written: 0 });
+    expect(controller.put({ entries: [] })).toEqual({
+      written: 0,
+      updatedAt: {},
+    });
     expect(controller.all()).toEqual({ k: 'v' });
   });
 
@@ -148,5 +151,24 @@ describe('PrefsService — brief 49', () => {
     });
     controller.put({ entries: [{ key: 'desktop-storage', value: big }] });
     expect(controller.all()['desktop-storage']).toBe(big);
+  });
+  // Brief 109: the PUT echoes each key's updated_at, so a two-browser conflict
+  // has a timestamp to reason with. Last-writer-wins stays the merge rule.
+  it('echoes updated_at per key alongside the written count', () => {
+    const res = controller.put({
+      entries: [
+        { key: 'wallpaper-storage', value: '{"w":1}' },
+        { key: 'desktop-storage', value: '{"d":1}' },
+      ],
+    });
+    expect(res.written).toBe(2);
+    expect(Object.keys(res.updatedAt).sort()).toEqual([
+      'desktop-storage',
+      'wallpaper-storage',
+    ]);
+    for (const stamp of Object.values(res.updatedAt)) {
+      expect(typeof stamp).toBe('string');
+      expect(stamp.length).toBeGreaterThan(0);
+    }
   });
 });

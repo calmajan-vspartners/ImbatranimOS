@@ -47,8 +47,16 @@ export class PrefsService {
    * touches two stores at once (switching theme rewrites appearance; dragging an
    * icon rewrites the desktop layout) and a half-applied batch would leave the
    * next boot hydrating an inconsistent pair.
+   *
+   * The response echoes each key's `updated_at` (brief 109). The column already
+   * existed and the client ignored it; returning it gives a two-browser
+   * conflict a timestamp to reason with. Whole-key last-writer-wins stays the
+   * merge rule — this is durability information, not a version check.
    */
-  put(entries: PrefEntryDto[]): { written: number } {
+  put(entries: PrefEntryDto[]): {
+    written: number;
+    updatedAt: Record<string, string>;
+  } {
     const upsert = this.db.db.prepare(
       `INSERT INTO prefs (key, value, updated_at)
        VALUES (@key, @value, CURRENT_TIMESTAMP)
@@ -67,7 +75,18 @@ export class PrefsService {
         upsert.run({ key: entry.key, value: entry.value });
       }
     })(entries);
-    return { written: entries.length };
+
+    const updatedAt: Record<string, string> = {};
+    if (entries.length > 0) {
+      const read = this.db.db.prepare(
+        'SELECT updated_at AS updatedAt FROM prefs WHERE key = ?',
+      );
+      for (const entry of entries) {
+        const row = read.get(entry.key) as { updatedAt?: string } | undefined;
+        if (row?.updatedAt) updatedAt[entry.key] = row.updatedAt;
+      }
+    }
+    return { written: entries.length, updatedAt };
   }
 
   remove(key: string): void {

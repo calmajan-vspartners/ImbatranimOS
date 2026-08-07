@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useAuthStore } from './store/authStore'
-import { flushPrefs, hydratePrefs } from '../../lib/prefs'
+import { flushPrefs, flushPrefsKeepalive, hydratePrefs } from '../../lib/prefs'
 import { rehydrateDotfileStores } from '../../shared/store/dotfiles'
 import { LockScreen } from './LockScreen'
 import { FirstRunWizard, AuthShell } from './FirstRunWizard'
@@ -49,6 +49,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authenticated) return
     let cancelled = false
+    // Re-flush FIRST (brief 109): a write held back by a 401 is still queued in
+    // module state, and re-authenticating is exactly when it can land. Safe
+    // before hydration because `hydratePrefs` latches on `hydrated`, so a
+    // re-auth inside a tab cannot clobber the pending value with the server's
+    // stale copy.
+    flushPrefs()
     void hydratePrefs()
       .then(() => rehydrateDotfileStores())
       .then(() => {
@@ -59,16 +65,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, [authenticated])
 
-  // A change made just before the tab closes should still reach the server.
+  // A change made just before the tab closes should still reach the server —
+  // over keepalive, because an ordinary XHR is routinely aborted on unload
+  // (brief 109). `pagehide` rather than `beforeunload`: it also covers bfcache
+  // navigations, which `beforeunload` misses entirely.
   useEffect(() => {
-    const flush = () => flushPrefs()
+    const flush = () => flushPrefsKeepalive()
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flush()
     }
-    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])

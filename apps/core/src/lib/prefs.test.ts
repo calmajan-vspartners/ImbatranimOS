@@ -190,3 +190,99 @@ describe('writing through', () => {
     expect(del).toHaveBeenCalledWith('/prefs/wallpaper-storage')
   })
 })
+
+/**
+ * Brief 109 — durability. The old flush cleared the batch BEFORE the request
+ * and swallowed the rejection, so one blip lost the write forever while the
+ * localStorage mirror went on showing it as applied.
+ */
+describe('a flush that fails', () => {
+  const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
+
+  it('keeps the entries queued, and a later flush delivers them', async () => {
+    const { prefsStorage, flushPrefs, pendingPrefsForTest } = await freshModule()
+    put.mockRejectedValueOnce({ response: { status: 503 } })
+
+    prefsStorage.setItem('wallpaper-storage', '{"w":1}')
+    flushPrefs()
+    await flushMicrotasks()
+    expect(put).toHaveBeenCalledTimes(1)
+    // Still ours: the server never confirmed it.
+    expect(pendingPrefsForTest()).toEqual({ 'wallpaper-storage': '{"w":1}' })
+
+    put.mockResolvedValueOnce({ data: { written: 1, updatedAt: {} } })
+    flushPrefs()
+    await flushMicrotasks()
+    expect(put).toHaveBeenCalledTimes(2)
+    expect(pendingPrefsForTest()).toEqual({})
+  })
+
+  it('a newer write during the failed flight wins over the re-queue', async () => {
+    const { prefsStorage, flushPrefs, pendingPrefsForTest } = await freshModule()
+    let reject!: (e: unknown) => void
+    put.mockReturnValueOnce(
+      new Promise((_res, rej) => {
+        reject = rej
+      })
+    )
+
+    prefsStorage.setItem('wallpaper-storage', '{"w":1}')
+    flushPrefs()
+    // The user changes it again while the first PUT is still in the air.
+    prefsStorage.setItem('wallpaper-storage', '{"w":2}')
+    reject({ response: { status: 500 } })
+    await flushMicrotasks()
+
+    expect(pendingPrefsForTest()).toEqual({ 'wallpaper-storage': '{"w":2}' })
+  })
+
+  it('a definitive 4xx drops the batch instead of looping', async () => {
+    const { prefsStorage, flushPrefs, pendingPrefsForTest } = await freshModule()
+    put.mockRejectedValueOnce({ response: { status: 400 } })
+
+    prefsStorage.setItem('wallpaper-storage', '{"w":1}')
+    flushPrefs()
+    await flushMicrotasks()
+
+    expect(pendingPrefsForTest()).toEqual({})
+  })
+
+  it('a 401 HOLDS the batch — the write is fine, the session is not', async () => {
+    const { prefsStorage, flushPrefs, pendingPrefsForTest, prefsWaitingForAuth } =
+      await freshModule()
+    put.mockRejectedValueOnce({ response: { status: 401 } })
+
+    prefsStorage.setItem('wallpaper-storage', '{"w":1}')
+    flushPrefs()
+    await flushMicrotasks()
+    expect(pendingPrefsForTest()).toEqual({ 'wallpaper-storage': '{"w":1}' })
+    expect(prefsWaitingForAuth()).toBe(true)
+
+    // Re-auth: AuthGate calls flushPrefs on the authenticated transition.
+    put.mockResolvedValueOnce({ data: { written: 1, updatedAt: {} } })
+    flushPrefs()
+    await flushMicrotasks()
+    expect(pendingPrefsForTest()).toEqual({})
+    expect(prefsWaitingForAuth()).toBe(false)
+  })
+
+  it('two overlapping flushes never double-send', async () => {
+    const { prefsStorage, flushPrefs } = await freshModule()
+    let resolve!: (v: unknown) => void
+    put.mockReturnValueOnce(
+      new Promise((res) => {
+        resolve = res
+      })
+    )
+
+    prefsStorage.setItem('wallpaper-storage', '{"w":1}')
+    flushPrefs()
+    flushPrefs() // while the first is still in flight
+    expect(put).toHaveBeenCalledTimes(1)
+
+    resolve({ data: { written: 1, updatedAt: {} } })
+    await flushMicrotasks()
+    // Nothing left to send, so the queued follow-up is a no-op.
+    expect(put).toHaveBeenCalledTimes(1)
+  })
+})

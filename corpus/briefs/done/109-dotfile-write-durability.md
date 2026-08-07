@@ -1,6 +1,32 @@
 # Brief 109 — Dotfile write durability: failed PUTs retry, the unload flush actually delivers, re-auth re-flushes
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. EASY ·
+> **Outcome (2026-08-07): DONE.** Built as specced. `flushPrefs` no longer
+> clears the batch before the request: it snapshots, keeps entries queued while
+> in flight, and retires only those whose queued value is still the one that was
+> sent (a key rewritten mid-flight keeps the newer value). Failure is
+> classified — 401 holds the batch and stops retrying (`prefsWaitingForAuth()`),
+> any other 4xx drops it and notifies once rather than looping on a malformed
+> body, 5xx/network backs off 5 s doubling to 60 s — with an in-flight guard
+> plus follow-up flag replacing the accidental protection the old
+> clear-before-PUT gave. `flushPrefsKeepalive()` sends the same body over
+> `fetch(keepalive)` and AuthGate moved `beforeunload` → `pagehide` (which also
+> covers bfcache); the authenticated transition now calls `flushPrefs()` first,
+> before hydration, which is safe because `hydratePrefs` latches on `hydrated`.
+> Backend PUT echoes per-key `updated_at`. The notification import is dynamic
+> to keep `lib/` from depending eagerly on a store.
+>
+> Verified: 5 new frontend units + the backend echo test (turbo 120/120,
+> backend 431 unit + 141 e2e) and a 12/12 Playwright pass on the production
+> bundle — under a 503 outage the wallpaper applied locally while the server
+> kept the old value, the backoff retry landed it once the outage lifted and a
+> reload held it; hiding the tab inside the debounce window still delivered;
+> and a 401 held the batch without hammering (1 PUT over 8 s) until re-auth
+> re-flushed it. Probe notes for later readers: the wallpaper displayed as
+> "Fine" is stored as `linen`, and with brief 101's overlay the *visible*
+> password field must be selected — Settings' change-password input sits in the
+> hidden desktop tree behind the lock.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. EASY ·
 CORE lib (`lib/prefs.ts`, `AuthGate.tsx`) + a small BACKEND addition
 (`prefs.service.ts` PUT echoes per-key `updated_at`). Hardens the brief-49
 dotfile pipe every registered store shares — **no new store**, so the

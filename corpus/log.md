@@ -3502,3 +3502,35 @@ in the OS silently stopped working. It is now scoped to
 `e.target === document.body` — the after-a-marquee case it was written for —
 and brief 106's probe still passes 24/24. Verified: 8 new units, turbo
 120/120, and 13/13 in a browser.
+
+## 2026-08-07 — Brief 109: dotfile writes that actually stick
+
+[Brief 109](briefs/done/109-dotfile-write-durability.md) **DONE** — the
+dotfile pipe every registered store shares had a quiet data-loss bug:
+`flushPrefs` cleared `pendingWrites` *before* the PUT and swallowed the
+rejection, so one blip, one 500 or one badly-timed expiry meant the write
+simply never happened. Worse, `hydratePrefs` merges server-over-local, so the
+change looked applied — the localStorage mirror lied — until the next sign-in
+snapped it back to the stale server copy. Exactly the class of bug brief 81
+recorded as invisible: only a second browser can see it.
+
+The batch now leaves the queue only on confirmation, and only for keys whose
+queued value is still the one that was sent, so a mid-flight rewrite keeps the
+newer value. Failures are classified rather than swallowed: 401 holds the
+batch and stops retrying (the write is fine, the session is not), any other
+4xx drops it with a single notification rather than looping on a body the
+server will never accept, and 5xx/network backs off from 5 s to a 60 s cap. An
+in-flight guard plus a follow-up flag replaces the accidental
+one-request-at-a-time protection the old clear-before-PUT provided. The unload
+path is now `fetch(..., {keepalive: true})` on `pagehide` — the previous
+`beforeunload` + XHR was an aspiration, since browsers routinely abort
+in-flight XHR as the page goes away — and AuthGate re-flushes on the
+authenticated transition, which is what makes a 401-held batch land after
+re-login. The backend PUT echoes per-key `updated_at` so a two-browser
+conflict has a timestamp to reason with; last-writer-wins stays the merge rule.
+
+Verified: 5 frontend units + the backend echo test (turbo 120/120, backend 431
++ 141 e2e) and 12/12 in a browser — under a simulated 503 outage the wallpaper
+applied locally while the server kept the old value, the retry landed it when
+the outage lifted, hiding the tab inside the debounce window still delivered,
+and a 401 held the batch without hammering until re-auth flushed it.
