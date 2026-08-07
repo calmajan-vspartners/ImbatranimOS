@@ -36,11 +36,26 @@ export interface FileEntry {
   isSymlink: boolean;
 }
 
+/** One line inside a file that matched a `content=1` search (brief 113). */
+export interface SearchMatch {
+  /** 1-based line number, so it can be handed straight to an editor. */
+  line: number;
+  /** The line itself, trimmed and length-capped — a preview, not the file. */
+  text: string;
+}
+
 /** One hit from {@link FilesService.search}. `path` is root-relative. */
 export interface SearchHit {
   name: string;
   path: string;
   type: 'file' | 'directory';
+  /**
+   * Which lines matched, for a `content=1` search that asked for them
+   * (brief 113). Absent on name-only matches and on every request that did
+   * not opt in, so the response stays byte-identical for the command palette
+   * and the file manager's search box.
+   */
+  matches?: SearchMatch[];
 }
 
 /** Recursive size of a directory, with the caps that stopped the walk. */
@@ -360,6 +375,12 @@ export class FilesService {
       // Per-file size cap for the content grep; larger files are skipped.
       maxContentBytes:
         Number(process.env.FILES_SEARCH_MAX_CONTENT_BYTES) || 256 * 1024,
+      /** Matching lines reported per file (brief 113). A results panel wants a
+       *  taste of each file, not a second copy of it. */
+      maxMatchesPerFile: Number(process.env.FILES_SEARCH_MAX_MATCHES) || 5,
+      /** Longest previewed line; a minified bundle would otherwise ship 200KB
+       *  on one "line". */
+      maxMatchChars: Number(process.env.FILES_SEARCH_MAX_MATCH_CHARS) || 200,
     };
   }
 
@@ -385,7 +406,7 @@ export class FilesService {
   async search(
     root: string,
     query: string,
-    opts: { content?: boolean; path?: string } = {},
+    opts: { content?: boolean; path?: string; matches?: boolean } = {},
   ): Promise<SearchResult> {
     // Jail the root exactly like every other endpoint (throws on escape).
     const { rootDir } = await this.resolveSafe(root, '');
@@ -395,6 +416,10 @@ export class FilesService {
 
     const needle = query.toLowerCase();
     const wantContent = opts.content === true;
+    // Per-match line data is opt-in on top of the content grep: the bytes are
+    // already read either way, but the extra field would change the response
+    // shape for consumers that never asked for it (brief 113).
+    const wantMatches = wantContent && opts.matches === true;
     const bounds = this.searchBounds();
     const deadline = Date.now() + bounds.budgetMs;
 
@@ -445,17 +470,31 @@ export class FilesService {
         const abs = join(absDir, name);
         const type: 'file' | 'directory' = isDir ? 'directory' : 'file';
 
-        let matched = name.toLowerCase().includes(needle);
-        if (!matched && wantContent && entry.isFile()) {
-          matched = await this.contentMatches(
-            abs,
-            needle,
-            bounds.maxContentBytes,
-          );
+        const nameMatched = name.toLowerCase().includes(needle);
+        let matched = nameMatched;
+        let matches: SearchMatch[] | undefined;
+        if (wantContent && entry.isFile()) {
+          // Even a name match is scanned when line data was asked for: a hit
+          // whose name matches but whose body also does should still show the
+          // lines, or the panel would list it with nothing under it.
+          const found = await this.contentLines(abs, needle, bounds);
+          if (found === null) {
+            // Unreadable / binary / oversize — no content answer either way.
+          } else if (wantMatches) {
+            if (found.length > 0) matches = found;
+            matched = matched || found.length > 0;
+          } else {
+            matched = matched || found.length > 0;
+          }
         }
 
         if (matched) {
-          items.push({ name, path: relative(rootDir, abs), type });
+          items.push({
+            name,
+            path: relative(rootDir, abs),
+            type,
+            ...(matches ? { matches } : {}),
+          });
           if (capHit()) return;
         }
 
@@ -471,26 +510,60 @@ export class FilesService {
   }
 
   /**
-   * Cheap text-content grep for the search walk: skips oversized files and any
-   * file that looks binary (a NUL byte in the sniff window). Reads at most one
-   * file into the heap at a time. Any error → no match (never throws upward).
+   * Cheap text-content grep for the search walk, now reporting *which* lines
+   * matched (brief 113).
+   *
+   * Returns `null` when the file was not searchable at all — unreadable,
+   * oversized, or binary (a NUL in the sniff window) — and an array otherwise,
+   * empty when nothing matched. That three-way answer is why it is not a
+   * boolean: "no match" and "never looked" are different facts, and the caller
+   * used to conflate them.
+   *
+   * Line extraction is a scan over the buffer that was read anyway, capped at
+   * `maxMatchesPerFile` lines each trimmed to `maxMatchChars`, so the cost of
+   * the extra data is bounded by two constants rather than by file size. Reads
+   * at most one file into the heap at a time. Never throws upward.
    */
-  private async contentMatches(
+  private async contentLines(
     abs: string,
     needle: string,
-    maxBytes: number,
-  ): Promise<boolean> {
+    bounds: {
+      maxContentBytes: number;
+      maxMatchesPerFile: number;
+      maxMatchChars: number;
+    },
+  ): Promise<SearchMatch[] | null> {
     try {
       const stat = await fs.stat(abs);
-      if (!stat.isFile() || stat.size > maxBytes) return false;
+      if (!stat.isFile() || stat.size > bounds.maxContentBytes) return null;
       const buf = await fs.readFile(abs);
       const sniff = Math.min(buf.length, 8192);
       for (let i = 0; i < sniff; i++) {
-        if (buf[i] === 0) return false; // NUL ⇒ treat as binary, skip
+        if (buf[i] === 0) return null; // NUL ⇒ treat as binary, skip
       }
-      return buf.toString('utf-8').toLowerCase().includes(needle);
+      const text = buf.toString('utf-8');
+      // One cheap check before splitting: most files do not match at all, and
+      // splitting a 256KB file into lines to learn that is pure waste.
+      if (!text.toLowerCase().includes(needle)) return [];
+
+      const out: SearchMatch[] = [];
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (out.length >= bounds.maxMatchesPerFile) break;
+        const line = lines[i];
+        if (!line.toLowerCase().includes(needle)) continue;
+        const trimmed = line.trim();
+        out.push({
+          line: i + 1,
+          text:
+            trimmed.length > bounds.maxMatchChars
+              ? trimmed.slice(0, bounds.maxMatchChars)
+              : trimmed,
+        });
+      }
+      return out;
     } catch {
-      return false;
+      return null;
     }
   }
 

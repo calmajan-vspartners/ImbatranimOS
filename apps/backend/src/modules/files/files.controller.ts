@@ -77,6 +77,7 @@ export class FilesController {
     return this.filesService.search(q.root, q.query, {
       content: q.content,
       path: q.path,
+      matches: q.matches,
     });
   }
 

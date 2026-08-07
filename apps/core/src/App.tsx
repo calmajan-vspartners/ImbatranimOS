@@ -50,6 +50,17 @@ export default function App() {
       scope: 'Editing',
     },
     {
+      id: 'editing.find-in-files',
+      keys: 'mod+shift+f',
+      description: 'Find in files, in Code Editor',
+      scope: 'Editing',
+      // A window-level capture listener gated on window focus (the mod+s
+      // pattern), because focus normally sits inside Monaco's own textarea
+      // where a text-entry-ignoring binding would be dead. Documented here so
+      // the row does not appear and vanish as editor windows open and close.
+      note: 'Only while a Code Editor window has focus',
+    },
+    {
       id: 'editing.goto-line',
       keys: 'mod+g',
       description: 'Go to line, in Code Editor',

@@ -1,6 +1,68 @@
 # Brief 113 — Code Editor: find in files, Ctrl+Shift+F over the bounded grep
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** The brief-88 deferral, closed. `SearchHit`
+> gained an optional `matches: { line, text }[]`, opt-in behind a new
+> `matches=1` on top of `content=1`, so the palette and brief 112's box see a
+> byte-identical response — one test asserts exactly that. `contentMatches`
+> became `contentLines`, which returns `null` for "never looked" (unreadable,
+> oversize, binary) and an array for "looked", empty when nothing matched: the
+> old boolean conflated those two, and the caller needed them apart. Line
+> extraction scans the buffer that was read anyway, capped at 5 lines per file
+> and 200 chars each (both env-overridable), so the extra data costs two
+> constants rather than file size. Eight new cases in a `match lines` describe:
+> 1-based numbers, trimmed text, the per-file cap, the per-line char cap,
+> case-insensitivity, binaries skipped, a name-only hit that carries no lines,
+> and the untouched shape when not opted in.
+>
+> The editor got a bottom panel — not a dialog (it would end the
+> search-edit-search loop) and not the left rail (brief 121's region). Search
+> runs on Enter only, the same self-DoS argument as brief 112. Results group by
+> file with line-numbered rows; a file matched only by NAME is kept and labelled
+> "filename match" rather than discarded, because typing a filename and being
+> told there are no results for a file you can see is a lie about the search.
+> `truncated` renders a banner instead of being dropped. A monotonic run id
+> drops out-of-order responses.
+>
+> The loader was hoisted, as specced: the effect body became `openTargets()`,
+> and `openPath(root, path, { revealLine })` is the panel's only door — the same
+> one the intent and the session restore use, so there is still exactly one way
+> for a file to become a tab. Reveals queue in a `pendingRevealRef` applied in
+> the activation effect **after** `restoreViewState` (the other order lets the
+> restored scroll position silently undo the reveal), plus one case the brief
+> did not have: re-clicking a hit for the tab that is *already active* changes
+> no state, so the activation effect never re-runs and the queued reveal would
+> sit there forever — that path applies it inline. An already-open dirty tab is
+> focused, never re-read; the probe types an unsaved edit and proves it survives
+> a second search-and-click.
+>
+> Ctrl+Shift+F is the `useSaveHotkey` pattern (window-level capture, gated on
+> `system.window.isFocused()`), not `useTopWindowKeydown` — whose default
+> ignores text entry, which is where focus always is in this app. Ctrl+F, Ctrl+G
+> and Ctrl+S are untouched. The Edit menu's "Find in Files…" is deliberately
+> enabled with no tab open: searching the project is how you find the file.
+>
+> Two things worth recording. Hoisting the loader made `openTargets` traceable
+> to the React Compiler lint, which then flagged the effect for reaching
+> setState synchronously — true on the everything-already-open path — so the
+> effect hops a microtask explicitly, which is what the old inline async IIFE
+> was doing implicitly. And Monaco 0.54 focuses a contenteditable
+> `div.native-edit-context` (the EditContext API), not the historic hidden
+> `<textarea>`; the panel's close path needs a rAF so the focus call lands
+> after the unmount commit, or focus falls to `<body>`.
+>
+> Eager-chunk delta: none. `CodeEditor-*.js` is 20.31 kB (6.91 kB gzip) and the
+> panel imports no Monaco types — the shared `index-*.js` is unchanged. Monaco
+> stays lazy.
+>
+> Verified: turbo 120/120, backend 451 unit (+8) + 141 e2e, 9 new frontend unit
+> tests for grouping and the request shape, and a 17-check browser probe on the
+> production bundle: Ctrl+Shift+F opening and focusing, nothing running until
+> Enter, both files grouped with line numbers, a click landing the cursor on
+> line 3 of `b.ts`, an unsaved edit surviving a re-click, Esc closing and focus
+> returning to Monaco, the ? overlay row, and the palette unchanged — plus a
+> `FILES_SEARCH_MAX_RESULTS=2` run for the truncation banner. Console clean.
+
+Status: **done** · From the 2026-08-07 research sweep. MEDIUM ·
 `code-editor` + backend (additive per-match line data on
 `GET /api/files/search`) + one documented-shortcut row in core `App.tsx`.
 The brief-88 deferral, whose sequencing condition (the File menu) shipped in

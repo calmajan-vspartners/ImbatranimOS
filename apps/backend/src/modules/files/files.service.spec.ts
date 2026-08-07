@@ -279,6 +279,8 @@ describe('FilesService (jail + real filesystem)', () => {
       'FILES_SEARCH_MAX_DEPTH',
       'FILES_SEARCH_BUDGET_MS',
       'FILES_SEARCH_MAX_CONTENT_BYTES',
+      'FILES_SEARCH_MAX_MATCHES',
+      'FILES_SEARCH_MAX_MATCH_CHARS',
     ];
     const capEnvSnapshot: Record<string, string | undefined> = {};
     beforeEach(() => {
@@ -462,6 +464,114 @@ describe('FilesService (jail + real filesystem)', () => {
           path: 'docs',
         });
         expect(items.map((i) => i.path)).toEqual(['docs/has.txt']);
+      });
+    });
+
+    // Brief 113: per-match line data, opt-in on top of `content`.
+    describe('match lines', () => {
+      beforeEach(async () => {
+        await service.createFile(
+          'home',
+          'code.ts',
+          [
+            'const a = 1',
+            'function needle() {}',
+            'const b = 2',
+            '  needle()  ',
+          ].join('\n'),
+        );
+      });
+
+      it('reports 1-based line numbers and the trimmed line text', async () => {
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        const hit = items.find((i) => i.path === 'code.ts');
+        expect(hit?.matches).toEqual([
+          { line: 2, text: 'function needle() {}' },
+          { line: 4, text: 'needle()' },
+        ]);
+      });
+
+      it('omits `matches` entirely unless asked for — the palette shape is untouched', async () => {
+        const withContent = await service.search('home', 'needle', {
+          content: true,
+        });
+        expect(withContent.items[0]).not.toHaveProperty('matches');
+
+        const nameOnly = await service.search('home', 'code');
+        expect(nameOnly.items[0]).not.toHaveProperty('matches');
+      });
+
+      it('is byte-identical to the pre-brief-113 response when not opted in', async () => {
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+        });
+        expect(items).toEqual([
+          { name: 'code.ts', path: 'code.ts', type: 'file' },
+        ]);
+      });
+
+      it('caps the matches reported per file', async () => {
+        process.env.FILES_SEARCH_MAX_MATCHES = '2';
+        await service.createFile(
+          'home',
+          'many.txt',
+          ['needle', 'needle', 'needle', 'needle'].join('\n'),
+        );
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        const hit = items.find((i) => i.path === 'many.txt');
+        expect(hit?.matches).toHaveLength(2);
+        expect(hit?.matches?.map((m) => m.line)).toEqual([1, 2]);
+      });
+
+      it('caps the length of a single previewed line', async () => {
+        process.env.FILES_SEARCH_MAX_MATCH_CHARS = '20';
+        await service.createFile(
+          'home',
+          'long.txt',
+          `needle${'x'.repeat(500)}`,
+        );
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        const hit = items.find((i) => i.path === 'long.txt');
+        expect(hit?.matches?.[0].text).toHaveLength(20);
+      });
+
+      it('matches case-insensitively, like the rest of the search', async () => {
+        await service.createFile('home', 'case.txt', 'NEEDLE in caps');
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        const hit = items.find((i) => i.path === 'case.txt');
+        expect(hit?.matches).toEqual([{ line: 1, text: 'NEEDLE in caps' }]);
+      });
+
+      it('skips binary files without reporting lines', async () => {
+        await service.createFile('home', 'bin.dat', 'needle\u0000needle');
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        expect(items.map((i) => i.path)).not.toContain('bin.dat');
+      });
+
+      it('still returns a name hit with no lines when only the NAME matches', async () => {
+        await service.createFile('home', 'needle-named.txt', 'nothing inside');
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          matches: true,
+        });
+        const hit = items.find((i) => i.path === 'needle-named.txt');
+        expect(hit).toBeDefined();
+        expect(hit?.matches).toBeUndefined();
       });
     });
   });

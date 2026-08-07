@@ -3660,3 +3660,48 @@ rename, modal, open-menu and text-field), and a 27-check browser probe covering
 ranges, F2, both delete dialogs, a two-file copy-paste, a cut that clears only
 after landing, the row-anchored menu key, "Copy 2 items", and a splitter that is
 finally the same `role="separator"` markdown-editor has always had.
+
+## 2026-08-07 — Brief 113: find in files, and the loader finally has one door
+
+Brief 88 deferred this with a condition ("should follow the File menu"), and
+the File menu shipped in 88. The grep has been live since 45; what it could not
+do was say *where* in a file it matched, so there was nothing to group a
+results panel under. `SearchHit` now carries an optional `matches` array behind
+a second opt-in flag, which keeps the palette's and the file manager's
+responses byte-identical — a test pins that literally.
+
+The interesting change is `contentMatches` → `contentLines`. The old boolean
+answered "did this file match", conflating it with "could this file be
+searched at all" — unreadable, oversized and binary files all returned false.
+The new function returns `null` for never-looked and an array for looked, and
+the caller needed that distinction the moment it had to decide whether to
+render a group with no rows under it.
+
+Two smaller honesty calls. A file matched only by its NAME is kept in the
+results and labelled as such, because typing a filename into find-in-files and
+being told "no matches" for a file you can see is a lie about the search, not
+about the file. And `truncated` renders a banner rather than being dropped, the
+same rule brief 112 applied to the file manager.
+
+The loader hoist is the structural part: the effect body became `openTargets`,
+and `openPath(root, path, { revealLine })` is the panel's only door — the same
+one the launch intent and the session restore use. Reveals queue in a ref and
+are applied after `restoreViewState`, because in the other order the restored
+scroll position silently undoes the reveal. One case the brief did not
+anticipate: re-clicking a hit for the tab that is already active changes no
+state, so the activation effect never re-runs and the queued reveal would sit
+there forever; that path applies it inline.
+
+Two environment facts worth keeping. Hoisting the loader made the setState
+calls traceable to the React Compiler lint, which correctly flagged the
+everything-already-open path as synchronous — the effect now hops a microtask
+explicitly, which is what the old inline async IIFE was doing implicitly. And
+Monaco 0.54 focuses a contenteditable `div.native-edit-context` (the EditContext
+API), not the historic hidden textarea; the close path needs a rAF so the focus
+call lands after the unmount commit rather than before it.
+
+Verified: turbo 120/120, backend 451 + 141 e2e, 9 new frontend unit tests, and
+a 17-check browser probe — Ctrl+Shift+F, Enter-only search, grouped line
+numbers, a click landing on line 3, an unsaved edit surviving a re-click, Esc
+returning focus to Monaco, and the palette unchanged — plus a capped run for
+the truncation banner. Eager-chunk delta: none; the panel imports no Monaco.
