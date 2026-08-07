@@ -11,6 +11,7 @@ import { ToastHost } from './shared/components/notifications'
 import { BackgroundServices } from './shared/components/BackgroundServices'
 import { useDocumentedShortcuts, useRegisteredHotkeys } from './shared/hooks/useRegisteredHotkeys'
 import { ShortcutsOverlay } from './shared/components/shortcuts/ShortcutsOverlay'
+import { AltTabSwitcher } from './shared/components/switcher/AltTabSwitcher'
 import { useWindowHotkeys } from './shared/hooks/useWindowHotkeys'
 import { useIdleLock } from './shared/hooks/useIdleLock'
 import { runStartupApps } from './shared/lib/startup'
@@ -189,6 +190,7 @@ export default function App() {
       {/* Desktop-lifetime add-on services — alarms/reminders fire without windows */}
       <BackgroundServices />
       <ShortcutsOverlay />
+      <AltTabSwitcher />
       {/* SWARM:S3 command palette mount */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {/* SWARM:S4 layout restore boot */}

@@ -15,7 +15,7 @@ import { useGlobalHotkeys } from './useGlobalHotkeys'
  * Keyboard window management (4c; extended by briefs 85 and 103).
  *
  * Shortcut map (chosen to avoid browser conflicts):
- *   Alt+Tab              — cycle focus through visible windows
+ *   Alt+Tab              — the visual switcher, owned by AltTabSwitcher (104)
  *   Mod+W                — close focused window
  *   Mod+M                — hide (minimise) focused window
  *   Mod+Enter            — toggle maximize / restore focused window
@@ -30,7 +30,6 @@ import { useGlobalHotkeys } from './useGlobalHotkeys'
  * All actions dispatch through existing windowStore methods.
  */
 export function useWindowHotkeys(): void {
-  const focusWindow = useWindowStore((s) => s.focusWindow)
   const closeWindow = useWindowStore((s) => s.closeWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
   const maximizeWindow = useWindowStore((s) => s.maximizeWindow)
@@ -51,19 +50,9 @@ export function useWindowHotkeys(): void {
 
   const bindings = useMemo(
     () => ({
-      cycle: () => {
-        const visible = getCandidates()
-        if (visible.length === 0) return
-        const focusedId = topVisibleWindowId()
-        const sorted = [...visible].sort((a, b) => a.zIndex - b.zIndex)
-        if (!focusedId) {
-          focusWindow(sorted[sorted.length - 1].id)
-          return
-        }
-        const idx = sorted.findIndex((w) => w.id === focusedId)
-        const next = sorted[(idx + 1) % sorted.length]
-        focusWindow(next.id)
-      },
+      // Alt+Tab moved to the AltTabSwitcher component (brief 104): hold-Alt
+      // semantics need a keyup, which this keydown-only plumbing cannot
+      // express — and two owners of alt+tab would both fire.
 
       close: () => {
         const focusedId = topVisibleWindowId()
@@ -145,7 +134,7 @@ export function useWindowHotkeys(): void {
         useWindowStore.getState().moveWindowToWorkspace(focusedId, id)
       },
     }),
-    [focusWindow, closeWindow, hideWindow, maximizeWindow, restoreWindow]
+    [closeWindow, hideWindow, maximizeWindow, restoreWindow]
   )
 
   // The eight digit bindings, bound individually (the matcher accepts e.code
@@ -178,13 +167,6 @@ export function useWindowHotkeys(): void {
   ])
 
   useRegisteredHotkeys([
-    {
-      id: 'window.cycle',
-      keys: 'alt+tab',
-      description: 'Cycle focus through open windows',
-      scope: 'Window management',
-      handler: bindings.cycle,
-    },
     {
       id: 'window.close',
       keys: 'mod+w',

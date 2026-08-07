@@ -1,6 +1,26 @@
 # Brief 104 — Alt+Tab switcher: see where you are going
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** Built as specced. Pure core first
+> (`switcherModel.ts`): `switcherOrder` (z-descending = MRU for free,
+> minimized included, workspace-scoped) + `openOrAdvance`/`commitTarget`
+> (open starts at index 1 — the pairwise-toggle fix; opening backwards starts
+> at the far end; wrap both ways) with 10 DOM-free units. `AltTabSwitcher`
+> owns its own listeners (keyup semantics — the hotkey plumbing is
+> keydown-only): Alt+Tab opens/advances, Shift retreats, arrows move, Enter
+> or Alt-keyup commits, Esc cancels, window blur COMMITS the shown selection;
+> gated on `isShellSuspended()` (the brief-101 chokepoint rule applies to any
+> new global listener). Selection is component state — the store is untouched
+> until commit, which is `showWindow`-if-minimized + `focusWindow`, the
+> taskbar's own path. The old blind `window.cycle` registration is deleted
+> (two owners of alt+tab would both fire); the two bindings are documented
+> rows with the host-OS interception note. Flat icon+title strip, accent
+> border on the selected cell, `(minimized)` suffix, z-10001. Verified:
+> turbo 119/119, Playwright 15/15 on the production bundle — quick tap
+> toggled the last two windows, two Tabs reached the third, Shift retreated
+> with wrap, Esc left focus byte-identical, the minimized window was listed
+> and restored on commit, overlay gone after keyup.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 CORE only (a new shell overlay component, `useWindowHotkeys.ts`, `App.tsx`).
 No backend, no protocol change (`packages/ui/src/system.ts` untouched), no new
 deps, nothing stored (no dotfile — selection is transient component state).

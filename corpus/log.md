@@ -3374,3 +3374,23 @@ carry family could never have matched otherwise. Taskbar right-click menu
 gained Maximize/Restore. Verified: 24 new units, turbo 119/119, Playwright
 14/14 against the production bundle including the exact-fill reflow numbers
 and the ?-overlay listing every new row.
+
+## 2026-08-07 — Brief 104: Alt+Tab shows you where you are going
+
+[Brief 104](briefs/done/104-alt-tab-switcher.md) **DONE** — the blind cycle is
+replaced by a visual MRU switcher. The ordering costs no new bookkeeping:
+`focusWindow` mints a monotonic z on every focus, so z-descending IS the
+recency list — minimized windows included, which makes them keyboard-reachable
+for the first time. Hold Alt: Tab advances, Shift+Tab retreats, arrows move,
+Enter or releasing Alt commits, Esc cancels; a window blur commits the shown
+selection (the host OS stealing focus mid-switch would otherwise eat the
+switch). Opening selects the SECOND-most-recent entry, so a quick tap toggles
+the last two windows — the single most common switch on any desktop, which
+today's `(idx+1)%len` over ascending z had turned into lands-on-LRU. Selection
+is component state: the store is untouched until commit (Esc leaves z-order,
+persist payload and focus byte-identical), and commit is showWindow-if-
+minimized + focusWindow, the taskbar's own path. The component owns its
+listeners (keyup semantics; gated on isShellSuspended per brief 101) and its
+two bindings are documented rows with the host-OS interception note; the old
+`window.cycle` registration is deleted. Verified: 10 model units, turbo
+119/119, Playwright 15/15 against the production bundle.
