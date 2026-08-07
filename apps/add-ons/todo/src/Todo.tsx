@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarClock, CheckCheck, ListPlus, Plus, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckCheck, FolderInput, ListPlus, Plus, Trash2, X } from 'lucide-react'
 import { ScrollArea, cn, useConfirm, usePrompt, useSystem } from '@imbatranim/ui'
 import { TodoRow } from './TodoRow'
 import { hasHiddenSelection, pruneSelection } from './bulkSelection'
@@ -177,6 +177,40 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
     })
     if (!ok) return
     for (const id of selected) deleteTodo.mutate(id)
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+
+  /**
+   * Refile every selected task at once (brief 117).
+   *
+   * The same update mutation the row's own picker uses, one call per task —
+   * there is no batch endpoint and inventing one for this would be a schema
+   * change for a loop. Selection is cleared afterwards, as Complete and Delete
+   * already do, because the rows may no longer be visible under the current
+   * list filter.
+   */
+  async function handleBulkMove() {
+    if (selected.size === 0) return
+    const options = [
+      { id: 'none', label: 'No list' },
+      ...(lists ?? []).map((l) => ({ id: String(l.id), label: l.name })),
+    ]
+    const picked = await prompt({
+      title: `Move ${selected.size} task${selected.size === 1 ? '' : 's'}`,
+      message: `Type a list name to file them under: ${options.map((o) => o.label).join(', ')}`,
+      placeholder: options[1]?.label ?? 'No list',
+      confirmLabel: 'Move',
+    })
+    const name = picked?.trim()
+    if (!name) return
+    const match = options.find((o) => o.label.toLowerCase() === name.toLowerCase())
+    if (!match) {
+      system.notify({ title: 'No such list', body: name, level: 'error' })
+      return
+    }
+    const target = match.id === 'none' ? null : Number(match.id)
+    for (const id of selected) updateTodo.mutate({ id, patch: { listId: target } })
     setSelected(new Set())
     setSelectMode(false)
   }
@@ -359,6 +393,15 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
             </button>
             <button
               type="button"
+              onClick={() => void handleBulkMove()}
+              disabled={selected.size === 0}
+              className="border-outline-variant text-on-surface font-ui flex items-center gap-1 border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+            >
+              <FolderInput size={11} />
+              Move
+            </button>
+            <button
+              type="button"
               onClick={() => void handleBulkDelete()}
               disabled={selected.size === 0}
               className="border-outline-variant text-error font-ui flex items-center gap-1 border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
@@ -408,6 +451,7 @@ export function Todo({ windowId: _windowId }: { windowId: string }) {
               onDragEnd={reorderable ? handleDragEnd : null}
               onPatch={(id, patch) => updateTodo.mutate({ id, patch })}
               onDelete={(id) => deleteTodo.mutate(id)}
+              lists={lists ?? []}
               selection={
                 selectMode ? { selected: selected.has(todo.id), onToggle: toggleSelected } : null
               }

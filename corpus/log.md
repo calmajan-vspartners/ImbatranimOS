@@ -3763,3 +3763,20 @@ its job.
 Measured, not asserted: print `🎉X` and `AAX` and compare rendered widths.
 Before, 15.7px vs 23.5px. After, 23.5px vs 23.5px. Both from the production
 bundle against the real PTY.
+
+## 2026-08-07 — Brief 117: refiling a task stops meaning retyping it
+
+The smallest kind of gap: the backend has accepted `listId` on a todo patch
+since brief 73, and the app had no control that sent one. Moving a task between
+lists meant deleting it and typing it again, which threw away its due date, its
+importance and its manual position.
+
+A per-row chip strip — "No list" plus every list, the current one pressed —
+reusing the slot and shape the due editor already occupies, plus a Move beside
+Complete and Delete in the bulk bar. Chips rather than a dropdown because they
+show where the task is filed without being opened, and there are rarely many
+lists. Picking the list a task is already in closes without patching: the user
+answered the question, and a no-op write is not an answer.
+
+Verified with a probe that stars a task before moving it and checks the star is
+still there afterwards — the thing delete-and-retype destroyed.

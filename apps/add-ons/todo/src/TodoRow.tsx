@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CalendarClock, GripVertical, Star, X } from 'lucide-react'
+import { CalendarClock, FolderInput, GripVertical, Star, X } from 'lucide-react'
 import { useDrag } from '@use-gesture/react'
 import { cn } from '@imbatranim/ui'
 import {
@@ -10,7 +10,7 @@ import {
   isOverdue,
   timeInputValue,
 } from './due'
-import type { Todo, TodoPatch } from './types'
+import type { Todo, TodoList, TodoPatch } from './types'
 
 /** Row height, and the step the drag gesture snaps to. */
 const ROW_H = 36
@@ -25,6 +25,8 @@ type TodoRowProps = {
   onDelete: (id: number) => void
   /** Non-null puts the row in select mode. */
   selection: { selected: boolean; onToggle: (id: number) => void } | null
+  /** Every list this task could be filed under (brief 117). */
+  lists: TodoList[]
   now: number
 }
 
@@ -36,11 +38,13 @@ export function TodoRow({
   onPatch,
   onDelete,
   selection,
+  lists,
   now,
 }: TodoRowProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(todo.text)
   const [dueOpen, setDueOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOffset, setDragOffset] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -200,6 +204,19 @@ export function TodoRow({
           <Star size={12} fill={todo.priority ? 'currentColor' : 'none'} />
         </button>
 
+        {lists.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setListOpen((open) => !open)}
+            aria-expanded={listOpen}
+            aria-label={`Move ${todo.text} to a list`}
+            title="Move to a list"
+            className="text-on-surface-variant hover:text-on-surface shrink-0 p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <FolderInput size={12} />
+          </button>
+        )}
+
         {todo.dueAt === null && (
           <button
             type="button"
@@ -221,6 +238,19 @@ export function TodoRow({
           <X size={13} />
         </button>
       </div>
+
+      {listOpen && (
+        <ListPicker
+          lists={lists}
+          current={todo.listId}
+          onPick={(listId) => {
+            // A no-op pick still closes: the user answered the question.
+            if (listId !== todo.listId) onPatch(todo.id, { listId })
+            setListOpen(false)
+          }}
+          onClose={() => setListOpen(false)}
+        />
+      )}
 
       {dueOpen && (
         <DueEditor
@@ -244,6 +274,78 @@ export function TodoRow({
  * so the encoding decision (a bare date means the END of that day) lives in one
  * place.
  */
+/**
+ * Where a task is filed (brief 117).
+ *
+ * Refiling used to mean deleting the task and retyping it, which threw away
+ * its due date, its importance and its position. The update mutation has
+ * always accepted `listId`; only this control was missing.
+ *
+ * A row of buttons rather than a `<select>`: the same shape the due editor
+ * uses, it shows which list the task is in right now without opening anything,
+ * and there are rarely more than a handful of lists.
+ */
+function ListPicker({
+  lists,
+  current,
+  onPick,
+  onClose,
+}: {
+  lists: TodoList[]
+  current: number | null
+  onPick: (listId: number | null) => void
+  onClose: () => void
+}) {
+  return (
+    <div className="border-outline-variant bg-surface-container-low flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5">
+      <span className="font-ui text-on-surface-variant text-[11px]">Move to</span>
+      <PickerChip label="No list" active={current === null} onClick={() => onPick(null)} />
+      {lists.map((l) => (
+        <PickerChip
+          key={l.id}
+          label={l.name}
+          active={current === l.id}
+          onClick={() => onPick(l.id)}
+        />
+      ))}
+      <div className="flex-1" />
+      <button
+        type="button"
+        onClick={onClose}
+        className="text-on-surface-variant hover:text-on-surface font-ui text-[11px]"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
+function PickerChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'font-ui border px-1.5 py-0.5 text-[11px]',
+        active
+          ? 'border-primary bg-primary text-on-primary'
+          : 'border-outline-variant text-on-surface hover:bg-surface-container'
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
 function DueEditor({
   dueAt,
   onChange,
