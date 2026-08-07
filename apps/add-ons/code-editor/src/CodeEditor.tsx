@@ -109,10 +109,6 @@ export function CodeEditor({ windowId: _windowId }: { windowId: string }) {
   const activeName = activeTab?.name ?? ''
   const anyDirty = dirtyIds.size > 0
 
-  // Reflect the active filename + a dirty marker in the window title, and warn
-  // before closing while any tab has unsaved changes.
-  useUnsavedGuard(anyDirty, activeName)
-
   // Subscribed, not read once at mount: changing the desktop appearance in
   // Settings has to restyle an already-open editor, which a `useMemo(…, [])`
   // over `matchMedia` could not do (it froze Monaco's theme at mount).
@@ -404,6 +400,22 @@ export function CodeEditor({ windowId: _windowId }: { windowId: string }) {
 
   // Ctrl/Cmd+S saves the active tab — only for the top-most window.
   useSaveHotkey(handleSave)
+
+  // Save-and-close writes every dirty tab that has a home on disk. A homeless
+  // (untitled) dirty tab cannot be batch-saved — a Save-As picker stacked under
+  // the close dialog would be two competing questions — so it stays dirty and
+  // the close is honestly aborted with the work intact.
+  const handleSaveAllDirty = useCallback(async () => {
+    for (const tab of tabs) {
+      if (!dirtyIds.has(tab.id)) continue
+      if (tab.root === null || tab.path === null) continue
+      await writeTab(tab.id, tab.root, tab.path, tab.name)
+    }
+  }, [tabs, dirtyIds, writeTab])
+
+  // Reflect the active filename + a dirty marker in the window title, and ask
+  // Save / Don't Save / Cancel before closing while any tab has unsaved changes.
+  const unsavedDialog = useUnsavedGuard(anyDirty, activeName, handleSaveAllDirty)
 
   const handleNewFile = useCallback(async () => {
     const raw = await prompt({
@@ -712,6 +724,7 @@ export function CodeEditor({ windowId: _windowId }: { windowId: string }) {
 
       {confirmDialog}
       {promptDialog}
+      {unsavedDialog}
     </div>
   )
 }

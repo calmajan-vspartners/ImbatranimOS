@@ -1,6 +1,6 @@
 ---
-summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (refreshed 2026-08-05 for briefs 74-75: sticky-notes citations, the desktop-layer contract, the Select-label fix, the secondary token aliases) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
-updated: 2026-08-05
+summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (refreshed 2026-08-07 for brief 102 (rule 43: no native dialogs — the themed UnsavedChangesDialog + async close guards) and 2026-08-05 for briefs 74-75: sticky-notes citations, the desktop-layer contract, the Select-label fix, the secondary token aliases) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
+updated: 2026-08-07
 ---
 
 # ImbatranimOS UI conventions — the house style, as rules
@@ -144,8 +144,11 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
     trigger to a `button` (`node_modules/@base-ui/react/tooltip/trigger/TooltipTrigger.js:220`). `file-manager/src/components/FileList.tsx:190-240` does it five times per row,
     plus `FileManager.tsx:414` and `MarkdownEditor.tsx:116,131`. This is the source of the walkthrough's console errors — invalid HTML, and the inner button can swallow
     clicks. **Until core's `Tooltip` forwards `render`, use `title=` on an icon-only `Button`.** Add no new `Tooltip`-around-`Button` sites.
-43. **`useUnsavedGuard` uses the native `window.confirm`** (`hooks/useUnsavedGuard.ts:65`), so the one dialog every editor shows is the only unthemed dialog in the OS;
-    `code-editor/src/CodeEditor.tsx:250` repeats the native call directly. Do not add a third — use `useConfirm` in new code.
+43. **There are no native dialogs — every dialog is the kit's** (brief 102). `useUnsavedGuard` returns the themed
+    `UnsavedChangesDialog` (Save / Don't Save / Cancel — render the node, `packages/ui/src/hooks/systemHooks.tsx`);
+    everything else asks with `useConfirm`/`usePrompt`. `window.confirm`/`alert`/`prompt` grep to zero under `apps/`
+    and `packages/` source, and any new hit is a regression: a native modal names the host browser and freezes every
+    window's JS, the two hardest breaks of the "this is an OS" illusion.
 44. **`file-manager` hand-rolls what core exports**: a bespoke delete confirm (`FileManager.tsx:569-596`) instead of `useConfirm`, and a custom error banner whose comment at
     :104 still claims "no toast system here" though `notify()` shipped in brief 34. Copy its _layout_ (toolbar / body / status bar), not its dialogs.
 45. **`sticky-notes` was off-style — fixed by brief 74** (2026-08-05), kept here because the four defects are the ones an inherited app most often has and this is the shape of

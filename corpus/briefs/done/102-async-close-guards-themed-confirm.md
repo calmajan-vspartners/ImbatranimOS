@@ -1,6 +1,34 @@
 # Brief 102 — Async close guards + the themed unsaved-changes confirm
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** Built as specced; `PROTOCOL_VERSION` 2. The
+> guard type widened to `() => boolean | Promise<boolean>`; `closeWindow`
+> keeps the same-tick boolean fast path byte-for-byte and adds a
+> `pendingCloses` set (second close while the dialog is up = no-op; cleanup
+> runs exactly once, only on a proceeding close; a REJECTING guard keeps the
+> window open). Kit gained `UnsavedChangesDialog` (Save primary+autofocus /
+> Don't Save destructive / Cancel; two-button form when `onSave` is absent);
+> `useUnsavedGuard(isDirty, title, onSave?) → ReactNode` with re-entrant
+> requests joining the same pending promise and unmount settling false. One
+> trap the spec missed, found while building: the save-and-close verdict
+> cannot be read right after `await onSave()` — the save's state updates have
+> not re-rendered, so the stale dirty ref would abort every successful
+> save-and-close; the verdict is read in an effect after the commit
+> (ref-armed tick, no setState-in-effect). Site notes: notepad's save went
+> `mutateAsync` so it is awaitable; code-editor's third button saves every
+> dirty tab that has a home (a homeless untitled tab honestly aborts);
+> image-viewer passes `saveRotation` only when the format can save in place,
+> and its sibling-nav discard now rides kit `useConfirm`; norpdf's guard
+> moved into an `<UnsavedCloseGuard/>` component inside `EditorProvider`
+> (the controller cannot reach `saveToDisk` from outside). `window.confirm`
+> greps to zero under apps/ + packages/ source; ui-conventions §43 rewritten.
+> Verified: 6 new windowStore units + 5 SDK hook units (mounted through a
+> real React root); Playwright 12/12 — themed dialog with the Terminal
+> STREAMING behind it (10→13 ticks while open), Save-and-close wrote the
+> bytes, Don't Save didn't, Cancel kept the dirty marker, no stacking — and
+> 6/6 on image-viewer's rotate→arrow confirm. Deferred (already out of
+> scope): window-scoped modal variant, beforeunload, save-all on log off.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 PROTOCOL (`packages/ui/src/system.ts` — one member's signature widens,
 `PROTOCOL_VERSION` 1→2) + SDK (`systemHooks.ts`, one new kit dialog) + CORE
 (`windowStore.ts`) + the nine `useUnsavedGuard` call sites + image-viewer's

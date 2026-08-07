@@ -3328,3 +3328,27 @@ terminal's upgrade-time cookie survives lock/unlock. Verified: 7 new unit
 tests (auth suites 53; e2e 141; turbo 119/119) and a 10/10 Playwright probe on
 the production bundle — same shell ticked 9→20 across lock, buffers survived a
 hard 401, the reaped shell printed "Session ended", log off left nothing.
+
+## 2026-08-07 — Brief 102: the last native dialog is gone
+
+[Brief 102](briefs/done/102-async-close-guards-themed-confirm.md) **DONE** —
+protocol v2. `onCloseRequest` guards may now settle asynchronously
+(`boolean | Promise<boolean>`); `closeWindow` keeps the same-tick sync fast
+path and holds a promise-guarded close in a `pendingCloses` set (second
+request = no-op, cleanup exactly once, rejection keeps the window open). The
+kit gained `UnsavedChangesDialog` — Save / Don't Save / Cancel, Win7 phrasing,
+two-button form when the app has no save — and `useUnsavedGuard` returns the
+dialog node with an optional `onSave`; save-and-close proceeds only when the
+dirty flag actually cleared, with the verdict read in a post-commit effect
+(reading the ref right after `await onSave()` would see the stale dirty and
+abort every successful save — the one trap the spec missed). All nine editor
+call sites migrated (notepad's save became awaitable `mutateAsync`;
+code-editor saves every dirty tab that has a home; norpdf's guard moved
+inside `EditorProvider` to reach `saveToDisk`); image-viewer's
+sibling-navigation discard rides kit `useConfirm`. `window.confirm` greps to
+zero under `apps/` + `packages/`; ui-conventions §43 now says so as the rule.
+Verified: 11 new units (6 windowStore async-guard, 5 SDK hook through a real
+React root), turbo 119/119, and probes 12/12 + 6/6 against the production
+bundle — the themed dialog up while the Terminal behind it kept streaming
+(10→13 ticks), Save-and-close wrote the bytes, Don't Save didn't, Cancel kept
+the dirty marker, nothing stacked, zero native dialogs observed.

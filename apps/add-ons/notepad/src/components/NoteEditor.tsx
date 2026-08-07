@@ -91,30 +91,30 @@ export function NoteEditor({
   }
 
   const dirty = content !== savedContent
-  // The window and taskbar titles carry the filename and the dirty marker, and
-  // closing with unsaved changes prompts — the same spine every other editor uses.
-  useUnsavedGuard(dirty, fileName(path, 'note'))
 
-  const save = useCallback(() => {
+  const save = useCallback(async () => {
     if (!dirty || updateMutation.isPending) return
     const snapshot = content
     setError(null)
-    updateMutation.mutate(
-      { root, path, content: snapshot },
-      {
-        // Only what was actually written becomes the new baseline. If the user typed
-        // during the request, `content` has moved on and the document stays dirty.
-        onSuccess: () => setSavedContent(snapshot),
-        onError: (err) =>
-          setError(
-            reportFileFailure(system, 'save', err, {
-              noun: 'note',
-              name: fileName(path, 'note'),
-            })
-          ),
-      }
-    )
+    try {
+      await updateMutation.mutateAsync({ root, path, content: snapshot })
+      // Only what was actually written becomes the new baseline. If the user typed
+      // during the request, `content` has moved on and the document stays dirty.
+      setSavedContent(snapshot)
+    } catch (err) {
+      setError(
+        reportFileFailure(system, 'save', err, {
+          noun: 'note',
+          name: fileName(path, 'note'),
+        })
+      )
+    }
   }, [dirty, updateMutation, content, root, path, system])
+
+  // The window and taskbar titles carry the filename and the dirty marker, and
+  // closing with unsaved changes asks Save / Don't Save / Cancel — the same
+  // themed spine every other editor uses (brief 102).
+  const unsavedDialog = useUnsavedGuard(dirty, fileName(path, 'note'), save)
 
   useSaveHotkey(save)
 
@@ -424,6 +424,8 @@ export function NoteEditor({
           wrap {wrap ? 'on' : 'off'}
         </button>
       </div>
+
+      {unsavedDialog}
     </div>
   )
 }

@@ -62,10 +62,6 @@ export function Docs({ windowId }: { windowId: string }) {
   // the path alone, so it is known before a single byte is fetched.
   const refusal = source ? unsupportedReason(source.path) : null
 
-  // Reflect filename + dirty marker in the window title and warn before closing
-  // with unsaved changes.
-  useUnsavedGuard(dirty, docName)
-
   // Say so once, in the notification centre as well as in the window — the same
   // reason every other failure here does. `notify` writes to an external store
   // rather than this component's state, which is what an effect is for.
@@ -267,6 +263,10 @@ export function Docs({ windowId }: { windowId: string }) {
   // Ctrl/Cmd+S saves — but only for the top-most window.
   useSaveHotkey(handleSave)
 
+  // Reflect filename + dirty marker in the window title; closing with unsaved
+  // changes asks Save / Don't Save / Cancel through the themed dialog.
+  const unsavedDialog = useUnsavedGuard(dirty, docName, handleSave)
+
   if (source && refusal) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
@@ -418,6 +418,8 @@ export function Docs({ windowId }: { windowId: string }) {
           </div>
         )}
       </div>
+
+      {unsavedDialog}
     </div>
   )
 }

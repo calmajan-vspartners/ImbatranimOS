@@ -485,7 +485,10 @@ export function Paint({ windowId: _windowId }: { windowId: string }) {
   }, [dirty, confirm, blank])
 
   useSaveHotkey(() => void save())
-  useUnsavedGuard(dirty, doc ? fileName(doc.path) : 'untitled')
+  // Save-and-close routes through `save`, which for an unsaved canvas opens
+  // Save-As — cancelling the pick leaves dirty set, so the close is aborted
+  // and no work is lost.
+  const unsavedDialog = useUnsavedGuard(dirty, doc ? fileName(doc.path) : 'untitled', save)
 
   // Handlers via a ref: useRegisteredHotkeys captures per key set (brief 98).
   const actionsRef = useRef({ undo: () => {}, redo: () => {} })
@@ -706,6 +709,7 @@ export function Paint({ windowId: _windowId }: { windowId: string }) {
         )}
       </div>
       {confirmDialog}
+      {unsavedDialog}
     </div>
   )
 }

@@ -17,16 +17,14 @@
  *   already here, it does not get a method.
  * - **Everything must survive postMessage.** Methods take and return data (or
  *   promises of data). Callbacks are fine — a transport can proxy them — but
- *   no live objects, no stores, no DOM nodes. The one deliberate exception is
- *   `window.onCloseRequest`, whose veto is synchronous; a message transport
- *   will have to renegotiate that contract, and the note there says so.
+ *   no live objects, no stores, no DOM nodes.
  * - **Scope is the security model.** A handle is minted for one app in one
  *   window. `window.*` acts on that window alone; `notify` stamps that app's
  *   id. An app cannot address what its handle does not name.
  * - Bump {@link PROTOCOL_VERSION} on any breaking change.
  */
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 // ── Files ─────────────────────────────────────────────────────────────────────
 
@@ -146,16 +144,19 @@ export interface SystemWindow {
   /** False while minimised. (Workspace parking is not minimisation: brief 85.) */
   isVisible(): boolean
   /**
-   * Register a close veto: return false to keep the window open (unsaved
+   * Register a close veto: settle false to keep the window open (unsaved
    * changes). Returns the unregister function. One guard per window — a second
    * registration replaces the first.
    *
-   * Transport note: the veto is consulted synchronously, which a postMessage
-   * transport cannot do. When that transport arrives, close becomes a
-   * request/acknowledge exchange and this signature changes with a version
-   * bump. Documented now so the constraint is a decision, not a surprise.
+   * The guard may answer synchronously (a plain boolean closes or aborts in
+   * the same tick) or with a promise — an async guard is what lets an app ask
+   * with its own themed dialog instead of the native confirm (protocol v2).
+   * While a promise is pending the close is held open and further close
+   * requests for the window are no-ops. Transport note: a callback that
+   * returns a promise of a boolean survives postMessage — the transport
+   * proxies the call and awaits its settlement, pure data either way.
    */
-  onCloseRequest(guard: () => boolean): () => void
+  onCloseRequest(guard: () => boolean | Promise<boolean>): () => void
 }
 
 // ── Intents ───────────────────────────────────────────────────────────────────

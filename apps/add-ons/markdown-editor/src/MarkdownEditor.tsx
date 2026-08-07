@@ -88,8 +88,6 @@ export function MarkdownEditor({ windowId: _windowId }: { windowId: string }) {
   const showPreview = mode === 'preview' || mode === 'split'
   const headings = useMemo(() => parseHeadings(text), [text])
 
-  useUnsavedGuard(dirty, name)
-
   // Load the file's bytes and decode as UTF-8 text whenever a new file is opened.
   useEffect(() => {
     if (!source) return
@@ -142,6 +140,8 @@ export function MarkdownEditor({ windowId: _windowId }: { windowId: string }) {
 
   // Ctrl/Cmd+S saves — but only for the top-most window.
   useSaveHotkey(handleSave)
+
+  const unsavedDialog = useUnsavedGuard(dirty, name, handleSave)
 
   const lineTops = useLineTops(editorEl, text, settings.syncScroll && mode === 'split')
   useScrollSync({
@@ -561,6 +561,8 @@ export function MarkdownEditor({ windowId: _windowId }: { windowId: string }) {
           </>
         )}
       </div>
+
+      {unsavedDialog}
     </div>
   )
 }

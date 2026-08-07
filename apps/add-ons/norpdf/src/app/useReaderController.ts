@@ -13,7 +13,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PdfDoc } from '@pdfcore/engine'
 import type { DocumentMetadata, OutlineNode } from '@pdfcore/engine'
-import { useUnsavedGuard } from '@imbatranim/ui'
 import type {
   FitMode,
   PageDim,
@@ -94,9 +93,9 @@ export function useReaderController(): ReaderController {
   const markDirty = useCallback(() => setDirty(true), [])
   const markSaved = useCallback(() => setDirty(false), [])
 
-  // Reflect the filename + a dirty marker in the window title and warn before
-  // closing with unsaved edits — the save spine every other editor uses.
-  useUnsavedGuard(dirty, docName)
+  // The unsaved-close guard lives in NorPdf's <UnsavedCloseGuard/> (inside
+  // EditorProvider), not here: its Save-and-close button needs the editor's
+  // saveToDisk, which this controller cannot reach from outside the provider.
 
   /* ── Load a document from an engine PdfDoc ─────────────────────────────── */
   const adopt = useCallback((loaded: PdfDoc, name: string, target: SaveTarget | null) => {

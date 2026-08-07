@@ -36,9 +36,11 @@ import {
   useFileDialog,
   useOpenIntent,
   useSystem,
+  useUnsavedGuard,
 } from '@imbatranim/ui'
 import { Download, FileText } from 'lucide-react'
-import { ReaderContext } from './app/context'
+import { ReaderContext, useReader } from './app/context'
+import { useEditor } from './editor/context'
 import { useReaderController } from './app/useReaderController'
 import { EmptyState } from './app/EmptyState'
 import { TopBar } from './shell/TopBar'
@@ -57,6 +59,19 @@ import './norpdf.css'
 // at module scope of this lazy chunk, so it is in place before the first render.
 installMapGetOrInsert()
 configureWorker(workerUrl)
+
+/**
+ * The unsaved-close guard, as a component INSIDE both providers: the dialog's
+ * Save-and-close button needs the editor's `saveToDisk` (write-back, or a
+ * download for a homeless document — either clears dirty), which
+ * `useReaderController` itself cannot reach from outside `EditorProvider`.
+ */
+function UnsavedCloseGuard(): JSX.Element {
+  const { dirty, docName } = useReader()
+  const { saveToDisk } = useEditor()
+  const unsavedDialog = useUnsavedGuard(dirty, docName, saveToDisk)
+  return <>{unsavedDialog}</>
+}
 
 export function NorPdf({ windowId: _windowId }: { windowId: string }): JSX.Element {
   const system = useSystem()
@@ -163,6 +178,7 @@ export function NorPdf({ windowId: _windowId }: { windowId: string }): JSX.Eleme
   return (
     <ReaderContext.Provider value={ctrl}>
       <EditorProvider>
+        <UnsavedCloseGuard />
         <div
           className="bg-surface-container-lowest relative flex h-full min-h-0 flex-col"
           onDragEnter={onDragEnter}

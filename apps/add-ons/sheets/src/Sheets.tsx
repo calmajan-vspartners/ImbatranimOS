@@ -46,10 +46,6 @@ export function Sheets({ windowId: _windowId }: { windowId: string }) {
   const isCsv = /\.csv$/i.test(source?.path ?? '')
   const lossyNote = lossyWarning(lossy)
 
-  // Reflect filename + dirty marker in the window title and warn before closing
-  // with unsaved changes.
-  useUnsavedGuard(dirty, name)
-
   // Boot Univer, fetch the file, map it through the ExcelJS bridge into the grid.
   useEffect(() => {
     if (!source) return
@@ -171,6 +167,10 @@ export function Sheets({ windowId: _windowId }: { windowId: string }) {
   // Ctrl/Cmd+S saves — but only for the top-most window.
   useSaveHotkey(handleSave)
 
+  // Reflect filename + dirty marker in the window title; closing with unsaved
+  // changes asks Save / Don't Save / Cancel through the themed dialog.
+  const unsavedDialog = useUnsavedGuard(dirty, name, handleSave)
+
   if (!source) {
     return (
       <div className="bg-surface-container-lowest text-on-surface-variant flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -242,6 +242,7 @@ export function Sheets({ windowId: _windowId }: { windowId: string }) {
         )}
       </div>
       {confirmDialog}
+      {unsavedDialog}
     </div>
   )
 }

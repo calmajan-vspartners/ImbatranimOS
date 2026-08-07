@@ -289,9 +289,13 @@ type WindowStore = {
   preMaximizeStates: Record<string, PreMaximizeState>
   preSnapStates: Record<string, PreMaximizeState>
   // A window may veto its own close (e.g. an editor with unsaved changes). The
-  // guard returns true to allow the close, false to abort it. Kept generic — the
-  // store never knows *why* a close is vetoed; the window supplies the policy.
-  closeGuards: Record<string, () => boolean>
+  // guard returns true to allow the close, false to abort it — or a promise of
+  // either, for guards that ask with a themed dialog (brief 102). Kept generic —
+  // the store never knows *why* a close is vetoed; the window supplies the policy.
+  closeGuards: Record<string, () => boolean | Promise<boolean>>
+  // Windows whose async guard is still deciding. Consulted at closeWindow entry
+  // so a second close request neither stacks a dialog nor double-closes.
+  pendingCloses: Set<string>
   nextZIndex: number
 
   openWindow: (
@@ -305,7 +309,7 @@ type WindowStore = {
   /** Live-update a window's title bar / taskbar label (e.g. filename + dirty •). */
   updateTitle: (id: string, title: string) => void
   /** Register a veto consulted by closeWindow; returns true to allow the close. */
-  registerCloseGuard: (id: string, guard: () => boolean) => void
+  registerCloseGuard: (id: string, guard: () => boolean | Promise<boolean>) => void
   unregisterCloseGuard: (id: string) => void
   hideWindow: (id: string) => void
   showWindow: (id: string) => void
@@ -391,6 +395,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
   preMaximizeStates: {},
   preSnapStates: {},
   closeGuards: {},
+  pendingCloses: new Set<string>(),
   nextZIndex: 1,
 
   openWindow: (appId, title, defaultSize, minSize, initialPosition) => {
@@ -446,32 +451,70 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
   },
 
   closeWindow: (id) => {
-    // Consult the window's close guard first (unsaved-changes prompt, etc.).
-    // A guard that returns false aborts the close for every caller — the title
-    // bar X and the Ctrl+W hotkey both funnel through here, so neither can
-    // bypass it.
-    const guard = get().closeGuards[id]
-    if (guard && !guard()) return
+    // The cleanup below runs only when a close actually proceeds, exactly once.
     // A window id keys entries in two side stores as well. Nothing removes them
     // when the window goes away, so a long session leaks one entry per opened
     // window (and a stale intent could be mis-delivered to a recycled id). Clear
     // both here, the single choke point every close funnels through.
-    useIntentStore.getState().clearIntent(id)
     // The opened-file latch moved into the SDK with brief 48 and is private to
     // it — the OS cannot (and should not) reach in to clear it. Entries are
     // keyed by uuid window ids that never recur, so a closed window's record
     // is a few dozen orphaned bytes per tab session, not a leak that grows.
+    const proceed = () => {
+      useIntentStore.getState().clearIntent(id)
+      set((state) => {
+        const { [id]: _removedPre, ...remainingPreMax } = state.preMaximizeStates
+        const { [id]: _removedSnap, ...remainingPreSnap } = state.preSnapStates
+        const { [id]: _removedGuard, ...remainingGuards } = state.closeGuards
+        return {
+          windows: state.windows.filter((w) => w.id !== id),
+          preMaximizeStates: remainingPreMax,
+          preSnapStates: remainingPreSnap,
+          closeGuards: remainingGuards,
+        }
+      })
+    }
+
+    // An async guard is still deciding this id — the dialog is up. A second
+    // close request neither stacks nor closes; the pending answer settles both.
+    if (get().pendingCloses.has(id)) return
+
+    // Consult the window's close guard first (unsaved-changes prompt, etc.).
+    // A guard verdict of false — sync or settled — aborts the close for every
+    // caller: the title bar X and the Ctrl+W hotkey both funnel through here,
+    // so neither can bypass it. A plain boolean keeps today's same-tick close;
+    // a promise (a themed dialog asking, brief 102) holds the close open until
+    // it settles.
+    const guard = get().closeGuards[id]
+    const verdict = guard ? guard() : true
+    if (verdict === true) {
+      proceed()
+      return
+    }
+    if (verdict === false) return
+
     set((state) => {
-      const { [id]: _removedPre, ...remainingPreMax } = state.preMaximizeStates
-      const { [id]: _removedSnap, ...remainingPreSnap } = state.preSnapStates
-      const { [id]: _removedGuard, ...remainingGuards } = state.closeGuards
-      return {
-        windows: state.windows.filter((w) => w.id !== id),
-        preMaximizeStates: remainingPreMax,
-        preSnapStates: remainingPreSnap,
-        closeGuards: remainingGuards,
-      }
+      const next = new Set(state.pendingCloses)
+      next.add(id)
+      return { pendingCloses: next }
     })
+    const unpend = () =>
+      set((state) => {
+        const next = new Set(state.pendingCloses)
+        next.delete(id)
+        return { pendingCloses: next }
+      })
+    verdict.then(
+      (ok) => {
+        unpend()
+        if (ok) proceed()
+      },
+      () => {
+        // A guard that rejects answered nothing — keeping the window open (and
+        // its unsaved work) is the only safe reading.
+        unpend()
+      }
+    )
   },
 
   updateTitle: (id, title) => {

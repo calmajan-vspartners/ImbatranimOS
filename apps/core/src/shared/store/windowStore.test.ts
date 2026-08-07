@@ -12,6 +12,7 @@ function resetStores() {
     preMaximizeStates: {},
     preSnapStates: {},
     closeGuards: {},
+    pendingCloses: new Set(),
     nextZIndex: 1,
   })
   useIntentStore.setState({ intents: new Map() })
@@ -89,6 +90,119 @@ describe('closeWindow cleanup', () => {
 
     expect(useIntentStore.getState().intents.has(id)).toBe(false)
     expect(useWindowStore.getState().windows.find((w) => w.id === id)).toBeUndefined()
+  })
+})
+
+describe('async close guards (brief 102)', () => {
+  it('a guardless window still closes in the same tick', () => {
+    const { openWindow, closeWindow } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    closeWindow(id)
+    // Synchronous: no await, no microtask turn — the window is already gone.
+    expect(useWindowStore.getState().windows).toHaveLength(0)
+  })
+
+  it('a sync-true guard closes in the same tick; sync-false aborts', () => {
+    const { openWindow, closeWindow, registerCloseGuard } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+
+    registerCloseGuard(id, () => false)
+    closeWindow(id)
+    expect(useWindowStore.getState().windows).toHaveLength(1)
+
+    registerCloseGuard(id, () => true)
+    closeWindow(id)
+    expect(useWindowStore.getState().windows).toHaveLength(0)
+  })
+
+  it('a settled-false promise aborts the close with every store untouched', async () => {
+    const { openWindow, closeWindow, registerCloseGuard } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    useIntentStore.getState().setIntent(id, { openPath: 'a.txt', root: 'home' })
+
+    let settle!: (v: boolean) => void
+    registerCloseGuard(
+      id,
+      () =>
+        new Promise<boolean>((resolve) => {
+          settle = resolve
+        })
+    )
+    closeWindow(id)
+    // Held open while the guard decides.
+    expect(useWindowStore.getState().windows).toHaveLength(1)
+    expect(useWindowStore.getState().pendingCloses.has(id)).toBe(true)
+
+    settle(false)
+    await Promise.resolve()
+    expect(useWindowStore.getState().windows).toHaveLength(1)
+    expect(useWindowStore.getState().pendingCloses.has(id)).toBe(false)
+    // An aborted close cleans nothing: the intent and the guard both survive.
+    expect(useIntentStore.getState().intents.has(id)).toBe(true)
+    expect(useWindowStore.getState().closeGuards[id]).toBeDefined()
+  })
+
+  it('a settled-true promise closes, and cleanup fires exactly once', async () => {
+    const { openWindow, closeWindow, registerCloseGuard } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    useIntentStore.getState().setIntent(id, { openPath: 'a.txt', root: 'home' })
+
+    let calls = 0
+    let settle!: (v: boolean) => void
+    registerCloseGuard(id, () => {
+      calls++
+      return new Promise<boolean>((resolve) => {
+        settle = resolve
+      })
+    })
+    closeWindow(id)
+    settle(true)
+    await Promise.resolve()
+
+    expect(useWindowStore.getState().windows).toHaveLength(0)
+    expect(useWindowStore.getState().pendingCloses.has(id)).toBe(false)
+    expect(useIntentStore.getState().intents.has(id)).toBe(false)
+    expect(useWindowStore.getState().closeGuards[id]).toBeUndefined()
+    expect(calls).toBe(1)
+  })
+
+  it('a second close request for a pending id is a no-op (no stacked dialogs)', async () => {
+    const { openWindow, closeWindow, registerCloseGuard } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+
+    let calls = 0
+    let settle!: (v: boolean) => void
+    registerCloseGuard(id, () => {
+      calls++
+      return new Promise<boolean>((resolve) => {
+        settle = resolve
+      })
+    })
+    closeWindow(id)
+    closeWindow(id) // the dialog is up — must not ask again nor close
+    expect(calls).toBe(1)
+    expect(useWindowStore.getState().windows).toHaveLength(1)
+
+    settle(true)
+    await Promise.resolve()
+    expect(useWindowStore.getState().windows).toHaveLength(0)
+  })
+
+  it('a rejecting guard answers nothing — the window stays open and can close later', async () => {
+    const { openWindow, closeWindow, registerCloseGuard } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+
+    registerCloseGuard(id, () => Promise.reject(new Error('guard exploded')))
+    closeWindow(id)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(useWindowStore.getState().windows).toHaveLength(1)
+    expect(useWindowStore.getState().pendingCloses.has(id)).toBe(false)
+
+    // Not wedged: a later close (guard now allows) proceeds.
+    registerCloseGuard(id, () => true)
+    closeWindow(id)
+    expect(useWindowStore.getState().windows).toHaveLength(0)
   })
 })
 

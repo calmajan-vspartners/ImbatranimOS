@@ -158,7 +158,7 @@ export function DiffTool({ windowId: _windowId }: { windowId: string }) {
   }, [right, system])
 
   useSaveHotkey(() => void save())
-  useUnsavedGuard(dirty, right ? fileName(right.path) : 'Diff')
+  const unsavedDialog = useUnsavedGuard(dirty, right ? fileName(right.path) : 'Diff', save)
 
   const theme = useMemo(
     () =>
@@ -280,6 +280,8 @@ export function DiffTool({ windowId: _windowId }: { windowId: string }) {
           </div>
         )}
       </div>
+
+      {unsavedDialog}
     </div>
   )
 }

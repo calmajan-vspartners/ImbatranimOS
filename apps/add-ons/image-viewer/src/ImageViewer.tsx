@@ -23,6 +23,7 @@ import {
   useFileDialog,
   useOpenIntent,
   useElementSize,
+  useConfirm,
   useSaveHotkey,
   useSystem,
   useUnsavedGuard,
@@ -165,22 +166,27 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
   // piece of state is reset for the new path. `useUnsavedGuard` only covers
   // *closing* the window, so without this an arrow key silently discards the
   // user's turn — the same defect as rotate not persisting at all, just harder to
-  // notice. Uses the same `window.confirm` spine as the close guard.
-  const confirmDiscard = useCallback(() => {
+  // notice. Asks with the kit's themed confirm (brief 102) — the OS has no
+  // native dialogs left.
+  const { confirm, confirmDialog } = useConfirm()
+  const confirmDiscard = useCallback(async () => {
     if (rotation === savedRotation) return true
-    return window.confirm(
-      'This image has an unsaved rotation. Move to the next image without saving?'
-    )
-  }, [rotation, savedRotation])
+    return confirm({
+      title: 'Unsaved rotation',
+      message: 'This image has an unsaved rotation. Move to the next image without saving?',
+      confirmLabel: 'Discard rotation',
+      destructive: true,
+    })
+  }, [rotation, savedRotation, confirm])
 
-  const goPrev = useCallback(() => {
-    if (!confirmDiscard()) return
+  const goPrev = useCallback(async () => {
+    if (!(await confirmDiscard())) return
     setIndex((i) =>
       siblings && siblings.length > 0 ? (i - 1 + siblings.length) % siblings.length : i
     )
   }, [siblings, confirmDiscard])
-  const goNext = useCallback(() => {
-    if (!confirmDiscard()) return
+  const goNext = useCallback(async () => {
+    if (!(await confirmDiscard())) return
     setIndex((i) => (siblings && siblings.length > 0 ? (i + 1) % siblings.length : i))
   }, [siblings, confirmDiscard])
 
@@ -275,10 +281,6 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
   const savable = currentPath ? canSaveInPlace(currentPath) : false
   const cannotSaveWhy = currentPath ? noSaveReason(currentPath) : null
 
-  // Same spine as every other editor in the OS: the title carries a dirty marker
-  // and closing with unsaved changes warns.
-  useUnsavedGuard(dirty, currentPath ? fileName(currentPath, 'image') : '')
-
   /**
    * Re-encode the visible image at its current rotation.
    *
@@ -337,6 +339,16 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
 
   useSaveHotkey(saveRotation)
 
+  // Same spine as every other editor in the OS: the title carries a dirty marker
+  // and closing with unsaved changes asks through the themed dialog. The Save
+  // button appears only for formats that can save in place — everything else
+  // gets the two-button discard-or-stay form.
+  const unsavedDialog = useUnsavedGuard(
+    dirty,
+    currentPath ? fileName(currentPath, 'image') : '',
+    savable ? saveRotation : undefined
+  )
+
   const saveCopy = useCallback(async () => {
     if (!currentPath || saving || !naturalSize) return
     const choice = await saveFile({
@@ -389,11 +401,11 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault()
-        goPrev()
+        void goPrev()
         break
       case 'ArrowRight':
         e.preventDefault()
-        goNext()
+        void goNext()
         break
       case '+':
       case '=':
@@ -448,7 +460,7 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
             variant="ghost"
             size="sm"
             className="h-5 w-5 p-0"
-            onClick={goPrev}
+            onClick={() => void goPrev()}
             disabled={!hasSiblingNav}
           >
             <ChevronLeft size={13} />
@@ -462,7 +474,7 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
             variant="ghost"
             size="sm"
             className="h-5 w-5 p-0"
-            onClick={goNext}
+            onClick={() => void goNext()}
             disabled={!hasSiblingNav}
           >
             <ChevronRight size={13} />
@@ -637,6 +649,9 @@ export function ImageViewer({ windowId: _windowId }: { windowId: string }) {
           />
         )}
       </div>
+
+      {confirmDialog}
+      {unsavedDialog}
     </div>
   )
 }
