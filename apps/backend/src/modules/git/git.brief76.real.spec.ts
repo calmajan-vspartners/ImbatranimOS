@@ -398,6 +398,71 @@ describe('Brief 76 against real git', () => {
     });
   });
 
+  // Brief 114: one file's contents at HEAD, for Git GUI's Compare with HEAD.
+  describe('showAtHead against real git', () => {
+    it('returns the COMMITTED text, not the working copy', async () => {
+      await commitFile('a.txt', 'committed\n', 'init');
+      await fs.writeFile(join(repoAbs(), 'a.txt'), 'working\n');
+
+      const res = await service.showAtHead('home', repoRel, 'a.txt');
+      expect(res).toEqual({ content: 'committed\n', exists: true });
+      // And the working tree is untouched by having asked.
+      expect(await read('a.txt')).toBe('working\n');
+    });
+
+    it('reads a file in a subdirectory by its repo-relative path', async () => {
+      await fs.mkdir(join(repoAbs(), 'src'));
+      await commitFile('src/deep.txt', 'nested\n', 'init');
+      const res = await service.showAtHead('home', repoRel, 'src/deep.txt');
+      expect(res).toEqual({ content: 'nested\n', exists: true });
+    });
+
+    it('reports a file that is not in HEAD as new rather than failing', async () => {
+      await commitFile('a.txt', 'one\n', 'init');
+      await fs.writeFile(join(repoAbs(), 'brand-new.txt'), 'fresh\n');
+      // Staged but never committed — the exact state a "new file" row is in.
+      await service.stage('home', ['brand-new.txt'], repoRel);
+
+      expect(
+        await service.showAtHead('home', repoRel, 'brand-new.txt'),
+      ).toEqual({
+        content: '',
+        exists: false,
+      });
+    });
+
+    it('refuses a path that tries to leave the repository', async () => {
+      await commitFile('a.txt', 'one\n', 'init');
+      await expect(
+        service.showAtHead('home', repoRel, '../outside.txt'),
+      ).rejects.toThrow(/must not leave/i);
+      await expect(
+        service.showAtHead('home', repoRel, 'src/../../outside.txt'),
+      ).rejects.toThrow(/must not leave/i);
+    });
+
+    it('refuses an absolute path and a leading dash', async () => {
+      await commitFile('a.txt', 'one\n', 'init');
+      await expect(
+        service.showAtHead('home', repoRel, '/etc/passwd'),
+      ).rejects.toThrow(/relative to the repository/i);
+      // A leading '-' could otherwise be read as a flag by some git version.
+      await expect(
+        service.showAtHead('home', repoRel, '--help'),
+      ).rejects.toThrow(/invalid path/i);
+    });
+
+    it('keeps a path full of shell metacharacters literal', async () => {
+      const nasty = '$(touch imb-pwned-show)`id`;.txt';
+      await commitFile(nasty, 'safe\n', 'init');
+      const res = await service.showAtHead('home', repoRel, nasty);
+      expect(res.content).toBe('safe\n');
+      await expect(
+        fs.stat(join(repoAbs(), 'imb-pwned-show')),
+      ).rejects.toThrow();
+    });
+  });
+
   describe('a commit message full of shell metacharacters is still literal', () => {
     it('stores it verbatim through amend, the newest message path', async () => {
       await commitFile('a.txt', 'one\n', 'init');

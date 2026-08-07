@@ -3705,3 +3705,41 @@ a 17-check browser probe — Ctrl+Shift+F, Enter-only search, grouped line
 numbers, a click landing on line 3, an unsaved edit surviving a re-click, Esc
 returning focus to Monaco, and the palette unchanged — plus a capped run for
 the truncation banner. Eager-chunk delta: none; the panel imports no Monaco.
+
+## 2026-08-07 — Brief 114: Compare with HEAD, and a teardown bug the console found
+
+Git GUI is the one app whose whole job is comparing versions of a file, and it
+could not open the OS's real side-by-side diff editor — the only door into it
+needed two files on disk, and "what is committed" is not a file.
+
+`show` joined the exec allowlist the way every other subcommand did: one more
+literal at one more call site, no generic route. The revision is the hardcoded
+`HEAD`. A `rev` parameter would have been easy and would have widened the
+surface to every object in the repository for nothing the UI asks for.
+`HEAD:<file>` is also the one place a path becomes part of a *revision*
+argument rather than a pathspec after `--`, so it gets a stricter guard on top
+of the usual one: no leading dash, never absolute, no `..` segment. Six cases
+against real git, including a filename full of shell metacharacters that stays
+literal.
+
+A file with no blob at HEAD returns `{ content: '', exists: false }` rather
+than 404. Newly added is a state, not an error, and the caller renders it as an
+empty left side labelled "new file".
+
+The Diff tool's intent gained `leftText`/`leftLabel`. Git GUI already speaks to
+the git API, so it fetches the blob and hands the text over; teaching the
+editor package about git would have been the wrong coupling, and writing HEAD
+to a temp file would have put a file in the user's home that they never asked
+for.
+
+The console-clean bar earned its keep twice. It caught that the Diff tool's app
+id is `diff`, not `diff-tool` — the intent went nowhere, silently. And it
+caught a real teardown bug: with models loaded, @monaco-editor/react disposes
+both text models while the widget still points at them, and Monaco logs
+"TextModel got disposed before DiffEditorWidget model got reset". The Diff tool
+now detaches with setModel(null) in its own unmount cleanup, which React runs
+before the child's on a deletion. It reproduced in this brief's flow and not in
+brief 99's two-file flow, so it was latent rather than universal.
+
+turbo 120/120, backend 457 + 141 e2e, a 9-check browser probe against a real
+repository.

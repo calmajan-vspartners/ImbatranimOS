@@ -56,6 +56,18 @@ export class DiffQueryDto extends RepoRefDto {
   file?: string;
 }
 
+/**
+ * GET /api/git/show?root=&path=&file=
+ *
+ * No `rev` — the revision is the literal HEAD in the service (brief 114).
+ */
+export class ShowQueryDto extends RepoRefDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4096)
+  file: string;
+}
+
 /** POST /api/git/stage | /api/git/unstage  { root, path?, paths[] } */
 export class PathsBodyDto extends RepoRefDto {
   @IsArray()

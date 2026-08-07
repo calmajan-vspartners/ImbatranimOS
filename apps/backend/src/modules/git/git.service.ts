@@ -812,6 +812,67 @@ export class GitService {
   }
 
   /**
+   * Stricter than {@link assertPathspec}, for the one place a path becomes part
+   * of a *revision* argument rather than a pathspec after `--` (brief 114).
+   *
+   * `git show HEAD:<file>` has no `--` to hide behind, so the argv element is
+   * checked itself: no leading `-` (never a flag), never absolute, and no `..`
+   * segment. The filesystem jail is still `resolveRepo`'s job — this is defence
+   * in depth on the argument, not a substitute for it.
+   */
+  private assertRepoRelPath(p: string): void {
+    this.assertPathspec(p);
+    if (p.startsWith('-')) {
+      throw new BadRequestException('Invalid path');
+    }
+    if (p.startsWith('/') || /^[A-Za-z]:/.test(p)) {
+      throw new BadRequestException('Path must be relative to the repository');
+    }
+    if (p.split('/').includes('..')) {
+      throw new BadRequestException('Path must not leave the repository');
+    }
+  }
+
+  /**
+   * The committed contents of one file at HEAD (brief 114) — the left side of
+   * Git GUI's "Compare with HEAD".
+   *
+   * The revision is the literal `HEAD`, never anything the client sends: the
+   * feature is "compare with what is committed", and a `rev` parameter would
+   * widen this to every object in the repository for nothing the UI asks for.
+   *
+   * A file with no blob at HEAD — newly added, or untracked — is a normal
+   * answer, not an error: `{ content: '', exists: false }` lets the caller
+   * diff against empty and say "new file" instead of showing a failure for a
+   * file that is simply new.
+   */
+  async showAtHead(
+    root: string,
+    path: string | undefined,
+    file: string,
+  ): Promise<{ content: string; exists: boolean }> {
+    const cwd = await this.resolveRepo(root, path);
+    this.assertRepoRelPath(file);
+    const res = await this.exec(cwd, this.git('show', `HEAD:${file}`));
+    if (res.exitCode !== 0) {
+      const err = res.stderr.toLowerCase();
+      // git's wording for "that path is not in that revision". Anything else —
+      // a corrupt object, an unborn branch we did not anticipate — still fails
+      // loudly rather than pretending the file is new.
+      if (
+        err.includes('does not exist') ||
+        err.includes('exists on disk, but not in') ||
+        err.includes('invalid object name') ||
+        err.includes('unknown revision')
+      ) {
+        return { content: '', exists: false };
+      }
+      throw new BadRequestException(res.stderr.trim() || 'git show failed');
+    }
+    return { content: res.stdout, exists: true };
+  }
+
+  /**
    * Shape check on a patch before it reaches `git apply`.
    *
    * Not a security boundary — git's own path handling is that, and it was measured

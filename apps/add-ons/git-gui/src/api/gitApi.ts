@@ -49,6 +49,23 @@ export async function fetchDiff(
   return res.data
 }
 
+/**
+ * One file's contents at HEAD (brief 114). `exists: false` means the file has
+ * no blob at HEAD — newly added or untracked — which the caller renders as an
+ * empty left side labelled "new file", not as a failure.
+ */
+export async function fetchHeadContent(
+  http: SystemHttp,
+  root: string,
+  path: string,
+  file: string
+): Promise<{ content: string; exists: boolean }> {
+  const res = await http.get<{ content: string; exists: boolean }>('/git/show', {
+    params: { root, path, file },
+  })
+  return res.data
+}
+
 export async function stagePaths(
   http: SystemHttp,
   root: string,

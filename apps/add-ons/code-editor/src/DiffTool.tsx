@@ -26,6 +26,11 @@ type Side = {
   root: string
   path: string
   text: string
+  /**
+   * Display name override for a side with no file behind it (brief 114). Also
+   * the marker that this side is NOT on disk: `readOnly` sides are never saved.
+   */
+  label?: string
 }
 
 /** Payload from the file manager's two-selection "Compare" (brief 99). */
@@ -34,6 +39,15 @@ type DiffIntent = {
   leftPath?: string
   rightRoot?: string
   rightPath?: string
+  /**
+   * A left side that is not a file on disk (brief 114) — Git GUI's
+   * "Compare with HEAD" hands over the committed blob. Additive: when absent,
+   * the leftRoot/leftPath path below is exactly what it was. When present it
+   * wins, because there is nothing to read.
+   */
+  leftText?: string
+  /** What to call that side in the header, e.g. "a.ts @ HEAD". */
+  leftLabel?: string
 }
 
 const decoder = new TextDecoder()
@@ -121,12 +135,39 @@ export function DiffTool({ windowId: _windowId }: { windowId: string }) {
     // effect is for, and it runs at most once (ref-guarded). Same scoped
     // disable Notepad and the file manager use for the identical drain.
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
-    if (intent?.leftPath && intent.leftRoot) void loadSide('left', intent.leftRoot, intent.leftPath)
+    if (intent?.leftText !== undefined) {
+      // A literal side: nothing to fetch, nothing to record as a recent. Same
+      // one-shot drain as below, so the same scoped disable applies.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLeft({
+        root: '',
+        path: intent.leftLabel ?? 'HEAD',
+        text: intent.leftText,
+        label: intent.leftLabel ?? 'HEAD',
+      })
+    } else if (intent?.leftPath && intent.leftRoot)
+      void loadSide('left', intent.leftRoot, intent.leftPath)
     if (intent?.rightPath && intent.rightRoot)
       void loadSide('right', intent.rightRoot, intent.rightPath)
     // Mount-once drain.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [system])
+
+  /**
+   * Detach the widget from its models before the window goes away.
+   *
+   * `keepCurrentOriginalModel`/`keepCurrentModifiedModel` are false, so
+   * @monaco-editor/react disposes both text models when the DiffEditor
+   * unmounts — and Monaco logs "TextModel got disposed before
+   * DiffEditorWidget model got reset" if the widget is still pointing at them
+   * when that happens. React runs a parent's cleanup before its children's on
+   * a deletion, so clearing the model here wins the race deterministically.
+   */
+  useEffect(() => {
+    return () => {
+      editorRef.current?.setModel(null)
+    }
+  }, [])
 
   const pick = useCallback(
     async (which: 'left' | 'right') => {
@@ -197,7 +238,7 @@ export function DiffTool({ windowId: _windowId }: { windowId: string }) {
         <Button size="sm" variant="ghost" className="max-w-56" onClick={() => void pick('left')}>
           <FileDiff size={12} />
           <span className="min-w-0 truncate">
-            {left ? fileName(left.path) : 'Choose left file…'}
+            {left ? (left.label ?? fileName(left.path)) : 'Choose left file…'}
           </span>
         </Button>
         <span className="font-ui text-on-surface-variant text-[11px]">vs</span>

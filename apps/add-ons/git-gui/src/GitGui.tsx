@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   AlertTriangle,
+  Columns2,
   FileDiff,
   FolderGit2,
   GitCommitVertical,
@@ -27,6 +28,7 @@ import {
   discardPaths,
   fetchBranches,
   fetchDiff,
+  fetchHeadContent,
   fetchLastMessage,
   fetchLog,
   fetchRecents,
@@ -251,6 +253,34 @@ export function GitGui({ windowId: _windowId }: { windowId: string }) {
           level: 'success',
           title: 'Changes discarded',
           body: `${paths.length} file${paths.length === 1 ? '' : 's'} restored from HEAD.`,
+        })
+      })
+    })()
+  }
+
+  /**
+   * Open the selected file side by side against HEAD in the Diff tool
+   * (brief 114).
+   *
+   * The left side is the committed blob — text, not a file, so it rides the
+   * intent rather than a path. The right side is the working-tree file itself,
+   * which is what makes the Diff tool's editable right pane useful here: see
+   * what changed and fix it in place. A file with no blob at HEAD compares
+   * against an empty left side, labelled as new.
+   */
+  const doCompareWithHead = () => {
+    void (async () => {
+      if (!repo || !selection) return
+      await run('Compare with HEAD', async () => {
+        const head = await fetchHeadContent(system.http, repo.root, repo.path, selection.path)
+        const label = `${selection.path} @ ${head.exists ? 'HEAD' : 'HEAD (new file)'}`
+        system.intents.openApp('diff', {
+          leftText: head.content,
+          leftLabel: label,
+          rightRoot: repo.root,
+          // The Diff tool reads from the ROOT, so the path it needs is the
+          // repo's own path joined with the file's repo-relative one.
+          rightPath: repo.path ? `${repo.path}/${selection.path}` : selection.path,
         })
       })
     })()
@@ -560,6 +590,20 @@ export function GitGui({ windowId: _windowId }: { windowId: string }) {
             <TabButton active={tab === 'history'} onClick={() => setTab('history')}>
               <History size={13} /> History
             </TabButton>
+            <div className="flex-1" />
+            {tab === 'diff' && selection !== null && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="my-0.5 mr-1 gap-1"
+                disabled={busy}
+                onClick={doCompareWithHead}
+                title="Open this file side by side against HEAD, in the Diff tool"
+              >
+                <Columns2 size={12} />
+                Compare with HEAD
+              </Button>
+            )}
           </div>
 
           {tab === 'history' ? (

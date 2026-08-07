@@ -15,6 +15,7 @@ import {
   BranchesQueryDto,
   CommitBodyDto,
   DiffQueryDto,
+  ShowQueryDto,
   DiscardBodyDto,
   LogQueryDto,
   PathsBodyDto,
@@ -53,6 +54,17 @@ export class GitController {
   }
 
   /** POST /api/git/stage { root, path?, paths[] } → updated status */
+  /**
+   * GET /api/git/show?root=&path=&file= → { content, exists }
+   *
+   * One file's contents at HEAD (brief 114). `show` is one more literal at one
+   * more call site — still no generic "run git" route, and no `rev` parameter.
+   */
+  @Get('show')
+  show(@Query() q: ShowQueryDto) {
+    return this.gitService.showAtHead(q.root, q.path, q.file);
+  }
+
   @Post('stage')
   stage(@Body() dto: PathsBodyDto) {
     return this.gitService.stage(dto.root, dto.paths, dto.path);
