@@ -3743,3 +3743,23 @@ brief 99's two-file flow, so it was latent rather than universal.
 
 turbo 120/120, backend 457 + 141 e2e, a 9-check browser probe against a real
 repository.
+
+## 2026-08-07 — Brief 115: the terminal grid learns how wide an emoji is
+
+xterm's default cell-width table is Unicode 6, which predates emoji being
+double-width. The consequence is not cosmetic: the grid is laid out from that
+table, so a character measured one column narrower than the font draws it
+displaces every cell after it on the row, and the shell's own cursor
+arithmetic — which assumes the terminal agrees with it — then eats characters
+while you edit a command line containing one.
+
+`@xterm/addon-unicode11` fixes it, from the same sanctioned addon family the
+app already loads three members of. The catch: `term.unicode` is a proposed
+API, so without `allowProposedApi: true` the addon throws on activate and the
+entire terminal lands in the error boundary. That failure is how the flag got
+found — the app crashed cleanly and said why, which is the error boundary doing
+its job.
+
+Measured, not asserted: print `🎉X` and `AAX` and compare rendered widths.
+Before, 15.7px vs 23.5px. After, 23.5px vs 23.5px. Both from the production
+bundle against the real PTY.

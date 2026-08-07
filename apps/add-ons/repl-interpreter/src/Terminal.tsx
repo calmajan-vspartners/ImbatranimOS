@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, Plug, RotateCw, Search, X } from 'lucide-react'
@@ -95,6 +96,12 @@ export function Terminal(_props: { windowId: string }) {
 
     const instance = new XTerm({
       scrollback: SCROLLBACK,
+      // Required by the Unicode11 addon below (brief 115): xterm gates
+      // `term.unicode` — the only way to swap the width table — behind this
+      // flag. Narrow and deliberate: it is the one proposed API this app
+      // touches, and without it the addon throws on activate and the whole
+      // terminal lands in the error boundary.
+      allowProposedApi: true,
       cursorBlink: true,
       fontSize: loadFontSize(),
       fontFamily: FONT_FAMILY,
@@ -109,6 +116,20 @@ export function Terminal(_props: { windowId: string }) {
     const search = new SearchAddon()
     instance.loadAddon(search)
     searchRef.current = search
+    /**
+     * Unicode 11 cell widths (brief 115).
+     *
+     * xterm ships a Unicode *6* width table by default, which predates emoji
+     * being double-width and gets a lot of CJK wrong. The visible symptom is
+     * not "the emoji looks odd": every character after a mis-measured one is
+     * drawn a column off, so `ls` of a directory with an emoji in one filename
+     * corrupts the whole grid — and the shell's own cursor arithmetic, which
+     * assumes the terminal agrees with it, then eats characters while you edit
+     * a command line. Same sanctioned @xterm/addon-* family as fit, search and
+     * web-links; `activeVersion` is what actually swaps the table in.
+     */
+    instance.loadAddon(new Unicode11Addon())
+    instance.unicode.activeVersion = '11'
     // Makes URLs in output clickable. The first callback arg is the MouseEvent.
     instance.loadAddon(
       new WebLinksAddon((_, uri) => {
