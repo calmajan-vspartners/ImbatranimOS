@@ -137,8 +137,10 @@ export function Desktop({ wallpaper }: DesktopProps) {
         )
           return
         e.preventDefault()
-        const rect = e.currentTarget.getBoundingClientRect()
-        setMenuAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        // Raw viewport coordinates: the kit menu portals to body and positions
+        // in viewport space (brief 105) — the old container-relative math died
+        // with the absolutely-positioned local menu.
+        setMenuAt({ x: e.clientX, y: e.clientY })
       }}
     >
       {/* Desktop icon container - using absolute positioning for children */}

@@ -1,6 +1,38 @@
 # Brief 105 — One ContextMenu in the kit: the third copy triggered the promote rule
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** Built as specced. `@imbatranim/ui`'s
+> `ContextMenu` wraps base-ui `Menu.Root`/`Portal`/`Positioner`/`Popup` with a
+> point `VirtualElement` anchor at the stored `{x, y}`, so every caller
+> inherits the ARIA menu contract and floating-ui collision handling — the
+> hand-maintained clamp arithmetic (three different flavours of it) is gone.
+> Item union is the file manager's plus `checked?` (→ `Menu.CheckboxItem`,
+> `role=menuitemcheckbox` + `aria-checked`) and `{type:'custom', key,
+> children}` for the taskbar's workspace grid. One look (the kit popup
+> recipe), one dismissal contract (outside press / Escape / any scroll),
+> `z-[10000]` portalled to body. All three copies migrated: file-manager's
+> local component deleted (both its importers now take the type from the kit),
+> `TaskbarContextMenu` became an items builder keeping its title header +
+> workspace grid as custom rows (and brief 103's Maximize/Restore row),
+> `DesktopContextMenu` builds real checkbox items and `Desktop.tsx` now passes
+> raw viewport coords. `MenuButton` deliberately untouched. Verified: 8 kit
+> units (roles, separator, disabled-does-not-fire, aria-checked, checkbox
+> click fires, custom row, activation, scroll-closes), turbo 119/119, and a
+> 16/16 Playwright pass on the production bundle — the corner right-click that
+> used to clip now flips up-and-left fully on screen (1255–1390 × 527–779 in a
+> 1400×900 viewport), focus lands in the menu, arrows highlight, Enter runs,
+> Escape closes; the taskbar menu flips above the cursor with its four
+> workspace buttons and all three verbs; desktop widget rows expose
+> `aria-checked` and toggling places a widget; Terminal right-click opens no
+> menu of its own; console clean. Corpus: ui-conventions §27 rewritten (and
+> §4's "missing from the kit" list updated).
+>
+> **Two pre-existing bugs confirmed by the probe, both brief 106's:** the
+> desktop widgets menu still opens *in addition to* an app's menu on any
+> in-window right-click (windows are DOM children of the desktop; nothing
+> stops propagation), and the `[data-widget]` half of that handler's guard
+> matches nothing — no element sets the attribute.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 `packages/ui` (new component + export) + migration of the three copies
 (`file-manager`, core taskbar, core desktop). No backend, no protocol change
 (`packages/ui/src/system.ts` untouched — a component is linked into the

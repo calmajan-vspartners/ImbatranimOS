@@ -28,6 +28,7 @@ export { Separator } from './components/Separator'
 export { Tooltip } from './components/Tooltip'
 export { ConfirmDialog, useConfirm } from './components/ConfirmDialog'
 export { UnsavedChangesDialog } from './components/UnsavedChangesDialog'
+export { ContextMenu, type ContextMenuItem } from './components/ContextMenu'
 export { PromptDialog, usePrompt } from './components/PromptDialog'
 
 // Pure hooks

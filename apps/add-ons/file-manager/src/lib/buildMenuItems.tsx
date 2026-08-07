@@ -19,7 +19,7 @@ import {
   FilePlus,
   Info,
 } from 'lucide-react'
-import type { ContextMenuItem } from '../components/ContextMenu'
+import type { ContextMenuItem } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
 import { resolveOpenApp, openAppLabel, type Associations } from './openWith'
 import type { NewFileKind } from './newFileTemplates'

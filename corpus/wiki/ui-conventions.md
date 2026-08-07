@@ -1,5 +1,5 @@
 ---
-summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (refreshed 2026-08-07 for brief 102 (rule 43: no native dialogs — the themed UnsavedChangesDialog + async close guards) and 2026-08-05 for briefs 74-75: sticky-notes citations, the desktop-layer contract, the Select-label fix, the secondary token aliases) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
+summary: The house UI style as enforceable rules, derived from the code 2026-07-31 (refreshed 2026-08-07 for brief 102 (rule 43: no native dialogs — the themed UnsavedChangesDialog + async close guards; rule 27: the promoted kit ContextMenu) and 2026-08-05 for briefs 74-75: sticky-notes citations, the desktop-layer contract, the Select-label fix, the secondary token aliases) — import rule and core export surface, the real token/accent names, type + density scale, in-window layout (incl. the unclamped-defaultSize trap), the one canonical answer for confirm/prompt/toast/empty/loading/context-menu/hotkey/save-spine, icon sizing, the accessibility floor, the anti-patterns to copy around, and a 14-item pre-flight checklist.
 updated: 2026-08-07
 ---
 
@@ -19,8 +19,8 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
    `fileName`; spine `createOpenedFileStore`, `useOpenIntent`, `useSaveHotkey`, `useUnsavedGuard`, `useVirtualList`.
 3. One import statement per specifier: `import { Button, Input, cn } from '@imbatranim/core'` (`calculator/src/BasicPad.tsx:2` right; `file-manager/src/FileManager.tsx:12-19`
    wrong — nine statements, same specifier).
-4. **Missing from the kit** — propose adding to core, don't grow a private copy: a shared **ContextMenu** (sole copy `file-manager/src/components/ContextMenu.tsx`, whose own
-   doc comment at :23 admits it is unstyled); **Tabs** (hand-rolled 3×: `calculator/src/Calculator.tsx:31-52`, `clock/src/Clock.tsx:67-81`,
+4. **Missing from the kit** — propose adding to core, don't grow a private copy. (**ContextMenu shipped**: brief 105 promoted it to `@imbatranim/ui`; see §27.) Still missing:
+   **Tabs** (hand-rolled 3×: `calculator/src/Calculator.tsx:31-52`, `clock/src/Clock.tsx:67-81`,
    `markdown-editor/src/MarkdownEditor.tsx:129-147`); an **EmptyState**; a **file-open picker** (every viewer just says "Open a file from Files", `MarkdownEditor.tsx:104`); a
    **top-window keydown hook** (`calculator/src/hooks/useTopWindowKeydown.ts:16` duplicates the private `isTopWindow` in `apps/core/src/shared/hooks/useSaveHotkey.ts:5`); a
    `Tooltip` that can render as a non-button (§8).
@@ -94,9 +94,12 @@ Derived by reading the code, 2026-07-31. Identity is **locked**: Win7-classic la
     variant at `docs/src/Docs.tsx:146`). Say what is empty; do not apologise.
 26. **Loading** → centred `text-on-surface-variant font-ui text-[12px]` "Loading…", plus `<Loader2 size={16} className="animate-spin" />` when the wait can exceed ~1s
     (`MarkdownEditor.tsx:165-167`; text-only at `FileManager.tsx:462`). An in-place refresh spins the existing icon instead: `<RefreshCw className={cn(isFetching && 'animate-spin')} />` (`FileManager.tsx:411`). No skeleton shimmers.
-27. **Context menu** → `onContextMenu={e => { e.preventDefault(); … }}`, store `{x: e.clientX, y: e.clientY}`, render a cursor-anchored `fixed` panel that closes on outside
-    mousedown / Escape / scroll (`ContextMenu.tsx:29-44`). Build items as data with a `separator` type and a `danger` flag (`file-manager/src/lib/buildMenuItems.tsx`);
-    right-click must also select the row it opened on (`FileList.tsx:150-155`).
+27. **Context menu** → **never hand-roll one** (brief 105 promoted the third copy). `onContextMenu={e => { e.preventDefault(); setMenu({x: e.clientX, y: e.clientY}) }}` —
+    raw VIEWPORT coords — then `{menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={…} label="…"/>}` from `@imbatranim/ui`. Items are data:
+    `{label, icon?, onSelect, danger?, disabled?, checked?}`, `{type:'separator'}`, `{type:'custom', key, children}` for a one-off row (`file-manager/src/lib/buildMenuItems.tsx`
+    is the worked example). Positioning, edge-flipping, portalling above the taskbar, outside-press/Escape/scroll dismissal and the whole `role="menu"` keyboard contract come
+    from the kit — do not re-implement any of them, and do not pass container-relative coordinates. Right-click must also select the row it opened on (`FileList.tsx:150-155`).
+    Button-anchored menu bars (`code-editor`'s `MenuButton`) are a different idiom with its own promote counter.
 28. **Keyboard shortcut** → scope it to the top-most window or two instances fight over keystrokes. Ctrl/⌘+S is `useSaveHotkey(windowId, onSave)`
     (`hooks/useSaveHotkey.ts:16`); other keys follow the capture-phase + `isTopWindow` guard in `calculator/src/hooks/useTopWindowKeydown.ts:16`. Never bind a bare `window`
     keydown.

@@ -3394,3 +3394,28 @@ listeners (keyup semantics; gated on isShellSuspended per brief 101) and its
 two bindings are documented rows with the host-OS interception note; the old
 `window.cycle` registration is deleted. Verified: 10 model units, turbo
 119/119, Playwright 15/15 against the production bundle.
+
+## 2026-08-07 — Brief 105: one context menu, promoted at last
+
+[Brief 105](briefs/done/105-context-menu-kit.md) **DONE** — the OS had three
+hand-rolled right-click menus and they already disagreed on positioning,
+dismissal, shadow, surface and danger styling; none of them had a keyboard
+contract. `@imbatranim/ui` now owns the only one: a thin wrap of base-ui's
+Menu primitives with a point `VirtualElement` anchor at the cursor, so edge
+clamping and flipping come from floating-ui instead of three sets of
+hand-maintained size guesses (`MENU_WIDTH = 190`, `(available.length + 1) * 28
++ 16`, and the file manager's none-at-all), and `role="menu"` +
+Arrow/Home/End/Enter/Escape + focus management come free. Items stay data:
+the file manager's union plus `checked?` (real `menuitemcheckbox` with
+`aria-checked`) and a `custom` escape hatch for the taskbar's workspace grid.
+All three call sites migrated, the file-manager's local component deleted,
+and `Desktop.tsx` now hands over raw viewport coordinates because the menu
+portals to body. Verified: 8 kit units, turbo 119/119, and 16/16 in a browser
+— the bottom-right corner right-click that used to clip off-screen now flips
+up-and-left and sits fully inside the viewport. ui-conventions §27 rewritten:
+never hand-roll one again.
+
+Two pre-existing bugs the probe confirmed, both owned by brief 106: an
+in-window right-click ALSO opens the desktop's widgets menu (windows are DOM
+children of the desktop and nothing stops propagation), and the `[data-widget]`
+half of that handler's guard matches nothing — no element sets the attribute.
