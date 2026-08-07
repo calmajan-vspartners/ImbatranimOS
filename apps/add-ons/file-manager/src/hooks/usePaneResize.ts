@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  PREVIEW_PANE_DEFAULT_WIDTH,
+  PREVIEW_PANE_MAX_WIDTH,
+  PREVIEW_PANE_MIN_WIDTH,
+} from '../store/previewPaneStore'
+
+/** One arrow press. Shift makes it a coarse jump, the SplitDivider convention. */
+const NUDGE_PX = 16
+const COARSE_PX = 64
 
 // Below this app-window width the preview pane hides regardless of its
 // on/off setting — there just isn't room for tree + list + pane at once.
@@ -62,5 +71,54 @@ export function usePaneResize(previewPane: PreviewPaneControls) {
     [previewPane]
   )
 
-  return { containerRef, resizing, previewPaneVisible, handlePaneResizeStart }
+  /**
+   * The keyboard half of the splitter (brief 111).
+   *
+   * Left grows the pane and Right shrinks it, matching the drag: the pane is
+   * to the *right* of the handle, so moving the handle left gives it room.
+   * Home returns to the default width — the "recentre" every split view has.
+   * The store clamps, so these can overshoot safely.
+   */
+  const handlePaneResizeKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      const coarse = e.shiftKey
+      const stepPx = coarse ? COARSE_PX : NUDGE_PX
+      switch (e.key) {
+        case 'ArrowLeft':
+          previewPane.setWidth(previewPane.width + stepPx)
+          break
+        case 'ArrowRight':
+          previewPane.setWidth(previewPane.width - stepPx)
+          break
+        case 'Home':
+          previewPane.setWidth(PREVIEW_PANE_DEFAULT_WIDTH)
+          break
+        case 'End':
+          previewPane.setWidth(PREVIEW_PANE_MAX_WIDTH)
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+      e.stopPropagation()
+    },
+    [previewPane]
+  )
+
+  /** Double-click the handle to put the pane back to its default width. */
+  const handlePaneResizeReset = useCallback(
+    () => previewPane.setWidth(PREVIEW_PANE_DEFAULT_WIDTH),
+    [previewPane]
+  )
+
+  return {
+    containerRef,
+    resizing,
+    previewPaneVisible,
+    handlePaneResizeStart,
+    handlePaneResizeKey,
+    handlePaneResizeReset,
+    paneMin: PREVIEW_PANE_MIN_WIDTH,
+    paneMax: PREVIEW_PANE_MAX_WIDTH,
+  }
 }

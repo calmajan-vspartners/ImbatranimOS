@@ -61,7 +61,9 @@ import {
 import { usePreviewPaneSettings } from './store/previewPaneStore'
 import { useFileViewSettings } from './store/fileViewStore'
 import { parentOf, resultCountLabel, scopeLabel } from './lib/searchPresentation'
+import type { SelectMode } from './lib/selectionModel'
 import { useFileSearch } from './hooks/useFileSearch'
+import { useFileVerbKeys } from './hooks/useFileVerbKeys'
 import { useFileSelection } from './hooks/useFileSelection'
 import { useFileClipboard } from './hooks/useFileClipboard'
 import { useDeleteFlow } from './hooks/useDeleteFlow'
@@ -174,8 +176,16 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
   const view = useFileViewSettings()
 
   const previewPane = usePreviewPaneSettings()
-  const { containerRef, resizing, previewPaneVisible, handlePaneResizeStart } =
-    usePaneResize(previewPane)
+  const {
+    containerRef,
+    resizing,
+    previewPaneVisible,
+    handlePaneResizeStart,
+    handlePaneResizeKey,
+    handlePaneResizeReset,
+    paneMin,
+    paneMax,
+  } = usePaneResize(previewPane)
 
   const dirQuery = useDirectoryQuery(root, path)
   const createDirMutation = useCreateDirectoryMutation(root, path)
@@ -403,6 +413,29 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
     }
   }
 
+  /**
+   * Which entries a row verb acts on: the whole selection when the clicked row
+   * is part of a multi-selection, otherwise just that row. The `onCompress`
+   * precedent — a menu item that silently acted on one of five selected files
+   * would be a trap, and Ctrl+C has exactly the same problem.
+   */
+  /**
+   * A row click, with the mode the modifiers asked for. The ordered paths go
+   * in because a range is only meaningful against the order on screen — the
+   * filtered, sorted `orderedEntries`, never the raw query data.
+   */
+  function selectRow(entryPath: string, mode: SelectMode) {
+    selection.select(
+      entryPath,
+      mode,
+      orderedEntries.map((en) => en.path)
+    )
+  }
+
+  function verbTargets(entry: FsEntry): FsEntry[] {
+    return selected.has(entry.path) && selectedEntries.length > 1 ? selectedEntries : [entry]
+  }
+
   function openEntryMenu(entry: FsEntry, e: React.MouseEvent) {
     setMenu({ x: e.clientX, y: e.clientY, entry })
   }
@@ -426,8 +459,13 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
         onOpenWith: (entry: FsEntry) => setOpenWithFor(entry),
         onDownload: (entry) => triggerDownload(system.fs.downloadUrl(root, entry.path), entry.name),
         onRename: handleRename,
-        onCopy: clipboard.copy,
-        onCut: clipboard.cut,
+        onCopy: (entry) => clipboard.copy(verbTargets(entry)),
+        onCut: (entry) => clipboard.cut(verbTargets(entry)),
+        // Read from the `selected` SET, not from `verbTargets`: this runs during
+        // render, and `selectedEntries` is derived further down the body — calling
+        // through to it here threw a TDZ error the instant the menu opened, which
+        // is a crash you only see with the menu on screen.
+        verbCount: menu.entry && selected.has(menu.entry.path) ? Math.max(1, selected.size) : 1,
         onDelete: deleteFlow.requestSingle,
         onNewFile: () => void handleNewFile(),
         onNewFolder: () => setShowNewFolder(true),
@@ -490,6 +528,14 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
   const orderedEntries = sortEntries(visibleEntries, view.sort.key, view.sort.dir)
   const selectedEntries = orderedEntries.filter((e) => selected.has(e.path))
   const hiddenCount = entries.length - visibleEntries.length
+
+  // One name for one entry, a count for many — the clipboard went multi-entry
+  // in brief 111 and both the toolbar badge and the status bar read from here.
+  const clipboardLabel = clipboard.clipboard
+    ? clipboard.clipboard.entries.length === 1
+      ? clipboard.clipboard.entries[0].name
+      : `${clipboard.clipboard.entries.length} items`
+    : ''
 
   // ── Search (brief 112) ──────────────────────────────────────────────────────
   const searchActive = query.trim().length > 0
@@ -625,12 +671,57 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
     renamingPath,
     onOpen: handleOpen,
     setSelected,
+    selectRange: selection.selectRange,
+    setAnchor: selection.setAnchor,
+    getCursor: selection.getCursor,
     // The nav hook speaks in ENTRY indices; the virtualizer in Icons mode counts
     // rows. This is the one place that conversion happens.
     scrollToIndex: (index) =>
       rowVirtualizer.scrollToIndex(isIcons ? Math.floor(index / columns) : index),
     columns,
   })
+
+  /**
+   * Every modal this app can put up. The verb keys must be inert while any of
+   * them is open: the kit's dialogs portal to `document.body`, so a Delete
+   * pressed with a confirm button focused would otherwise queue a *second*
+   * delete behind the one being confirmed.
+   */
+  const modalOpen =
+    showNewFolder ||
+    trashOpen ||
+    openWithFor !== null ||
+    propsEntry !== null ||
+    deleteFlow.dialogOpen
+
+  const { handleVerbKeyDown } = useFileVerbKeys({
+    orderedEntries,
+    selectedEntries,
+    renamingPath,
+    modalOpen,
+    menuOpen: menu !== null,
+    onRename: handleRename,
+    onDelete: (permanent) => {
+      // One selected row goes through the single flow so the dialog names the
+      // file; several go through the batch flow, exactly as the toolbar does.
+      if (selectedEntries.length === 1) deleteFlow.requestSingle(selectedEntries[0], permanent)
+      else deleteFlow.requestBatch(permanent)
+    },
+    onCopy: clipboard.copy,
+    onCut: clipboard.cut,
+    onPaste: () => void clipboard.paste(),
+    onSelectAll: selection.selectAll,
+    onOpenMenu: (entry, point) => setMenu({ x: point.x, y: point.y, entry }),
+    scrollToIndex: (index) =>
+      rowVirtualizer.scrollToIndex(isIcons ? Math.floor(index / columns) : index),
+    listRef: listContainerRef,
+  })
+
+  /** Arrows and Enter first, then the verbs — neither claims the other's keys. */
+  function handleListKeys(e: React.KeyboardEvent) {
+    handleListKeyDown(e)
+    if (!e.defaultPrevented) handleVerbKeyDown(e)
+  }
 
   /**
    * Ctrl+H toggles hidden files, from anywhere inside this window.
@@ -712,8 +803,7 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
             <Clipboard size={12} />
             Paste{' '}
             <span className="text-on-surface-variant">
-              ({clipboard.clipboard.mode === 'cut' ? 'move' : 'copy'}:{' '}
-              {clipboard.clipboard.entry.name})
+              ({clipboard.clipboard.mode === 'cut' ? 'move' : 'copy'}: {clipboardLabel})
             </span>
           </Button>
         )}
@@ -800,6 +890,10 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
             variant={previewPane.open ? 'primary' : 'ghost'}
             size="sm"
             className="h-5 w-5 p-0"
+            // The other two toolbar toggles already name themselves; this one
+            // was an unlabelled icon, which reads as "button" to a screen reader.
+            aria-label="Show preview pane"
+            aria-pressed={previewPane.open}
             onClick={previewPane.toggle}
           >
             {previewPane.open ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
@@ -906,7 +1000,7 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
                   ref={attachListContainer}
                   onClick={selection.clear}
                   onContextMenu={openBackgroundMenu}
-                  onKeyDown={handleListKeyDown}
+                  onKeyDown={handleListKeys}
                   tabIndex={0}
                   className="min-h-full outline-none"
                 >
@@ -928,7 +1022,7 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
                       virtualizer={rowVirtualizer}
                       columns={columns}
                       selected={selected}
-                      onSelect={selection.select}
+                      onSelect={selectRow}
                       onOpen={handleOpen}
                       onContextMenu={openEntryMenu}
                       renamingPath={renamingPath}
@@ -949,11 +1043,11 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
                       virtualizer={rowVirtualizer}
                       root={root}
                       selected={selected}
-                      onSelect={selection.select}
+                      onSelect={selectRow}
                       onOpen={handleOpen}
                       onRename={handleRename}
-                      onCopy={clipboard.copy}
-                      onCut={clipboard.cut}
+                      onCopy={(entry) => clipboard.copy(verbTargets(entry))}
+                      onCut={(entry) => clipboard.cut(verbTargets(entry))}
                       onDelete={deleteFlow.requestSingle}
                       onContextMenu={openEntryMenu}
                       renamingPath={renamingPath}
@@ -974,8 +1068,22 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
           <>
             <div
               onMouseDown={handlePaneResizeStart}
+              onDoubleClick={handlePaneResizeReset}
+              onKeyDown={handlePaneResizeKey}
+              // The same widget markdown-editor's SplitDivider already ships:
+              // a real separator with a value the screen reader can read and
+              // arrows that move it. This app had a bare onMouseDown div, which
+              // is the mouse-only half of the same control (ui-conventions §41).
+              role="separator"
+              tabIndex={0}
+              aria-orientation="vertical"
+              aria-label="Resize the preview pane"
+              aria-valuemin={paneMin}
+              aria-valuemax={paneMax}
+              aria-valuenow={previewPane.width}
               className={cn(
                 'bg-outline-variant hover:bg-primary w-1 shrink-0 cursor-col-resize transition-colors',
+                'focus-visible:bg-primary focus-visible:w-1.5 focus-visible:outline-none',
                 resizing && 'bg-primary'
               )}
             />
@@ -1008,8 +1116,7 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
             `${entries.length} item${entries.length !== 1 ? 's' : ''}`
           )}
           {!searchActive && selected.size > 0 && ` · ${selected.size} selected`}
-          {clipboard.clipboard &&
-            ` · Clipboard: ${clipboard.clipboard.entry.name} (${clipboard.clipboard.mode})`}
+          {clipboard.clipboard && ` · Clipboard: ${clipboardLabel} (${clipboard.clipboard.mode})`}
         </span>
       </div>
 

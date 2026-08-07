@@ -1,6 +1,63 @@
 # Brief 111 — File Manager keyboard parity: every verb without the mouse
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** Every verb the right-click menu had is now on
+> the keyboard, bound on the list wrapper that already hosts the arrow keys —
+> not on the window. That scope is the point: the kit's dialogs portal to
+> `document.body`, so a window-level listener would still hear Delete while a
+> confirm dialog's button has focus and act on a list the user cannot see.
+>
+> F2 renames the sole selection; Delete and Shift+Delete ride the existing
+> `useDeleteFlow` (`requestSingle` for one row so the dialog names the file,
+> `requestBatch` for several — the toolbar's own split), so the Trash-vs-
+> permanent copy still matches what actually happens and `notes` still gets
+> confirm-then-permanent. Ctrl+C/X/V/A work, and the clipboard went multi-entry
+> to make Ctrl+C on five files mean five files: `pasteMoves` + `Promise.allSettled`
+> + honest "2 of 3" reporting, and the M3 cut-clears-only-after-success contract
+> extended to a batch — a partly-failed cut keeps exactly the entries that did
+> not move, so it is still there to retry. Pasting into the folder the entries
+> came from says so instead of firing requests that cannot mean anything. The
+> context menu's Copy/Cut take the whole selection and say so ("Copy 3 items"),
+> the `onCompress` precedent.
+>
+> Shift-click and Shift+Arrow extend a range. Two pieces of transient state make
+> that work, both refs in `useFileSelection` rather than in `FileManager` as the
+> brief proposed: an **anchor** (where the range starts — it must not move on a
+> range, or Shift+Down×5 then Shift+Up×3 drags a window instead of shrinking),
+> and a **cursor** (where the next arrow moves from). Keeping them beside the
+> selection is not cosmetic: `clear()` has to reset both and is called from four
+> places, and an anchor one level up can outlive the row it points at. The
+> cursor was not in the brief at all and the probe found why it has to exist —
+> deriving "current row" from the selection gets Shift+Up-after-Shift+Down
+> wrong, walking off the *start* of the range instead of pulling its end back.
+>
+> Shift+F10 and the menu key open the menu anchored to the selected row's rect
+> (scrolled into view through the virtualizer first, since an off-screen row is
+> unmounted and has no rect), falling back to the pane's corner rather than
+> 0,0. The splitter became the `role="separator"` markdown-editor's SplitDivider
+> already is: `aria-valuemin/max/now` against the store's real 220/480 clamp,
+> arrows nudge (Shift coarse), Home recentres, double-click resets. The preview
+> toggle also gained the `aria-label` its two neighbours already had.
+>
+> **A crash this brief introduced and the probe caught:** `verbCount` called
+> `verbTargets()` during render, and `verbTargets` reads `selectedEntries`,
+> which is derived ~50 lines further down the component — a TDZ throw that only
+> fires the instant a context menu opens. It reads from the `selected` Set now.
+> Nothing but opening the menu in a browser would have found it: types, lint and
+> every unit test were green.
+>
+> Verified: turbo 120/120 (36 new unit tests across `selectionModel`, `verbKeys`
+> and `pasteBatch` — range maths both directions and with a vanished anchor,
+> every verb key plus every key that is deliberately *not* ours, and inertness
+> proven for all eight verbs across rename / modal / open-menu / text-field),
+> backend 443 + 141 e2e untouched, and a 27-check browser probe on the
+> production bundle: shift-click range and its shrink, Shift+Arrow both ways,
+> Ctrl+A, F2 with Delete inert mid-rename, a two-file Ctrl+C/Ctrl+V, a cut that
+> clears only after landing, both delete dialogs with the right words, the menu
+> key anchored on the row, "Copy 2 items", the separator's `aria-valuenow`
+> tracking arrows and Home, Delete inert behind the New Folder dialog, and both
+> new rows in the ? overlay. Console clean.
+
+Status: **done** · From the 2026-08-07 research sweep. MEDIUM ·
 `file-manager` only, plus two documented-shortcut rows in core `App.tsx`
 (the brief-86 registry — no protocol change, `packages/ui/src/system.ts`
 untouched). No backend, no new store, no dotfile. Interacts with brief 105

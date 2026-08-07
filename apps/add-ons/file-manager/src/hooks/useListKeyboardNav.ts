@@ -7,6 +7,12 @@ type UseListKeyboardNavArgs = {
   renamingPath: string | null
   onOpen: (entry: FsEntry) => void
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>
+  /** Extend the selection from the anchor to a path (Shift+Arrow, brief 111). */
+  selectRange: (orderedPaths: string[], toPath: string) => void
+  /** Move the range anchor without changing the selection (plain arrows). */
+  setAnchor: (entryPath: string | null) => void
+  /** The row the last click/arrow landed on — where this arrow moves FROM. */
+  getCursor: () => string | null
   /**
    * Brings a row into view by index. Must go through the virtualizer: a row
    * scrolled out of the window is unmounted, so a DOM `scrollIntoView` would
@@ -39,6 +45,9 @@ export function useListKeyboardNav({
   renamingPath,
   onOpen,
   setSelected,
+  selectRange,
+  setAnchor,
+  getCursor,
   scrollToIndex,
   columns = 1,
 }: UseListKeyboardNavArgs) {
@@ -63,13 +72,24 @@ export function useListKeyboardNav({
       }
 
       e.preventDefault()
-      const currentPath = selectedEntries.length === 1 ? selectedEntries[0].path : null
+      // Move from the CURSOR, not from the selection. With a range selected
+      // there is no single current row, and picking an end of the range by the
+      // direction of travel gets Shift+Up-after-Shift+Down wrong: it walks off
+      // the start of the range instead of pulling its end back.
+      const forwardKey = e.key === 'ArrowDown' || e.key === 'ArrowRight'
+      const cursor = getCursor()
+      const currentPath =
+        cursor !== null && orderedEntries.some((en) => en.path === cursor)
+          ? cursor
+          : selectedEntries.length === 1
+            ? selectedEntries[0].path
+            : null
       const currentIndex = currentPath
         ? orderedEntries.findIndex((en) => en.path === currentPath)
         : -1
       const last = orderedEntries.length - 1
       const step = vertical ? columns : 1
-      const forward = e.key === 'ArrowDown' || e.key === 'ArrowRight'
+      const forward = forwardKey
       let nextIndex: number
       if (currentIndex === -1) {
         nextIndex = forward ? 0 : last
@@ -80,10 +100,31 @@ export function useListKeyboardNav({
         nextIndex = Math.min(last, Math.max(0, currentIndex + (forward ? step : -step)))
       }
       const next = orderedEntries[nextIndex]
-      setSelected(new Set([next.path]))
+      if (e.shiftKey) {
+        // The anchor stays where it was, so the range grows and shrinks around
+        // it instead of dragging a one-row window down the list.
+        selectRange(
+          orderedEntries.map((en) => en.path),
+          next.path
+        )
+      } else {
+        setSelected(new Set([next.path]))
+        setAnchor(next.path)
+      }
       scrollToIndex(nextIndex)
     },
-    [orderedEntries, selectedEntries, renamingPath, onOpen, setSelected, scrollToIndex, columns]
+    [
+      orderedEntries,
+      selectedEntries,
+      renamingPath,
+      onOpen,
+      setSelected,
+      selectRange,
+      setAnchor,
+      getCursor,
+      scrollToIndex,
+      columns,
+    ]
   )
 
   return { handleListKeyDown }

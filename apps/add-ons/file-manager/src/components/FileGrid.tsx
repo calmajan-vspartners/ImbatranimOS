@@ -2,6 +2,7 @@ import { Folder } from 'lucide-react'
 import { cn } from '@imbatranim/ui'
 import type { VirtualList } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
+import { modeFromEvent, type SelectMode } from '../lib/selectionModel'
 import { TILE_HEIGHT, TILE_WIDTH } from '../lib/fileSort'
 import { getFileIcon } from '../lib/entryPresentation'
 
@@ -16,7 +17,8 @@ type FileGridProps = {
   virtualizer: VirtualList<HTMLElement>
   columns: number
   selected: Set<string>
-  onSelect: (path: string, multi: boolean) => void
+  /** `mode` comes from the modifiers — see lib/selectionModel. */
+  onSelect: (path: string, mode: SelectMode) => void
   onOpen: (entry: FsEntry) => void
   onContextMenu?: (entry: FsEntry, e: React.MouseEvent) => void
   renamingPath: string | null
@@ -96,14 +98,14 @@ export function FileGrid({
                     // the background container's "clear selection" handler runs in
                     // the same tick and undoes the select.
                     e.stopPropagation()
-                    onSelect(entry.path, e.ctrlKey || e.metaKey)
+                    onSelect(entry.path, modeFromEvent(e))
                   }}
                   onDoubleClick={() => onOpen(entry)}
                   onContextMenu={(e) => {
                     if (!onContextMenu) return
                     e.preventDefault()
                     e.stopPropagation()
-                    if (!selected.has(entry.path)) onSelect(entry.path, false)
+                    if (!selected.has(entry.path)) onSelect(entry.path, 'replace')
                     onContextMenu(entry, e)
                   }}
                   className={cn(

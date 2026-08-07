@@ -4,6 +4,7 @@ import { Tooltip } from '@imbatranim/ui'
 import { Button } from '@imbatranim/ui'
 import type { VirtualList } from '@imbatranim/ui'
 import type { FsEntry } from '../types'
+import { modeFromEvent, type SelectMode } from '../lib/selectionModel'
 import { ariaSort, SORT_LABELS, type SortDir, type SortKey } from '../lib/fileSort'
 import { formatSize, getFileIcon } from '../lib/entryPresentation'
 import dayjs from 'dayjs'
@@ -22,7 +23,8 @@ type FileListProps = {
   virtualizer: VirtualList<HTMLElement>
   root: string
   selected: Set<string>
-  onSelect: (path: string, multi: boolean) => void
+  /** `mode` comes from the modifiers — see lib/selectionModel. */
+  onSelect: (path: string, mode: SelectMode) => void
   onOpen: (entry: FsEntry) => void
   onRename: (entry: FsEntry) => void
   onCopy: (entry: FsEntry) => void
@@ -114,7 +116,7 @@ export function FileList({
                 // "clear selection" handler — otherwise every row click
                 // selects then immediately deselects in the same tick.
                 e.stopPropagation()
-                onSelect(entry.path, e.ctrlKey || e.metaKey)
+                onSelect(entry.path, modeFromEvent(e))
               }}
               onDoubleClick={() => onOpen(entry)}
               onContextMenu={(e) => {
@@ -127,7 +129,7 @@ export function FileList({
                 // Paste) and its Rename / Copy / Cut / Delete items were
                 // unreachable despite being implemented.
                 e.stopPropagation()
-                if (!selected.has(entry.path)) onSelect(entry.path, false)
+                if (!selected.has(entry.path)) onSelect(entry.path, 'replace')
                 onContextMenu(entry, e)
               }}
               className={cn(

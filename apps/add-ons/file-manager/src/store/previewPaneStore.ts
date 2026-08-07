@@ -15,7 +15,10 @@ const STORAGE_KEY = 'imbatranim:file-manager:preview-pane'
 export const PREVIEW_PANE_MIN_WIDTH = 220
 export const PREVIEW_PANE_MAX_WIDTH = 480
 
-const DEFAULT_SETTINGS: PreviewPaneSettings = { open: false, width: 280 }
+/** Where Home (and a double-click on the splitter) puts the pane back. */
+export const PREVIEW_PANE_DEFAULT_WIDTH = 280
+
+const DEFAULT_SETTINGS: PreviewPaneSettings = { open: false, width: PREVIEW_PANE_DEFAULT_WIDTH }
 
 function clampWidth(width: number): number {
   return Math.min(PREVIEW_PANE_MAX_WIDTH, Math.max(PREVIEW_PANE_MIN_WIDTH, width))

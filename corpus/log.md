@@ -3623,3 +3623,40 @@ association registry, Esc restoring the listing byte-for-byte, content mode
 waiting for Enter, Ctrl+F from both the listing and inside the box, the palette
 unchanged, console clean — plus a `FILES_SEARCH_MAX_RESULTS=2` run proving the
 truncation banner the palette drops on the floor.
+
+## 2026-08-07 — Brief 111: the file manager grows a keyboard
+
+Every verb in the flagship app was right-click-only, and the menu itself had no
+keyboard route into it. F2, Delete, Shift+Delete, Ctrl+C/X/V/A, Shift+F10 and
+the menu key are all bound now — on the list wrapper that already hosts the
+arrow keys, never on the window, because the kit's dialogs portal to body and a
+window-level Delete would fire while a confirm dialog has focus.
+
+The clipboard had to go multi-entry to make Ctrl+C honest: copying five
+selected files and silently taking one is a trap. It pastes with
+`Promise.allSettled`, reports "2 of 3" rather than all-or-nothing, and extends
+the old cut-clears-only-after-success rule to a batch by keeping exactly the
+entries that failed.
+
+Range selection needed two refs, not one. The anchor is obvious. The **cursor**
+— where the next arrow moves from — is not, and the browser probe is what
+proved it: with a range on screen there is no single "current row", and picking
+an end of the range by direction of travel makes Shift+Up after Shift+Down walk
+off the *start* of the range instead of pulling its end back. Both live beside
+the selection rather than one level up, because `clear()` must reset them and
+`clear()` is called from four places.
+
+The probe also caught a crash this brief introduced: the new `verbCount` called
+a helper that reads `selectedEntries`, which is derived fifty lines further down
+the component — a temporal-dead-zone throw that fires only at the instant a
+context menu opens. Types, lint and 36 new unit tests were all green. Opening
+the menu in a real browser is the only thing that found it, which is the whole
+argument for the verify bar.
+
+Verified: turbo 120/120, backend 443 + 141 untouched, 36 new pure tests
+(range maths in both directions and with a vanished anchor; every verb key and
+every key that is deliberately not ours; inertness for all eight verbs across
+rename, modal, open-menu and text-field), and a 27-check browser probe covering
+ranges, F2, both delete dialogs, a two-file copy-paste, a cut that clears only
+after landing, the row-anchored menu key, "Copy 2 items", and a splitter that is
+finally the same `role="separator"` markdown-editor has always had.

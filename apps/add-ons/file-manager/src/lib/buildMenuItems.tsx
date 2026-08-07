@@ -32,6 +32,13 @@ export type BuildMenuItemsCtx = {
   assoc: Associations
   /** Whether the clipboard holds something (gates the Paste item). */
   hasClipboard: boolean
+  /**
+   * How many entries the row verbs will act on (brief 111): 1 for a lone row,
+   * the selection size when the clicked row is part of a multi-selection. The
+   * labels say so — "Copy 3 items" — because a Copy that silently takes four
+   * more files than the one you right-clicked is a trap.
+   */
+  verbCount?: number
   onOpen: (entry: FsEntry) => void
   onDownload: (entry: FsEntry) => void
   onRename: (entry: FsEntry) => void
@@ -83,6 +90,7 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
     onRename,
     onCopy,
     onCut,
+    verbCount = 1,
     onDelete,
     onNewFile,
     onNewFolder,
@@ -209,12 +217,12 @@ export function buildMenuItems(ctx: BuildMenuItemsCtx): ContextMenuItem[] {
       onSelect: () => onRename(entry),
     },
     {
-      label: 'Copy',
+      label: verbCount > 1 ? `Copy ${verbCount} items` : 'Copy',
       icon: <Copy size={13} />,
       onSelect: () => onCopy(entry),
     },
     {
-      label: 'Cut',
+      label: verbCount > 1 ? `Cut ${verbCount} items` : 'Cut',
       icon: <Scissors size={13} />,
       onSelect: () => onCut(entry),
     },

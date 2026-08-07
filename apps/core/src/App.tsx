@@ -73,6 +73,24 @@ export default function App() {
       note: 'Only while the Markdown Editor text area has focus',
     },
     {
+      id: 'files.verbs',
+      keys: 'f2 · del · mod+c/x/v/a',
+      description: 'Rename, delete, copy, cut, paste and select all, in File Manager',
+      scope: 'Editing',
+      // Bound on the file list itself, alongside the arrow keys, so they act on
+      // the list the user is looking at and go inert while a rename or a dialog
+      // owns the keyboard. Shift+Delete skips the Trash; Shift+F10 or the menu
+      // key opens the context menu on the selected row.
+      note: 'Only while the File Manager file list has focus',
+    },
+    {
+      id: 'files.range-select',
+      keys: 'shift+click · shift+arrows',
+      description: 'Extend the selection to a range, in File Manager',
+      scope: 'Editing',
+      note: 'Only while the File Manager file list has focus',
+    },
+    {
       id: 'files.search',
       keys: 'mod+f',
       description: 'Search the current folder, in File Manager',
