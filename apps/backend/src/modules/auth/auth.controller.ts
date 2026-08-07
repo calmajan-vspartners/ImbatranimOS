@@ -111,7 +111,24 @@ export class AuthController {
     }
 
     this.throttle.reset(key);
-    this.issueSessionCookie(req, res);
+    // Unlocking over a still-valid session renews it in place instead of
+    // minting a sibling row (brief 101): the terminal's WS captured this
+    // cookie at upgrade, and a fresh token every lock/unlock cycle would
+    // strand that shell for the revoke sweep to reap.
+    const existingRaw = readSessionCookie(req);
+    const existing = existingRaw ? this.sessions.validate(existingRaw) : null;
+    if (existingRaw && existing) {
+      const renewed = this.sessions.renewIfDue(existing, existingRaw);
+      res.cookie(SESSION_COOKIE_NAME, existingRaw, {
+        httpOnly: true,
+        secure: this.isSecureRequest(req),
+        sameSite: 'lax',
+        path: '/',
+        maxAge: renewed?.maxAgeMs ?? existing.expires_at - Date.now(),
+      });
+    } else {
+      this.issueSessionCookie(req, res);
+    }
     this.logs.audit('auth.login.ok', 'Signed in', { ip: key });
     return { ok: true };
   }

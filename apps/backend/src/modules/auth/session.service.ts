@@ -81,6 +81,40 @@ export class SessionService implements OnModuleInit {
     return raw ? this.validate(raw) : null;
   }
 
+  /**
+   * Slide the session forward if the extension is worth a write (brief 101).
+   *
+   * Called by the HTTP guard ONLY, with a row `validate` just returned. New
+   * expiry is min(now + TTL, created_at + ABSOLUTE_MAX) — the cap is what
+   * keeps a stolen cookie from living forever. Gains under an hour are
+   * skipped, which self-throttles the write to at most once an hour per
+   * session. Returns the cookie's new maxAge when it slid, null otherwise.
+   *
+   * Deliberately NOT part of `validate`: the pty revoke sweep validates every
+   * live terminal's cookie every 30 s, and renewal there would let any open
+   * terminal immortalize its own session.
+   */
+  renewIfDue(
+    session: SessionRecord,
+    rawToken: string,
+  ): { maxAgeMs: number } | null {
+    const now = Date.now();
+    const ttlMs = this.config.get('SESSION_TTL_HOURS') * 3600_000;
+    // Clamp rather than reject a mis-set env: a ceiling below the TTL would
+    // otherwise issue sessions that are born partially expired.
+    const capMs =
+      Math.max(
+        this.config.get('SESSION_ABSOLUTE_MAX_HOURS'),
+        this.config.get('SESSION_TTL_HOURS'),
+      ) * 3600_000;
+    const next = Math.min(now + ttlMs, session.created_at + capMs);
+    if (next - session.expires_at < 3600_000) return null;
+    this.db.db
+      .prepare('UPDATE auth_sessions SET expires_at = ? WHERE token_hash = ?')
+      .run(next, hashToken(rawToken));
+    return { maxAgeMs: next - now };
+  }
+
   /** Revoke a single session (logout). */
   destroy(rawToken: string): void {
     this.db.db

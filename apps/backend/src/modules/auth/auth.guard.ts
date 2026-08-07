@@ -7,10 +7,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import type { Env } from '../../config/env.schema';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import { SessionService } from './session.service';
+import { SessionService, type SessionRecord } from './session.service';
+import { SESSION_COOKIE_NAME, readSessionCookie } from './auth.constants';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -46,7 +47,34 @@ export class SessionAuthGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
     req.session = session;
+    this.slideSession(ctx, req, session);
     return true;
+  }
+
+  /**
+   * Sliding expiry (brief 101): daily use should never hard-expire a session
+   * mid-keystroke. The server-side slide alone would be theater — the cookie's
+   * Max-Age was fixed at login and the browser drops it on schedule — so a
+   * renewal re-issues the same token with the new Max-Age. renewIfDue skips
+   * sub-hour gains, so this writes (and sets a cookie) at most hourly.
+   */
+  private slideSession(
+    ctx: ExecutionContext,
+    req: Request,
+    session: SessionRecord,
+  ): void {
+    const raw = readSessionCookie(req);
+    if (!raw) return;
+    const renewed = this.sessions.renewIfDue(session, raw);
+    if (!renewed) return;
+    const res = ctx.switchToHttp().getResponse<Response>();
+    res.cookie(SESSION_COOKIE_NAME, raw, {
+      httpOnly: true,
+      secure: this.config.get('COOKIE_SECURE') || req.secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: renewed.maxAgeMs,
+    });
   }
 
   /**

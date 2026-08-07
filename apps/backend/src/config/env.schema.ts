@@ -30,8 +30,15 @@ export const envSchema = z.object({
   // (needed for correct rate-limit keying and secure-cookie behaviour behind
   // Caddy/nginx). Keep false when exposed directly.
   TRUST_PROXY: envBool(false),
-  // Session lifetime; sliding — validation refreshes last_seen but not expiry.
+  // Session lifetime. Sliding (brief 101): the HTTP guard extends expiry on
+  // authed activity, capped by SESSION_ABSOLUTE_MAX_HOURS below. Plain
+  // validation (the pty sweep, WS upgrades) never renews — see
+  // SessionService.renewIfDue for why that separation is load-bearing.
   SESSION_TTL_HOURS: z.coerce.number().default(168), // 7 days
+  // Hard ceiling on any one session, measured from login. Sliding without a
+  // cap means a stolen cookie never expires. Values below SESSION_TTL_HOURS
+  // are clamped up to it at use time rather than rejected here.
+  SESSION_ABSOLUTE_MAX_HOURS: z.coerce.number().default(720), // 30 days
   // --- First-run claim protection (Brief 28) -----------------------------
   // Set to a random secret (printed to your deploy logs / passed to the
   // operator) to require it at first-run setup; leave unset for trusted

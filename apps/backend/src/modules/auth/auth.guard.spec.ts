@@ -10,9 +10,12 @@ import { DbService } from '../../db/db.service';
 import { SESSION_COOKIE_NAME } from './auth.constants';
 import { makeConfig, makeTestDb } from './test-utils';
 
-function ctxFor(req: unknown): ExecutionContext {
+function ctxFor(
+  req: unknown,
+  res: unknown = { cookie: () => undefined },
+): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => req }),
+    switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
     getHandler: () => () => undefined,
     getClass: () => class {},
   } as unknown as ExecutionContext;
@@ -53,6 +56,52 @@ describe('SessionAuthGuard', () => {
     expect(guard.canActivate(ctxFor({ method: 'POST', headers: {} }))).toBe(
       true,
     );
+  });
+
+  describe('sliding expiry re-issues the cookie (brief 101)', () => {
+    const HOUR = 3600_000;
+
+    it('sets the cookie with the new maxAge when the session slid', () => {
+      const { token } = sessions.issue();
+      // Age it past the 1h write threshold so the guard's renew fires.
+      db.db
+        .prepare('UPDATE auth_sessions SET expires_at = expires_at - ?')
+        .run(2 * HOUR);
+      const set: unknown[][] = [];
+      const res = { cookie: (...args: unknown[]) => set.push(args) };
+      const req = {
+        method: 'GET',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=${token}` },
+        secure: false,
+      };
+      expect(guard.canActivate(ctxFor(req, res))).toBe(true);
+      expect(set).toHaveLength(1);
+      const [name, value, opts] = set[0] as [
+        string,
+        string,
+        { maxAge: number; httpOnly: boolean; sameSite: string },
+      ];
+      // Same token, fresh Max-Age: without the re-issue the browser drops the
+      // cookie at the ORIGINAL TTL and the server-side slide is theater.
+      expect(name).toBe(SESSION_COOKIE_NAME);
+      expect(value).toBe(token);
+      expect(opts.httpOnly).toBe(true);
+      expect(opts.sameSite).toBe('lax');
+      expect(opts.maxAge).toBeGreaterThan(167 * HOUR);
+    });
+
+    it('sets no cookie when the slide would gain under an hour', () => {
+      const { token } = sessions.issue();
+      const set: unknown[][] = [];
+      const res = { cookie: (...args: unknown[]) => set.push(args) };
+      const req = {
+        method: 'GET',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=${token}` },
+        secure: false,
+      };
+      expect(guard.canActivate(ctxFor(req, res))).toBe(true);
+      expect(set).toHaveLength(0);
+    });
   });
 
   it('attaches the validated session to the request', () => {

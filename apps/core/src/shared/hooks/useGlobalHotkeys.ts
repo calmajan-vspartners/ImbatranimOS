@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { isTextEntry } from './shortcutRegistry'
+import { isShellSuspended } from '../../modules/auth/store/authStore'
 
 /**
  * Maps a key string like "mod+k", "esc", "alt+tab", "mod+`", "mod+w", "mod+m"
@@ -96,6 +97,9 @@ export function useGlobalHotkeys(bindings: HotkeyBinding): void {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // A covered screen eats no keys (brief 101): the desktop stays mounted
+      // beneath the lock overlay, and typing a password must not fire mod+K.
+      if (isShellSuspended()) return
       for (const [bindingStr, handler] of Object.entries(bindingsRef.current)) {
         const parsed = parseBinding(bindingStr)
         if (!eventMatchesBinding(e, parsed)) continue

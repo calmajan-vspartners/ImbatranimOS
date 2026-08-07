@@ -144,6 +144,9 @@ export class PtyGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * keep a shell alive.
    */
   private sweepRevoked(): void {
+    // `validate` deliberately never renews expiry (brief 101): this sweep runs
+    // every 30 s per live terminal, and a renewing validate here would let any
+    // open shell immortalize its own session. Only the HTTP guard slides.
     for (const entry of this.live) {
       if (!entry.rawToken || !this.sessions.validate(entry.rawToken)) {
         entry.session.dispose(4401, 'session-revoked');

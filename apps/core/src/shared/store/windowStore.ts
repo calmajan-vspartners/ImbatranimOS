@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isShellSuspended } from '../../modules/auth/store/authStore'
 import { v4 as uuidv4 } from 'uuid'
 import { useIntentStore } from './intentStore'
 
@@ -333,6 +334,10 @@ type WindowStore = {
  * the focused window was minimized).
  */
 export function topVisibleWindowId(): string | null {
+  // Behind the lock overlay no window is focused (brief 101): this is the one
+  // gate that silences every app-side useSaveHotkey/useTopWindowKeydown, since
+  // they all check system.window.isFocused() at keydown time.
+  if (isShellSuspended()) return null
   const { windows, activeWorkspace } = useWindowStore.getState()
   let top: WindowInstance | null = null
   for (const w of windows) {

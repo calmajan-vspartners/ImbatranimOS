@@ -3308,3 +3308,23 @@ The sweep + authoring ran as two agent fan-outs (~1.7M tokens); the second hit
 the session usage cap after 5 of 11 authors finished, which is why 114-136 are
 rows without files. The five explorers' corrections are folded into the briefs
 they touched.
+
+## 2026-08-07 — Brief 101: lock keeps the desktop, sessions slide
+
+[Brief 101](briefs/done/101-lock-keeps-the-desktop.md) **DONE** — the first of
+the new backlog. Locking (idle or Start menu) and session loss are now an
+opaque overlay over a still-mounted desktop (`visibility:hidden` + `inert` +
+`aria-hidden`, behind an `everAuthenticated` per-tab latch): PTY sockets stay
+open, dirty buffers survive, and typing at the password field reaches no app —
+keyboard gated at exactly three chokepoints via `isShellSuspended()`, with
+`topVisibleWindowId()` returning null to silence every app-side save/keydown
+hook at once. Explicit log off clears the window store and the per-tab layout,
+staying the honest teardown contrast. Backend: sliding expiry as a guard-only
+`renewIfDue` (min(now+TTL, created_at+`SESSION_ABSOLUTE_MAX_HOURS`, default
+720 h); sub-hour gains skipped so it writes at most hourly) that re-issues the
+cookie Max-Age — never inside `validate()`, so the 30 s pty revoke sweep can't
+immortalize sessions; login over a still-valid session renews in place so the
+terminal's upgrade-time cookie survives lock/unlock. Verified: 7 new unit
+tests (auth suites 53; e2e 141; turbo 119/119) and a 10/10 Playwright probe on
+the production bundle — same shell ticked 9→20 across lock, buffers survived a
+hard 401, the reaped shell printed "Session ended", log off left nothing.

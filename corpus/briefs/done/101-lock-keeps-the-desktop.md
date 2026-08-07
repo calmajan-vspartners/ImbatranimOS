@@ -1,6 +1,29 @@
 # Brief 101 — Lock keeps the desktop: overlay lock screen + sliding session expiry
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** Built exactly as specced, all nine fix steps
+> (step 3 needed no extraction — `LockScreen` was already a standalone form
+> component both regimes could render). Lock/401 is now an opaque overlay over
+> a `visibility:hidden` + `inert` + `aria-hidden` desktop, gated behind an
+> `everAuthenticated` per-tab latch; explicit log off additionally clears the
+> window store AND the per-tab layout so it stays the honest teardown
+> contrast. Keyboard gated at exactly the three chokepoints via one
+> `isShellSuspended()` helper (windowStore's `topVisibleWindowId()` returning
+> null while suspended is what silences every app-side
+> `useSaveHotkey`/`useTopWindowKeydown`). Sliding expiry shipped as a separate
+> `renewIfDue` — never inside `validate()` (the pty-sweep immortality trap) —
+> re-issuing the cookie Max-Age from the HTTP guard, capped at
+> `created_at + SESSION_ABSOLUTE_MAX_HOURS` (default 720 h, clamped ≥ TTL);
+> login over a still-valid session renews in place so the terminal's
+> upgrade-time cookie survives lock/unlock cycles. Verified per the bar:
+> 7 new unit tests (session renewal semantics + guard Set-Cookie re-issue;
+> auth suites 53, backend e2e 141) and a 10-check Playwright probe against the
+> production bundle — same shell ticked 9→20 through lock/unlock, dirty
+> Notepad buffer survived lock AND hard 401 (overlay, no teardown), locked
+> keys reached no app, the reaped shell honestly printed "Session ended", and
+> log off left zero windows. Deferred (already out of scope): expiry-warning
+> countdown, sessions list UI (brief 125), TOTP recovery (brief 124).
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 CORE (`AuthGate.tsx`, `authStore.ts`, `LockScreen.tsx`, `useIdleLock.ts`,
 `StartMenu.tsx`, the three hotkey chokepoints) + BACKEND auth
 (`session.service.ts`, `auth.guard.ts`, `auth.controller.ts`, `env.schema.ts`,

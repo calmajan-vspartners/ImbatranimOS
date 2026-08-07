@@ -19,6 +19,7 @@ import { useAppearanceStore } from '../shared/store/appearanceStore'
 import { useIntentStore } from '../shared/store/intentStore'
 import { isTopWindow, useWindowStore } from '../shared/store/windowStore'
 import { openApp } from '../shared/intents/openApp'
+import { isShellSuspended } from '../modules/auth/store/authStore'
 import { useShortcutStore } from '../shared/hooks/shortcutRegistry'
 import { eventMatchesBinding, parseBinding } from '../shared/hooks/useGlobalHotkeys'
 import { isTextEntry } from '@imbatranim/ui'
@@ -45,6 +46,8 @@ import { requestPick } from './filePortal'
 /** Imperative twin of `useGlobalHotkeys`, same matcher, same text-entry rule. */
 function bindHotkeys(bindings: ShortcutBinding[]): () => void {
   function onKeyDown(e: KeyboardEvent) {
+    // Same rule as useGlobalHotkeys: a covered screen eats no keys (brief 101).
+    if (isShellSuspended()) return
     for (const binding of bindings) {
       const parsed = parseBinding(binding.keys)
       if (!eventMatchesBinding(e, parsed)) continue

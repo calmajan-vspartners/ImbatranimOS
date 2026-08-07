@@ -21,6 +21,7 @@ export function makeConfig(
 ): ConfigService<Env, true> {
   const values: Record<string, unknown> = {
     SESSION_TTL_HOURS: 168,
+    SESSION_ABSOLUTE_MAX_HOURS: 720,
     COOKIE_SECURE: false,
     TRUST_PROXY: false,
     FRONTEND_URL: 'http://localhost:5173',

@@ -5,6 +5,7 @@ import { cn } from '../../../lib/cn'
 import { useEnabledApps } from '../../registry/enabledApps'
 import { Logo } from '../brand/Logo'
 import { useAuthStore } from '../../../modules/auth/store/authStore'
+import { clearLayout, useWindowStore } from '../../store/windowStore'
 import { logout as logoutApi } from '../../../modules/auth/api/authApi'
 import { clearRecentFiles, useRecentFilesQuery } from '../../../lib/recentFiles'
 import { openApp } from '../../intents/openApp'
@@ -17,7 +18,8 @@ type StartMenuProps = {
 
 export function StartMenu({ onClose, onOpenApp, anchorRef }: StartMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const setAuthenticated = useAuthStore((s) => s.setAuthenticated)
+  const lock = useAuthStore((s) => s.lock)
+  const resetToLoggedOut = useAuthStore((s) => s.resetToLoggedOut)
   const enabledApps = useEnabledApps()
   // Entries for disabled apps are filtered at render (no app to show an icon
   // for, and openApp would refuse them anyway). Six is a glance, not a list.
@@ -72,19 +74,25 @@ export function StartMenu({ onClose, onOpenApp, anchorRef }: StartMenuProps) {
     }
   }
 
-  // Lock: return to the lock screen without ending the session on the client.
+  // Lock: cover the screen. The session stays valid and the desktop stays
+  // mounted beneath the overlay (brief 101) — shells and buffers survive.
   function handleLock() {
-    setAuthenticated(false)
+    lock()
     onClose()
   }
 
-  // Log off: end the session on the backend, then re-lock.
+  // Log off: end the session on the backend and tear the desktop down for
+  // real. Walking away on purpose means the screen owes you nothing — the
+  // window store AND the per-tab layout are cleared, so signing back in
+  // starts fresh (the deliberate contrast to lock).
   async function handleLogout() {
     onClose()
     try {
       await logoutApi()
     } finally {
-      setAuthenticated(false)
+      useWindowStore.setState({ windows: [] })
+      clearLayout()
+      resetToLoggedOut()
     }
   }
 
