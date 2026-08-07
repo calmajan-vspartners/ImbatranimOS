@@ -280,6 +280,9 @@ describe('Bookmarks (e2e) — the model brief 50 will consume', () => {
         .prepare('DELETE FROM bookmark_groups WHERE id = ?')
         .run(ghostParent);
 
+      // Simulate an OLD database: since brief 110 the ledger runs each
+      // step once, so replaying a historical repair resets the stamp.
+      db.db.pragma('user_version = 0');
       db.migrate();
 
       expect(
@@ -487,6 +490,9 @@ describe('Bookmarks (e2e) — the model brief 50 will consume', () => {
     });
 
     it('is idempotent', () => {
+      // Simulate an OLD database: since brief 110 the ledger runs each
+      // step once, so replaying a historical repair resets the stamp.
+      db.db.pragma('user_version = 0');
       db.migrate();
       db.migrate();
       const groupColumns = (
@@ -514,6 +520,9 @@ describe('Bookmarks (e2e) — the model brief 50 will consume', () => {
         UPDATE bookmark_links SET position = 0;
       `);
 
+      // Simulate an OLD database: since brief 110 the ledger runs each
+      // step once, so replaying a historical repair resets the stamp.
+      db.db.pragma('user_version = 0');
       db.migrate();
 
       const groups = await list();

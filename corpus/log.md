@@ -3534,3 +3534,46 @@ Verified: 5 frontend units + the backend echo test (turbo 120/120, backend 431
 applied locally while the server kept the old value, the retry landed it when
 the outage lifted, hiding the tab inside the debounce window still delivered,
 and a 401 held the batch without hammering until re-auth flushed it.
+
+## 2026-08-07 — Brief 110: the migration ledger, and Wave A closes
+
+[Brief 110](briefs/done/110-migration-ledger.md) **DONE** — `migrate()` ran
+all of history on every boot behind six bare `try/catch` blocks whose
+catch-all swallowed SQLITE_FULL, SQLITE_IOERR and SQLITE_READONLY exactly as
+it swallowed a duplicate column. A disk-full boot left the schema silently
+half-migrated, every later INSERT naming the missing column 500'd, and the
+audit filter dutifully recorded `server.error` lines pointing nowhere near the
+cause.
+
+`PRAGMA user_version` is now the ledger: six numbered steps carved out of the
+old body verbatim, each run with its stamp inside one transaction, so a
+throwing step leaves the stamp behind it and the next boot resumes exactly
+there. A current database boots on a single PRAGMA read. The historical
+catches became narrow matchers through one shared `isAlreadyApplied` helper —
+duplicate-column for the ADD COLUMNs, no-such-column for the href→url rename —
+and steps added from now on get no catch at all, because the ledger already
+guarantees once-only execution. A failure is state rather than a crash:
+throwing out of `onModuleInit` would give a restart-looping container with no
+UI and, on the kiosk ISO, no host shell to read why. Instead the flag is set,
+the reason is recorded (audit + stdout), boot continues, every API request
+answers 503 naming the failed step, and `/health` says `degraded` at HTTP 200
+so a compose healthcheck cannot flap the container and hide the message.
+
+Two findings from writing the fixtures. `chmod 444` cannot simulate a write
+failure in this container because we run as root, so the failure case
+obstructs the schema instead — a VIEW named `sticky_notes` slips past
+`CREATE TABLE IF NOT EXISTS` and fails step 2's ALTER with a plain
+SQLITE_ERROR, which is precisely the class the old catch ate. And a column
+that exists only in the baseline CREATE is never backfilled onto an older
+table, so a new column must always ship as its own step — recorded in the
+brief because it is a standing rule now, not a one-off.
+
+Verified: a new 5-case db.service spec (including an old-shape database
+migrating to a schema byte-identical to a fresh one, and a `VACUUM INTO`
+snapshot carrying the stamp so brief-80 restores stay current), turbo 120/120,
+backend 431 + 141 e2e, and a live check — an obstructed database served
+`degraded`/503 with the step named, and the real in-use dev database, a
+genuine pre-ledger version 0, converted in place on boot with its 14 tables
+unchanged.
+
+**Wave A of the 2026-08-07 backlog (101-110) is complete.**

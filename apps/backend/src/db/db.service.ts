@@ -1,14 +1,49 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Optional,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Database from 'better-sqlite3';
 import { renameSync, rmSync } from 'fs';
 import type { Env } from '../config/env.schema';
+import { LogService } from '../modules/logs/log.service';
+
+/** The only ALTER TABLE ADD COLUMN failure that means "already applied". */
+const DUPLICATE_COLUMN = /duplicate column name/i;
+/** The only RENAME COLUMN failure that means "already renamed". */
+const ALREADY_RENAMED = /no such column/i;
+
+/**
+ * Is this error the expected "that step is already in place", or a real one?
+ *
+ * The historical steps predate the ledger, so a database converting from
+ * version 0 may legitimately re-attempt them. Everything else — SQLITE_FULL,
+ * SQLITE_IOERR, SQLITE_READONLY — has to surface: a bare `catch {}` swallowed
+ * a disk-full boot exactly as it swallowed a duplicate column, and left the
+ * schema half-migrated with every later INSERT 500ing somewhere unrelated.
+ */
+function isAlreadyApplied(err: unknown, pattern: RegExp): boolean {
+  return pattern.test(err instanceof Error ? err.message : String(err));
+}
 
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
   db: Database.Database;
 
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  /**
+   * Set when a migration step failed; null while the schema is sound. Read by
+   * the storage guard (every API request 503s) and by `/health`.
+   */
+  migrationFailure: string | null = null;
+
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    // Optional so the many specs doing `new DbService(config)` stay
+    // one-argument, and partial e2e graphs without LogsModule still resolve.
+    @Optional() private readonly logs?: LogService,
+  ) {}
 
   onModuleInit() {
     this.db = new Database(this.config.get('DB_PATH'));
@@ -94,6 +129,77 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
    * one).
    */
   migrate() {
+    const steps: { toVersion: number; name: string; run: () => void }[] = [
+      { toVersion: 1, name: 'baseline', run: () => this.stepBaseline() },
+      {
+        toVersion: 2,
+        name: 'sticky-note-columns',
+        run: () => this.stepStickyNoteColumns(),
+      },
+      { toVersion: 3, name: 'todo-columns', run: () => this.stepTodoColumns() },
+      {
+        toVersion: 4,
+        name: 'bookmark-shape',
+        run: () => this.stepBookmarkShape(),
+      },
+      {
+        toVersion: 5,
+        name: 'totp-last-step',
+        run: () => this.stepTotpLastStep(),
+      },
+      { toVersion: 6, name: 'backfills', run: () => this.stepBackfills() },
+    ];
+
+    const current = Number(this.db.pragma('user_version', { simple: true }));
+    for (const step of steps) {
+      if (step.toVersion <= current) continue;
+      try {
+        // Step and stamp together: a step that throws leaves the stamp where
+        // it was, so the next boot resumes at exactly the failed step.
+        this.db.transaction(() => {
+          step.run();
+          this.db.pragma(`user_version = ${step.toVersion}`);
+        })();
+      } catch (err) {
+        this.reportMigrationFailure(step.toVersion, step.name, err);
+        return;
+      }
+    }
+    this.migrationFailure = null;
+  }
+
+  /**
+   * A failed migration is STATE, not a crash.
+   *
+   * Throwing out of `onModuleInit` gives a restart-looping container with no
+   * UI — and on the kiosk ISO no host shell to read why, which is brief 84's
+   * founding rationale. So boot continues, the flag makes every API request
+   * answer an honest 503, and the reason is recorded where it can be read.
+   */
+  private reportMigrationFailure(
+    toVersion: number,
+    name: string,
+    err: unknown,
+  ): void {
+    const code = (err as { code?: string } | undefined)?.code ?? 'unknown';
+    const message = err instanceof Error ? err.message : String(err);
+    this.migrationFailure = `migration ${toVersion} (${name}) failed: ${code} — ${message}`;
+
+    console.error(`[db] ${this.migrationFailure}`);
+    try {
+      this.logs?.record('error', 'db.migrate.failed', this.migrationFailure, {
+        toVersion,
+        step: name,
+        code,
+      });
+    } catch {
+      // The log table may itself be the casualty. The flag and the stdout
+      // line above are the durable record in that case.
+    }
+  }
+
+  /** Step 1 — the baseline schema, plus brief 94's recent_files reshape. */
+  private stepBaseline() {
     // Brief 94: recent_files changed shape (root + app_id, UNIQUE(root, path)
     // instead of UNIQUE(path)). SQLite cannot alter constraints, so an
     // old-shape table is dropped and recreated by the block below. The rows
@@ -281,7 +387,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
+  }
 
+  /** Step 2 — brief 74's sticky-note desktop columns. */
+  private stepStickyNoteColumns() {
     // Sticky notes (Brief 74): the desktop surface. pos_x/pos_y already existed
     // and are reused as the note's position on the desktop — they used to be the
     // spawn point of a per-note window, which the desktop layer replaces, so no
@@ -295,11 +404,16 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     ]) {
       try {
         this.db.exec(`ALTER TABLE sticky_notes ADD COLUMN ${column}`);
-      } catch {
-        // column already exists — safe to ignore
+      } catch (err) {
+        // Only "it is already there" is expected. A disk-full or read-only
+        // failure must NOT look like a duplicate column.
+        if (!isAlreadyApplied(err, DUPLICATE_COLUMN)) throw err;
       }
     }
+  }
 
+  /** Step 3 — brief 73's todo columns. */
+  private stepTodoColumns() {
     // Columns added to a table that already shipped. Each is attempted
     // separately, because ALTER TABLE cannot add several at once and one
     // already-exists must not skip the rest.
@@ -316,11 +430,16 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     ]) {
       try {
         this.db.exec(`ALTER TABLE todos ADD COLUMN ${column}`);
-      } catch {
-        // column already exists — safe to ignore
+      } catch (err) {
+        // Only "it is already there" is expected. A disk-full or read-only
+        // failure must NOT look like a duplicate column.
+        if (!isAlreadyApplied(err, DUPLICATE_COLUMN)) throw err;
       }
     }
+  }
 
+  /** Step 4 — brief 75's bookmark rename, columns and index. */
+  private stepBookmarkShape() {
     // Bookmarks (Brief 75): nested folders, and `href` becomes `url`.
     //
     // The rename is the contract brief 50 (web browser) will consume — it speaks
@@ -329,8 +448,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     // better-sqlite3 has; the catch makes the second run a no-op.
     try {
       this.db.exec('ALTER TABLE bookmark_links RENAME COLUMN href TO url');
-    } catch {
-      // already renamed — safe to ignore
+    } catch (err) {
+      // Expected only when the rename already happened: the old column is
+      // gone. Anything else is a real failure.
+      if (!isAlreadyApplied(err, ALREADY_RENAMED)) throw err;
     }
 
     for (const column of [
@@ -343,32 +464,40 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     ]) {
       try {
         this.db.exec(`ALTER TABLE bookmark_groups ADD COLUMN ${column}`);
-      } catch {
-        // column already exists — safe to ignore
+      } catch (err) {
+        // Only "it is already there" is expected. A disk-full or read-only
+        // failure must NOT look like a duplicate column.
+        if (!isAlreadyApplied(err, DUPLICATE_COLUMN)) throw err;
       }
     }
     try {
       this.db.exec(
         'ALTER TABLE bookmark_links ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
       );
-    } catch {
-      // column already exists — safe to ignore
+    } catch (err) {
+      if (!isAlreadyApplied(err, DUPLICATE_COLUMN)) throw err;
     }
 
     // Speeds up the subtree walk that deleteGroup and the cycle guard both do.
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS idx_bookmark_groups_parent ON bookmark_groups(parent_id)',
     );
+  }
 
+  /** Step 5 — TOTP replay protection column. */
+  private stepTotpLastStep() {
     // TOTP replay protection (RFC 6238 §5.2): the highest time-step already
     // accepted. A verify is rejected when its step <= this, so a code cannot be
     // used twice within its window. NULL until the first successful verify.
     try {
       this.db.exec('ALTER TABLE auth_user ADD COLUMN totp_last_step INTEGER');
-    } catch {
-      // column already exists — safe to ignore
+    } catch (err) {
+      if (!isAlreadyApplied(err, DUPLICATE_COLUMN)) throw err;
     }
+  }
 
+  /** Step 6 — the one-time repairs. Their recurring causes are fixed in the services. */
+  private stepBackfills() {
     this.backfillTodoPositions();
     this.backfillBookmarkPositions();
     this.adoptOrphanedBookmarkLinks();

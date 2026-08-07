@@ -56,8 +56,10 @@ describe('RecentService (brief 94)', () => {
   });
 
   it('the old-shape table is dropped and recreated by the migration', () => {
-    // Recreate the pre-94 shape, then run migrate() again (idempotent by
-    // design — see db.service): the shape wins, the rows are gone.
+    // Recreate the pre-94 shape, then run migrate() again: the shape wins,
+    // the rows are gone. Since brief 110 the ledger makes each step run once,
+    // so simulating an OLD database means resetting the stamp too — otherwise
+    // migrate() correctly does nothing on an already-current database.
     db.db.exec(`DROP TABLE recent_files`);
     db.db.exec(`
       CREATE TABLE recent_files (
@@ -69,6 +71,7 @@ describe('RecentService (brief 94)', () => {
     db.db
       .prepare(`INSERT INTO recent_files (path) VALUES ('legacy.txt')`)
       .run();
+    db.db.pragma('user_version = 0');
     db.migrate();
     expect(service.list()).toEqual([]);
     service.record('home', 'fresh.txt', 'notepad');

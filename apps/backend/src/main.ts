@@ -7,6 +7,7 @@ import { json } from 'express';
 import { AppModule } from './app.module';
 import { securityHeaders } from './security-headers';
 import type { Env } from './config/env.schema';
+import { DbService } from './db/db.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -37,12 +38,21 @@ async function bootstrap() {
   // `docker stop` hangs the full 10s until SIGKILL and children are orphaned.
   app.enableShutdownHooks();
 
-  // Health check outside global prefix
+  // Health check outside global prefix.
+  //
+  // Reports `degraded` at HTTP **200** when a migration failed (brief 110): a
+  // compose healthcheck restart cannot fix a half-migrated disk, and flapping
+  // the container would only hide the one message that explains it.
   const httpAdapter = app.getHttpAdapter();
+  const db = app.get(DbService);
   httpAdapter.get(
     '/health',
     (_req: unknown, res: { json: (data: unknown) => void }) => {
-      res.json({ status: 'ok' });
+      res.json(
+        db.migrationFailure
+          ? { status: 'degraded', reason: db.migrationFailure }
+          : { status: 'ok' },
+      );
     },
   );
 

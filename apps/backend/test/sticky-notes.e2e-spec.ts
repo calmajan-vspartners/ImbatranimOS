@@ -189,6 +189,9 @@ describe('Sticky notes (e2e) — the desktop surface', () => {
           "INSERT INTO sticky_notes (id, content, pos_x, pos_y) VALUES (1, 'inherited', 42, 84)",
         )
         .run();
+      // Simulate an OLD database: since brief 110 the ledger runs each
+      // step once, so replaying a historical repair resets the stamp.
+      db.db.pragma('user_version = 0');
       db.migrate();
 
       const list = await http
@@ -216,6 +219,9 @@ describe('Sticky notes (e2e) — the desktop surface', () => {
     });
 
     it('is idempotent', () => {
+      // Simulate an OLD database: since brief 110 the ledger runs each
+      // step once, so replaying a historical repair resets the stamp.
+      db.db.pragma('user_version = 0');
       db.migrate();
       db.migrate();
       const columns = (

@@ -1,6 +1,46 @@
 # Brief 110 — Migration ledger: PRAGMA user_version, expected-skip vs real failure
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. EASY
+> **Outcome (2026-08-07): DONE.** `migrate()` is now an ordered list of six
+> numbered steps (baseline, sticky-note columns, todo columns, bookmark shape,
+> totp_last_step, backfills) carved out of the old 280-line body **verbatim**,
+> driven by `PRAGMA user_version`; each step and its stamp share a transaction,
+> so a throwing step leaves the stamp where it was and the next boot resumes at
+> exactly that step. A current database now boots on one PRAGMA read. The six
+> bare `catch {}` blocks became narrow expected-skips through one shared
+> `isAlreadyApplied(err, pattern)` — `/duplicate column name/` for ADD COLUMN,
+> `/no such column/` for the href→url rename — so SQLITE_FULL/IOERR/READONLY
+> surface instead of reading as "column already exists". A failure is state,
+> not a crash: `migrationFailure` is set, `db.migrate.failed` is recorded via
+> an `@Optional()` LogService plus stdout, boot continues, a new
+> `StorageHealthGuard` (APP_GUARD in DbModule) answers every API request with
+> 503 naming the failed step, and `/health` reports `degraded` **at 200**.
+>
+> Two things the fixtures taught, worth recording: `chmod 444` cannot simulate
+> a write failure here because the container runs as root, so the failure test
+> obstructs the schema instead (a VIEW named `sticky_notes`, which slips past
+> `CREATE TABLE IF NOT EXISTS` and fails step 2's ALTER with a plain
+> SQLITE_ERROR — precisely the class the old catch swallowed); and any column
+> that exists only in the baseline CREATE is never backfilled onto an older
+> table, so **new columns must always ship as their own step**, which the
+> ledger now makes safe (steps added after this brief get no catch at all).
+>
+> Every spec that replays `migrate()` to exercise a historical repair now
+> resets the stamp first — one unit spec and three e2e suites — which is the
+> honest way to say "simulate an old database".
+>
+> Verified: a new 5-case `db.service.spec` (fresh stamps at 6; an old-shape DB
+> migrates to a schema byte-identical to a fresh one with its rows intact; a
+> pre-ledger DB converts then runs zero steps; a real failure records, refuses
+> to stamp past the step and 503s, then recovers; a `VACUUM INTO` snapshot
+> carries the stamp so brief-80 restores stay current). turbo 120/120, backend
+> 431 unit + 141 e2e. Against a running instance: an obstructed database gave
+> `/health {"status":"degraded", reason…}` at 200 and `/api/auth/status` 503
+> naming the step, with `[db] migration 2 …` on stdout; clearing it and
+> rebooting returned `ok`. And the live dev database — a genuine in-use
+> pre-ledger DB at version 0 — converted in place on boot: 14 tables before,
+> 14 after, stamped 6.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. EASY
 (backend-only; the fixture tests are most of the work) · BACKEND
 (`db/db.service.ts`, `db/db.module.ts`, one guard, `main.ts` `/health`).
 Uses brief 84's `LogService.record` for surfacing; must keep brief 80's
