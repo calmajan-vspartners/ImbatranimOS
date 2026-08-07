@@ -3780,3 +3780,20 @@ answered the question, and a no-op write is not an answer.
 
 Verified with a probe that stars a task before moving it and checks the star is
 still there afterwards — the thing delete-and-retype destroyed.
+
+## 2026-08-07 — Brief 119: a link to a CSV opens the CSV
+
+The markdown preview handled relative links to other markdown files and told
+the reader to go to Files for everything else — the app declining to do its own
+job, in a system that has known which app opens a `.csv` since brief 81.
+
+Those links now go through `assoc.resolveOpener`, reached straight off the
+handle, so no add-on had to import from another. Markdown links still stay in
+the markdown editor even if the user has associated `.md` with something else:
+following a link inside a document set is reading, not launching, and there is
+a test that pins it against a registry that maps `md` to Notepad.
+
+The third answer matters as much as the first two. When nothing claims an
+extension, the toast now names the file and says so, rather than implying the
+reader should have known where to look — and, verified in the browser, it opens
+no app at all rather than guessing one.

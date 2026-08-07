@@ -23,6 +23,7 @@ import { applyFormat, keyToFormat, type FormatKind } from './lib/formatActions'
 import { minimalEdit } from './lib/minimalEdit'
 import { toggleTaskAtLine } from './lib/markdownMarkers'
 import { caretLineOf, IMAGE_EXTENSIONS } from './lib/editorText'
+import { baseName, linkTarget } from './lib/linkTarget'
 import { parseHeadings } from './lib/outline'
 import {
   assetDir,
@@ -335,13 +336,20 @@ export function MarkdownEditor({ windowId: _windowId }: { windowId: string }) {
   const openRelative = useCallback(
     (path: string) => {
       if (!source) return
-      if (/\.(md|markdown)$/i.test(path)) {
+      const target = linkTarget(system.intents.associations, path)
+      if (target.kind === 'markdown') {
         system.intents.openApp('markdown-editor', { openPath: path, root: source.root })
         return
       }
+      if (target.kind === 'app') {
+        // openApp is the choke point that also records the OS-wide recent
+        // (brief 94), so a link followed from a document counts as opening it.
+        system.intents.openApp(target.appId, { openPath: path, root: source.root })
+        return
+      }
       system.notify({
-        title: 'Linked file',
-        body: `${path} — open it from Files. Markdown links open here directly.`,
+        title: 'Cannot open this link',
+        body: `Nothing in the system claims ${baseName(path)}.`,
         level: 'info',
       })
     },
