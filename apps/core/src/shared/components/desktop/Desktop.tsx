@@ -1,15 +1,17 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DesktopIcon } from './DesktopIcon'
 import { useEnabledApps } from '../../registry/enabledApps'
 import { TASKBAR_HEIGHT } from '../../store/windowStore'
 import { useDesktopStore } from '../../store/desktopStore'
 import { openApp } from '../../intents/openApp'
 import { layoutIcons } from './layoutIcons'
+import { iconsInRect, isDrag, normalizeRect, type DragRect } from './marquee'
+import { isTextEntry } from '../../hooks/shortcutRegistry'
 import type { Wallpaper } from '../../store/wallpaperStore'
 import { WindowContainer } from '../window/WindowContainer'
 import { WidgetLayer } from './WidgetLayer'
 import { WindowlessSystemProvider } from '../../../system/WindowlessSystemProvider'
-import { DesktopContextMenu } from './DesktopContextMenu'
+import { DesktopContextMenu, DesktopIconContextMenu } from './DesktopContextMenu'
 import { useElementSize } from '../../hooks/useElementSize'
 
 type DesktopProps = {
@@ -44,10 +46,20 @@ export function Desktop({ wallpaper }: DesktopProps) {
   const iconPositions = useDesktopStore((s) => s.iconPositions)
   const updateIconPosition = useDesktopStore((s) => s.updateIconPosition)
   const setAutoPositions = useDesktopStore((s) => s.setAutoPositions)
+  const clearPins = useDesktopStore((s) => s.clearPins)
   const containerRef = useRef<HTMLDivElement>(null)
+  const iconLayerRef = useRef<HTMLDivElement>(null)
   // Widgets clamp against the live desktop bounds (brief 96).
   const [desktopSize, sizeRef] = useElementSize()
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [iconMenuAt, setIconMenuAt] = useState<{ x: number; y: number } | null>(null)
+  // Selection is ephemeral component state, never persisted (brief 106).
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  // The live rubber band, in icon-layer coordinates. Null when not dragging.
+  const [band, setBand] = useState<DragRect | null>(null)
+  const dragRef = useRef<DragRect | null>(null)
+  const additiveRef = useRef(false)
+  const baseSelectionRef = useRef<Set<string>>(new Set())
 
   // The icons actually drawn — `settings` lives in the Start menu, not on the
   // desktop, so it must not consume a grid cell (it used to, leaving a hole).
@@ -73,22 +85,24 @@ export function Desktop({ wallpaper }: DesktopProps) {
   // Auto-place every non-pinned icon, and re-place on viewport or roster
   // changes. Reading the store imperatively keeps `iconPositions` out of the
   // dependency list, so writing positions cannot re-trigger this effect.
-  useEffect(() => {
-    const place = () => {
-      const el = containerRef.current
-      const current = useDesktopStore.getState().iconPositions
-      const pinned: Record<string, { x: number; y: number }> = {}
-      for (const [id, pos] of Object.entries(current)) {
-        if (pos.pinned) pinned[id] = { x: pos.x, y: pos.y }
-      }
-      setAutoPositions(
-        layoutIcons(appIdsKey ? appIdsKey.split(',') : [], pinned, {
-          width: el?.clientWidth ?? window.innerWidth,
-          height: el?.clientHeight ?? window.innerHeight - TASKBAR_HEIGHT,
-        })
-      )
+  // Hoisted out of the effect so Auto-arrange (brief 106) can re-run the exact
+  // same placement after clearing pins, instead of duplicating the maths.
+  const place = useCallback(() => {
+    const el = containerRef.current
+    const current = useDesktopStore.getState().iconPositions
+    const pinned: Record<string, { x: number; y: number }> = {}
+    for (const [id, pos] of Object.entries(current)) {
+      if (pos.pinned) pinned[id] = { x: pos.x, y: pos.y }
     }
+    setAutoPositions(
+      layoutIcons(appIdsKey ? appIdsKey.split(',') : [], pinned, {
+        width: el?.clientWidth ?? window.innerWidth,
+        height: el?.clientHeight ?? window.innerHeight - TASKBAR_HEIGHT,
+      })
+    )
+  }, [appIdsKey, setAutoPositions])
 
+  useEffect(() => {
     place()
     let frame = 0
     const onResize = () => {
@@ -100,7 +114,7 @@ export function Desktop({ wallpaper }: DesktopProps) {
       cancelAnimationFrame(frame)
       window.removeEventListener('resize', onResize)
     }
-  }, [appIdsKey, setAutoPositions])
+  }, [place])
 
   /**
    * Launch through the shared `openApp`, not `openWindow` directly.
@@ -113,6 +127,85 @@ export function Desktop({ wallpaper }: DesktopProps) {
    */
   function handleOpen(appId: string) {
     openApp(appId)
+  }
+
+  /** Open every selected icon (or just this one), the single-instance path. */
+  const openSelection = useCallback(
+    (fallbackId?: string) => {
+      const ids = selected.size > 0 ? [...selected] : fallbackId ? [fallbackId] : []
+      for (const id of ids) openApp(id)
+      setSelected(new Set())
+    },
+    [selected]
+  )
+
+  const handleAutoArrange = useCallback(() => {
+    clearPins()
+    place()
+  }, [clearPins, place])
+
+  const desktopAppIds = useMemo(() => desktopApps.map((a) => a.id), [desktopApps])
+
+  /**
+   * Escape clears the selection, Enter opens it. A window listener, not a
+   * handler on the container: after a marquee drag nothing inside the desktop
+   * holds focus, so a bubbling handler would never fire. Skipped while typing,
+   * and while a focused icon is handling its own Enter.
+   */
+  useEffect(() => {
+    if (selected.size === 0) return
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (isTextEntry(el)) return
+      if (e.key === 'Escape') {
+        setSelected(new Set())
+      } else if (e.key === 'Enter' && !el?.closest('[role="button"][aria-pressed]')) {
+        e.preventDefault()
+        openSelection()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, openSelection])
+
+  // ── Marquee (the user-filed drag-selection todo) ────────────────────────────
+  // Only a press on TRUE background starts one: icons stop their own pointer
+  // events, and widgets/notes/windows target other elements entirely.
+  const onLayerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    if (e.target !== e.currentTarget) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const start = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    dragRef.current = { x1: start.x, y1: start.y, x2: start.x, y2: start.y }
+    // Ctrl-drag ADDS to the selection; a plain drag replaces it.
+    additiveRef.current = e.ctrlKey || e.metaKey
+    baseSelectionRef.current = additiveRef.current ? new Set(selected) : new Set()
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const onLayerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const next: DragRect = { ...drag, x2: e.clientX - rect.left, y2: e.clientY - rect.top }
+    dragRef.current = next
+    if (!isDrag(next)) return
+    setBand(next)
+    // Live feedback: the hit set is recomputed every move, so icons highlight
+    // as the band crosses them.
+    const hits = iconsInRect(iconPositions, normalizeRect(next), desktopAppIds)
+    setSelected(new Set([...baseSelectionRef.current, ...hits]))
+  }
+
+  const endMarquee = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    dragRef.current = null
+    setBand(null)
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    // A press that never became a drag is a plain background click: clear.
+    if (drag && !isDrag(drag) && !additiveRef.current) setSelected(new Set())
   }
 
   const bounds = {
@@ -129,22 +222,34 @@ export function Desktop({ wallpaper }: DesktopProps) {
       className="absolute top-0 right-0 left-0 w-full overflow-hidden"
       style={{ ...WALLPAPER_STYLES[wallpaper], bottom: TASKBAR_HEIGHT }}
       onContextMenu={(e) => {
-        // The desktop's own menu (widgets). Only for the background — an icon
-        // or a layer element keeps the browser/default behaviour it had.
-        if (
-          e.target !== e.currentTarget &&
-          (e.target as HTMLElement).closest('[data-desktop-icon], [data-widget]')
-        )
-          return
+        // Windows are DOM children of this container, so an app that calls
+        // preventDefault without stopPropagation (the Terminal's paste,
+        // Minesweeper's flag) used to ALSO open this menu on top of its own
+        // (brief 106). The old `[data-desktop-icon], [data-widget]` guard
+        // could never have caught that — nothing in the repo sets either
+        // attribute. `data-window-id` is real (Window.tsx), so window
+        // interiors keep whatever their app decided; everything else on the
+        // desktop always gets the background menu.
+        if ((e.target as HTMLElement).closest('[data-window-id]')) return
         e.preventDefault()
+        setIconMenuAt(null)
         // Raw viewport coordinates: the kit menu portals to body and positions
         // in viewport space (brief 105) — the old container-relative math died
         // with the absolutely-positioned local menu.
         setMenuAt({ x: e.clientX, y: e.clientY })
       }}
     >
-      {/* Desktop icon container - using absolute positioning for children */}
-      <div className="absolute inset-0 p-4">
+      {/* Desktop icon container - using absolute positioning for children.
+          Also the marquee surface: a press that targets THIS div (not an icon,
+          widget, note or window) rubber-band-selects. */}
+      <div
+        ref={iconLayerRef}
+        className="absolute inset-0 p-4"
+        onPointerDown={onLayerPointerDown}
+        onPointerMove={onLayerPointerMove}
+        onPointerUp={endMarquee}
+        onPointerCancel={endMarquee}
+      >
         {desktopApps.map((app) => {
           const pos = iconPositions[app.id]
           if (!pos) return null
@@ -156,9 +261,40 @@ export function Desktop({ wallpaper }: DesktopProps) {
               position={pos}
               onPositionChange={(newPos) => updateIconPosition(app.id, newPos)}
               dragConstraints={containerRef}
+              selected={selected.has(app.id)}
+              onSelect={(e) => {
+                // Ctrl/⌘+click toggles membership; a plain click selects one.
+                setSelected((prev) => {
+                  if (!(e.ctrlKey || e.metaKey)) return new Set([app.id])
+                  const next = new Set(prev)
+                  if (next.has(app.id)) next.delete(app.id)
+                  else next.add(app.id)
+                  return next
+                })
+              }}
+              onContextMenu={(e) => {
+                // Right-click selects the icon it opened on unless it is
+                // already part of a multi-selection — the file manager's rule.
+                setSelected((prev) => (prev.has(app.id) ? prev : new Set([app.id])))
+                setMenuAt(null)
+                setIconMenuAt({ x: e.clientX, y: e.clientY })
+              }}
             />
           )
         })}
+
+        {band && isDrag(band) && (
+          <div
+            data-testid="desktop-marquee"
+            className="border-primary bg-primary/10 pointer-events-none absolute border"
+            style={{
+              left: normalizeRect(band).left,
+              top: normalizeRect(band).top,
+              width: normalizeRect(band).right - normalizeRect(band).left,
+              height: normalizeRect(band).bottom - normalizeRect(band).top,
+            }}
+          />
+        )}
       </div>
 
       {/*
@@ -195,6 +331,17 @@ export function Desktop({ wallpaper }: DesktopProps) {
           y={menuAt.y}
           bounds={bounds}
           onClose={() => setMenuAt(null)}
+        />
+      )}
+
+      {iconMenuAt && (
+        <DesktopIconContextMenu
+          x={iconMenuAt.x}
+          y={iconMenuAt.y}
+          selection={[...selected]}
+          onOpen={() => openSelection()}
+          onAutoArrange={handleAutoArrange}
+          onClose={() => setIconMenuAt(null)}
         />
       )}
 

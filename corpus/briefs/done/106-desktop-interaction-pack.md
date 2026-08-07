@@ -1,6 +1,34 @@
 # Brief 106 — Desktop interaction pack: icon menus, an always-alive background menu, the marquee
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** All four defects closed. The dead
+> `[data-desktop-icon], [data-widget]` guard is replaced by an early-return on
+> `closest('[data-window-id]')` — the attribute `Window.tsx` actually sets — so
+> window interiors keep whatever their app decided and the widgets menu stops
+> painting over the Terminal's paste and Minesweeper's flag (both pinned by
+> probe). Icons own their right-click (`preventDefault` + `stopPropagation`,
+> select, open the new **Icon menu**: Open / Auto-arrange icons — the desktop
+> had no Open verb at all before). The background menu can no longer be a
+> silent no-op: the `null` return is gone and **Change wallpaper** →
+> `openApp('settings')` is always there. Auto-arrange = `clearPins()` + the
+> hoisted `place()`, same store, same dotfile, no new schema. Selection lifted
+> to ephemeral `Desktop` state (`Set<appId>`): click selects, Ctrl+click
+> toggles, marquee sweeps (pointer-capture on the icon layer, 4 px threshold,
+> pure `marquee.ts` hit-test live during the drag), Ctrl+drag adds, Escape
+> clears, Enter opens the set. One deviation worth recording: Escape/Enter are
+> a **window** listener, not a handler on the container — after a marquee drag
+> nothing inside the desktop holds focus, so a bubbling handler would never
+> fire; it skips text entry and defers to a focused icon's own Enter.
+> Verified: 11 marquee units, turbo 119/119, and a 24/24 Playwright pass on
+> the production bundle — icon menu (not widgets), Open launches,
+> drag-then-Auto-arrange restores exact grid coordinates and survives a
+> reload, background menu always populated and Change wallpaper lands on
+> Settings/Appearance, widget toggle flips `aria-checked`, the band draws and
+> two icons highlight live then open on Enter, background click clears, and
+> **no desktop menu** appears on a Terminal or Minesweeper right-click.
+> The user-filed `desktop-drag-selection` todo is satisfied and moved to
+> `todos/promoted/`.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 CORE only (`Desktop.tsx`, `DesktopIcon.tsx`, `DesktopContextMenu.tsx`,
 `desktopStore`, one new pure helper). No backend, no protocol change, no new
 deps. Sequenced **after brief 105** — both menus here render through the kit

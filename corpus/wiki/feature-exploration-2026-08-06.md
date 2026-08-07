@@ -113,7 +113,7 @@ drag; 96 dropped the duplicate Settings list.
   explicit decisions.md revisit of "auth everywhere". Not briefed.
 - **Cross-app drag & drop protocol** — the missing glue the code map surfaced
   (drops exist only OS-file→app); pairs with
-  [todos/desktop-drag-selection.md](../todos/desktop-drag-selection.md).
+  [todos/desktop-drag-selection.md](../todos/promoted/desktop-drag-selection.md).
 - **TOTP recovery codes** ([todo](../todos/totp-recovery-codes.md)) and
   **install-apps-from-GitHub** ([todo](../todos/install-apps-from-github.md),
   gated on 47→48 + a kill-list revisit) — already captured; this sweep

@@ -22,6 +22,12 @@ type DesktopStore = {
   updateIconPosition: (appId: string, position: { x: number; y: number }) => void
   /** An auto-layout placement — does not pin, and never overwrites a pin. */
   setAutoPositions: (positions: Record<string, { x: number; y: number }>) => void
+  /**
+   * Auto-arrange (brief 106): forget every user pin so the next layout pass
+   * places all icons on the grid. Same persisted shape — un-pinning is the
+   * whole verb, no "arranged" mode flag to keep in sync.
+   */
+  clearPins: () => void
 }
 
 export const useDesktopStore = create<DesktopStore>()(
@@ -52,6 +58,17 @@ export const useDesktopStore = create<DesktopStore>()(
           // subscribers when the layout has not moved. Without this, a
           // re-render that recomputes the same positions would publish a new
           // object every time.
+          return changed ? { iconPositions: next } : state
+        }),
+
+      clearPins: () =>
+        set((state) => {
+          const next: Record<string, IconPosition> = {}
+          let changed = false
+          for (const [appId, pos] of Object.entries(state.iconPositions)) {
+            next[appId] = pos.pinned ? { ...pos, pinned: false } : pos
+            if (pos.pinned) changed = true
+          }
           return changed ? { iconPositions: next } : state
         }),
     }),

@@ -3419,3 +3419,27 @@ Two pre-existing bugs the probe confirmed, both owned by brief 106: an
 in-window right-click ALSO opens the desktop's widgets menu (windows are DOM
 children of the desktop and nothing stops propagation), and the `[data-widget]`
 half of that handler's guard matches nothing — no element sets the attribute.
+
+## 2026-08-07 — Brief 106: the desktop answers the mouse
+
+[Brief 106](briefs/done/106-desktop-interaction-pack.md) **DONE** — four
+defects in one 12-line handler, plus the user's marquee todo. The exclusion
+guard was dead code: nothing in the repo sets `[data-desktop-icon]` or
+`[data-widget]`, so right-clicking an app icon opened the *Widgets* menu and
+the desktop had no Open verb anywhere. Worse, windows are DOM children of the
+desktop, so any app that called `preventDefault` without `stopPropagation` —
+the Terminal's right-click paste, Minesweeper's flag — ALSO summoned that menu
+on top of its own. The guard is now an early-return on
+`closest('[data-window-id]')`, an attribute that actually exists, and both
+probes confirm no desktop menu appears. Icons stop their own bubble and open
+an Icon menu (Open, acting on the whole selection, plus Auto-arrange icons =
+`clearPins()` + the hoisted `place()`, which round-trips through the existing
+dotfile). The background menu can no longer swallow a click: the `null` return
+is gone and Change wallpaper is always there. And the 2026-07-19 marquee todo
+is shipped — selection lifted to ephemeral component state (deliberately NOT
+the persisted store), press-drag on bare wallpaper draws the band with a 4px
+threshold and pointer capture, intersected icons highlight live, Ctrl+click
+toggles, Ctrl+drag adds, Escape clears, Enter opens the set. Escape/Enter had
+to be a window listener rather than a container handler: after a marquee drag
+nothing inside the desktop holds focus. Verified: 11 marquee units, turbo
+119/119, Playwright 24/24 first run.
