@@ -4,6 +4,15 @@ import { persist } from 'zustand/middleware'
 /** Visual severity of a notification — drives icon + accent stripe only. */
 export type NotificationLevel = 'info' | 'success' | 'warning' | 'error'
 
+/**
+ * A toast button (brief 107) — intent-shaped data, never a closure, so it can
+ * ride the persisted history and outlive the window that raised it.
+ */
+export type NotificationAction = {
+  label: string
+  payload: unknown
+}
+
 /** A recorded notification (lives in history until removed/cleared). */
 export type NotificationItem = {
   id: string
@@ -15,6 +24,8 @@ export type NotificationItem = {
   /** epoch ms */
   timestamp: number
   read: boolean
+  /** Rendered on the live toast only; harmless (and inert) in history. */
+  actions?: readonly NotificationAction[]
 }
 
 /** Shape callers pass to `notify(...)`. */
@@ -23,6 +34,7 @@ export type NotifyInput = {
   body?: string
   appId?: string
   level?: NotificationLevel
+  actions?: readonly NotificationAction[]
 }
 
 /** History is bounded so persisted storage can't grow without limit. */
@@ -71,6 +83,9 @@ export const useNotificationStore = create<NotificationStore>()(
           level: input.level ?? 'info',
           timestamp: Date.now(),
           read: false,
+          // Only kept when non-empty, so every existing caller's item shape —
+          // and its persisted JSON — is byte-identical to before.
+          ...(input.actions?.length ? { actions: input.actions } : {}),
         }
         set((state) => ({
           notifications: [item, ...state.notifications].slice(0, MAX_HISTORY),

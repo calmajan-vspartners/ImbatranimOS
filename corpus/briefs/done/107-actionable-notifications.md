@@ -1,6 +1,36 @@
 # Brief 107 — Actionable notifications: click-to-open, the app icon, and intent-shaped toast actions
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. MEDIUM ·
+> **Outcome (2026-08-07): DONE.** `SystemNotifyInput` gained
+> `actions?: readonly {label, payload}[]` — additive and optional, so no
+> `PROTOCOL_VERSION` bump — and the handle needed no change at all: it already
+> spreads the input while stamping `appId`, so an app can only press buttons in
+> its own name. Toasts gained a clickable body (the panel row for the same item
+> always had it), a shared `NotificationIcon` that renders the raising app's
+> icon on BOTH surfaces and falls back to the level glyph (fulfilling
+> ui-conventions §23, which neither surface had ever delivered), an action row
+> of real buttons, and a hover/focus-within hold on the 6 s auto-dismiss so a
+> button is never a race against the timer. History rows keep click-to-open and
+> render no actions. `notify` only writes the `actions` key when non-empty, so
+> every existing caller's persisted JSON is byte-identical. Clock is the first
+> adopter: the alarm toast carries Snooze, and Clock subscribes via
+> `onIntent` (brief 108's pattern) with a pure `normaliseClockIntent` guard.
+>
+> **A real regression, found by this probe and fixed here:** brief 106's
+> Enter-opens-selection listener called `preventDefault` on Enter *globally*
+> whenever a desktop icon was selected — so the toast's focused Snooze button
+> never received its click, and the desktop opened its selection instead. It is
+> now scoped hard to `e.target === document.body`, which is exactly the
+> after-a-marquee case it was written for; brief 106's probe still passes
+> 24/24.
+>
+> Verified: 4 store units + 4 clock intent units (turbo 120/120) and a 13/13
+> Playwright pass on the production bundle — with Clock CLOSED an alarm toast
+> showed its icon and Snooze, hovering held it past 8 s, the button took
+> keyboard focus, Enter opened Clock with the alarm snoozed and no ringing
+> banner, and the toast was gone; panel rows list the item with no action
+> buttons.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. MEDIUM ·
 CORE (`ToastHost.tsx`, `NotificationPanel.tsx`, `notificationStore.ts`) +
 PROTOCOL (`packages/ui/src/system.ts` — `SystemNotifyInput` gains `actions`,
 an API decision under the file's own rules) + one adopter (`clock`). No new

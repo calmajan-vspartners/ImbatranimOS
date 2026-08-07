@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Clock4, Timer as TimerIcon, AlarmClock, Hourglass } from 'lucide-react'
 import { cn, queryClient, useSystem } from '@imbatranim/ui'
 import { ClockTab } from './tabs/ClockTab'
@@ -7,8 +7,10 @@ import { Timer } from './tabs/Timer'
 import { Alarms } from './tabs/Alarms'
 import { RingingBanner } from './components/RingingBanner'
 import { useClockStore } from './clockStore'
-import { ALARMS_KEY, WORLD_CLOCKS_KEY } from './queries/clockQueries'
+import { ALARMS_KEY, WORLD_CLOCKS_KEY, usePatchAlarmMutation } from './queries/clockQueries'
 import { migrateLegacyClockState } from './migrateLegacyClock'
+import { normaliseClockIntent } from './notificationIntent'
+import { snoozePatch } from './alarmSchedule'
 
 type Tab = 'clock' | 'stopwatch' | 'timer' | 'alarms'
 
@@ -52,6 +54,32 @@ export function Clock({ windowId: _windowId }: { windowId: string }) {
       void queryClient.invalidateQueries({ queryKey: WORLD_CLOCKS_KEY })
     })
   }, [system])
+
+  /**
+   * Apply the Snooze pressed on an alarm TOAST (brief 107).
+   *
+   * The toast's button is data, so pressing it opens/focuses this window and
+   * delivers `{ action: 'snooze', alarmId }` here. Subscribing rather than
+   * consuming once (the brief-108 pattern) is what makes a second alarm's
+   * Snooze work while the window is already open. Same effect as the in-window
+   * banner: patch the alarm, clear its ringing entry.
+   */
+  const patchAlarmMutation = usePatchAlarmMutation()
+  const patchRef = useRef(patchAlarmMutation)
+  useEffect(() => {
+    patchRef.current = patchAlarmMutation
+  })
+  useEffect(
+    () =>
+      system.intents.onIntent((raw) => {
+        const intent = normaliseClockIntent(raw)
+        if (!intent) return
+        patchRef.current.mutate({ id: intent.alarmId, patch: snoozePatch(Date.now()) })
+        useClockStore.getState().clearRinging(intent.alarmId)
+        setTab('alarms')
+      }),
+    [system]
+  )
 
   const tabs: Tab[] = ['clock', 'stopwatch', 'timer', 'alarms']
 

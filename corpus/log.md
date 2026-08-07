@@ -3468,3 +3468,37 @@ collapse to the newest, because the intent map holds exactly one slot per
 window. Everything else resets totally and runs at once. Verified: turbo
 120/120, Playwright 10/10 — the A→B switch happens in one window, Extract all
 still completes afterwards, and a delivery in the `done` phase switches back.
+
+## 2026-08-07 — Brief 107: a toast you can actually answer
+
+[Brief 107](briefs/done/107-actionable-notifications.md) **DONE** — a live
+toast was strictly less capable than its own history entry: the panel row for
+an item opened the raising app, the toast had only a dismiss X, and it
+auto-dismissed in six seconds while the user hunted for the window.
+`RingingBanner.tsx` said the cost out loud — "a toast has no buttons — so a
+snooze offered only from the notification centre would be a snooze the user
+cannot press" — and since brief 93 alarms fire with no Clock window open at
+all, which is exactly when that hurts.
+
+`SystemNotifyInput` now takes `actions: {label, payload}[]`. They are
+intent-shaped DATA, never closures: activating one calls
+`openApp(<raising app>, payload)`, which survives postMessage, the persisted
+history, and the window that raised it being closed — none of which a callback
+can do. The handle needed no change, because it already spreads the input
+while stamping `appId`, so an app can only press buttons in its own name. The
+addition is optional, so `PROTOCOL_VERSION` stays at 2, and `notify` only
+writes the key when non-empty so existing callers' persisted JSON is
+unchanged. Toasts also gained click-to-open, a shared `NotificationIcon` used
+by BOTH surfaces (ui-conventions §23 promised the raising app's icon and
+neither surface had ever rendered one), and a hover/focus-within hold on the
+auto-dismiss — a button must not be a race against six seconds. History rows
+deliberately render no actions: a stale Undo pressed hours later is a footgun.
+Clock is the first adopter, applying the snoozed alarm through `onIntent`.
+
+The probe caught a real regression of my own from brief 106: its
+Enter-opens-selection listener called `preventDefault` on Enter **globally**
+whenever a desktop icon happened to be selected, so a focused button anywhere
+in the OS silently stopped working. It is now scoped to
+`e.target === document.body` — the after-a-marquee case it was written for —
+and brief 106's probe still passes 24/24. Verified: 8 new units, turbo
+120/120, and 13/13 in a browser.

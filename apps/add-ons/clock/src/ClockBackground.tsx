@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useSystem } from '@imbatranim/ui'
 import { getClockState, useClockStore } from './clockStore'
-import { dueOccurrence, firedPatch } from './alarmSchedule'
+import { dueOccurrence, firedPatch, SNOOZE_LABEL } from './alarmSchedule'
 import { formatClockDuration } from './format'
 import { completionBody, isDue } from './timerModel'
 import { patchAlarm } from './api/clockApi'
@@ -82,6 +82,11 @@ export function ClockBackground() {
             title: due.reason === 'snooze' ? 'Alarm (snoozed)' : 'Alarm',
             body: alarm.label ? `${alarm.label} — ${alarm.time}` : `It's ${alarm.time}`,
             level: 'info',
+            // Since brief 93 an alarm can fire with NO Clock window open —
+            // exactly when a button-less toast hurt most (dismiss, Start menu,
+            // launch Clock, find the alarm: four steps). The action is data,
+            // so it works from a cold desktop (brief 107).
+            actions: [{ label: SNOOZE_LABEL, payload: { action: 'snooze', alarmId: alarm.id } }],
           })
         })
       }

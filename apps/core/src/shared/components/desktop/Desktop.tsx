@@ -149,17 +149,22 @@ export function Desktop({ wallpaper }: DesktopProps) {
   /**
    * Escape clears the selection, Enter opens it. A window listener, not a
    * handler on the container: after a marquee drag nothing inside the desktop
-   * holds focus, so a bubbling handler would never fire. Skipped while typing,
-   * and while a focused icon is handling its own Enter.
+   * holds focus, so a bubbling handler would never fire.
+   *
+   * Scoped HARD to "the desktop itself has the keyboard": only when focus is
+   * on `document.body`. Anything else — a toast's action button, a dialog, a
+   * window's controls — owns its own Enter, and a global handler that
+   * `preventDefault`s it would silently break every one of them for as long as
+   * a desktop icon happened to be selected. A focused icon is excluded too: it
+   * has its own Enter, and running both would open the app twice.
    */
   useEffect(() => {
     if (selected.size === 0) return
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null
-      if (isTextEntry(el)) return
+      if (e.target !== document.body || isTextEntry(e.target as HTMLElement)) return
       if (e.key === 'Escape') {
         setSelected(new Set())
-      } else if (e.key === 'Enter' && !el?.closest('[role="button"][aria-pressed]')) {
+      } else if (e.key === 'Enter') {
         e.preventDefault()
         openSelection()
       }

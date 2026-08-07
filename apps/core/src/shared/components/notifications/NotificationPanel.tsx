@@ -4,8 +4,8 @@ import { cn } from '../../../lib/cn'
 import { ScrollArea } from '../ui/ScrollArea'
 import { openApp } from '../../intents/openApp'
 import { useNotificationStore, type NotificationItem } from '../../store/notificationStore'
-import { LevelIcon } from './LevelIcon'
-import { levelColorClass, levelStripeClass, formatRelative } from './levelStyle'
+import { NotificationIcon } from './NotificationIcon'
+import { levelStripeClass, formatRelative } from './levelStyle'
 
 function Row({ item, onOpen }: { item: NotificationItem; onOpen: () => void }) {
   const remove = useNotificationStore((s) => s.remove)
@@ -32,10 +32,13 @@ function Row({ item, onOpen }: { item: NotificationItem; onOpen: () => void }) {
       }
     >
       <span className={cn('absolute inset-y-0 left-0 w-[3px]', levelStripeClass(item.level))} />
-      <LevelIcon
-        size={15}
+      {/* The raising app's icon when it resolves (brief 107 — §23 promised it
+          on both surfaces and neither delivered); severity stays in the stripe. */}
+      <NotificationIcon
+        appId={item.appId}
         level={item.level}
-        className={cn('mt-0.5 shrink-0', levelColorClass(item.level))}
+        size={15}
+        className="mt-0.5 shrink-0"
       />
       <div className="min-w-0 flex-1">
         <div className="text-on-surface truncate text-[12px] font-semibold">{item.title}</div>

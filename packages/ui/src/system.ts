@@ -208,10 +208,32 @@ export type SystemNotifyLevel = 'info' | 'success' | 'warning' | 'error'
  * handle stamps the app it was minted for, so an app cannot toast in another
  * app's name.
  */
+/**
+ * A button on a live toast (brief 107).
+ *
+ * Intent-shaped DATA, never a closure. Activating one calls
+ * `intents.openApp(<the raising app>, payload)` — the same choke point every
+ * launcher funnels through — so an action survives postMessage, survives the
+ * persisted notification history, and survives the window that raised it being
+ * closed. A callback could do none of those things. The target app is stamped
+ * from the handle, exactly as `notify` stamps `appId`: an app's toast can only
+ * press buttons in that app.
+ */
+export type SystemNotifyAction = {
+  label: string
+  /** Delivered verbatim as the `openApp` payload; must be JSON-safe. */
+  payload: unknown
+}
+
 export type SystemNotifyInput = {
   title: string
   body?: string
   level?: SystemNotifyLevel
+  /**
+   * Buttons rendered on the LIVE toast only. History rows keep click-to-open
+   * but never render actions: a stale Undo pressed hours later is a footgun.
+   */
+  actions?: readonly SystemNotifyAction[]
 }
 
 // ── Shortcuts ─────────────────────────────────────────────────────────────────
