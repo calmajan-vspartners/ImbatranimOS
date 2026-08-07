@@ -9,6 +9,7 @@ import {
   type SnapRegion,
   detectSnapRegion,
   TASKBAR_HEIGHT,
+  TITLEBAR_MIN_VISIBLE,
 } from '../../store/windowStore'
 import { SnapOverlay } from './SnapOverlay'
 
@@ -173,7 +174,10 @@ export const Window = React.memo(function Window({
 
       // Move window
       const newX = Math.max(0, Math.min(startPos.x + mx, window.innerWidth - instance.size.width))
-      const newY = Math.max(0, Math.min(startPos.y + my, window.innerHeight - TASKBAR_HEIGHT - 28))
+      const newY = Math.max(
+        0,
+        Math.min(startPos.y + my, window.innerHeight - TASKBAR_HEIGHT - TITLEBAR_MIN_VISIBLE)
+      )
       updatePosition(instance.id, { x: newX, y: newY })
 
       // Detect snap region from pointer position
@@ -278,9 +282,11 @@ export const Window = React.memo(function Window({
             </>
           )}
 
-          {/* Title bar */}
+          {/* Title bar — double-click toggles maximize/restore (brief 103),
+              the reflex every desktop user carries. */}
           <div
             {...titleBarBind()}
+            onDoubleClick={handleMaximizeToggle}
             style={{ touchAction: 'none', userSelect: 'none' }}
             className={cn(
               'flex h-[30px] shrink-0 items-center justify-between border-b pr-1 pl-3',
@@ -306,6 +312,9 @@ export const Window = React.memo(function Window({
             <div
               className="flex shrink-0 items-center gap-[2px]"
               onClick={(e) => e.stopPropagation()}
+              // A fast double-press on Minimize must not ALSO toggle maximize
+              // via the title bar's dblclick — stop it like click above.
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               <TitleBarButton onClick={handleHide} title="Minimize">
                 <Minus size={13} strokeWidth={2} />

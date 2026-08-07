@@ -1,15 +1,31 @@
 import { useMemo } from 'react'
-import { nextWorkspace, topVisibleWindowId, useWindowStore } from '../store/windowStore'
-import { useRegisteredHotkeys } from './useRegisteredHotkeys'
+import {
+  nextSnapState,
+  nextWorkspace,
+  topVisibleWindowId,
+  useWindowStore,
+  WORKSPACE_IDS,
+  type SnapKeyDirection,
+  type WorkspaceId,
+} from '../store/windowStore'
+import { useDocumentedShortcuts, useRegisteredHotkeys } from './useRegisteredHotkeys'
+import { useGlobalHotkeys } from './useGlobalHotkeys'
 
 /**
- * Keyboard window management (4c).
+ * Keyboard window management (4c; extended by briefs 85 and 103).
  *
  * Shortcut map (chosen to avoid browser conflicts):
- *   Alt+Tab        — cycle focus through visible windows
- *   Mod+W          — close focused window
- *   Mod+M          — hide (minimise) focused window
- *   Mod+Enter      — toggle maximize / restore focused window
+ *   Alt+Tab              — cycle focus through visible windows
+ *   Mod+W                — close focused window
+ *   Mod+M                — hide (minimise) focused window
+ *   Mod+Enter            — toggle maximize / restore focused window
+ *   Ctrl+Alt+←/→         — previous / next workspace (brief 85)
+ *   Ctrl+Alt+1…4         — jump to workspace N (what the pips always promised)
+ *   Ctrl+Alt+Shift+1…4   — carry the focused window to workspace N and follow
+ *   Mod+Alt+Shift+arrows — keyboard snapping (Windows semantics by sequence).
+ *                          NOT mod+alt+arrows: off a mac `mod` IS ctrl, which
+ *                          collides with the shipped workspace arrows above.
+ *   Ctrl+Alt+D           — show desktop (toggle)
  *
  * All actions dispatch through existing windowStore methods.
  */
@@ -83,9 +99,83 @@ export function useWindowHotkeys(): void {
           maximizeWindow(focused.id)
         }
       },
+
+      // Keyboard snapping (brief 103): the pure transition table decides, the
+      // existing store methods act — no second snap implementation.
+      snapKey: (dir: SnapKeyDirection) => {
+        const focusedId = topVisibleWindowId()
+        if (!focusedId) return
+        const focused = getCandidates().find((w) => w.id === focusedId)
+        if (!focused) return
+        const action = nextSnapState(focused, dir)
+        const store = useWindowStore.getState()
+        switch (action.type) {
+          case 'snap':
+            store.snapWindow(focusedId, action.region)
+            break
+          case 'maximize':
+            store.maximizeWindow(focusedId)
+            break
+          case 'restore':
+            store.restoreWindow(focusedId)
+            break
+          case 'unsnap':
+            store.unsnap(focusedId)
+            break
+          case 'minimize':
+            store.hideWindow(focusedId)
+            break
+          case 'none':
+            break
+        }
+      },
+
+      showDesktop: () => {
+        useWindowStore.getState().toggleShowDesktop()
+      },
+
+      jumpToWorkspace: (id: WorkspaceId) => {
+        useWindowStore.getState().setActiveWorkspace(id)
+      },
+
+      carryToWorkspace: (id: WorkspaceId) => {
+        const focusedId = topVisibleWindowId()
+        if (!focusedId) return
+        // moveWindowToWorkspace follows and focuses by design.
+        useWindowStore.getState().moveWindowToWorkspace(focusedId, id)
+      },
     }),
     [focusWindow, closeWindow, hideWindow, maximizeWindow, restoreWindow]
   )
+
+  // The eight digit bindings, bound individually (the matcher accepts e.code
+  // DigitN so shift+1 producing `!` still fires) but documented as two family
+  // rows below — eight literal overlay rows would bury the rest of the list.
+  useGlobalHotkeys(
+    useMemo(() => {
+      const digits: Record<string, () => void> = {}
+      for (const id of WORKSPACE_IDS) {
+        digits[`ctrl+alt+${id}`] = () => bindings.jumpToWorkspace(id)
+        digits[`ctrl+alt+shift+${id}`] = () => bindings.carryToWorkspace(id)
+      }
+      return digits
+    }, [bindings])
+  )
+
+  useDocumentedShortcuts([
+    {
+      id: 'workspace.jump',
+      keys: 'ctrl+alt+1…4',
+      description: 'Jump to workspace 1–4',
+      scope: 'Window management',
+    },
+    {
+      id: 'workspace.carry',
+      keys: 'ctrl+alt+shift+1…4',
+      description: 'Carry the focused window to workspace 1–4 and follow it',
+      scope: 'Window management',
+    },
+  ])
 
   useRegisteredHotkeys([
     {
@@ -132,6 +222,41 @@ export function useWindowHotkeys(): void {
       description: 'Go to the next workspace',
       scope: 'Window management',
       handler: bindings.nextWorkspace,
+    },
+    {
+      id: 'window.snap-left',
+      keys: 'mod+alt+shift+left',
+      description: 'Snap the focused window toward the left',
+      scope: 'Window management',
+      handler: () => bindings.snapKey('left'),
+    },
+    {
+      id: 'window.snap-right',
+      keys: 'mod+alt+shift+right',
+      description: 'Snap the focused window toward the right',
+      scope: 'Window management',
+      handler: () => bindings.snapKey('right'),
+    },
+    {
+      id: 'window.snap-up',
+      keys: 'mod+alt+shift+up',
+      description: 'Snap the focused window upward (half → quarter → maximized)',
+      scope: 'Window management',
+      handler: () => bindings.snapKey('up'),
+    },
+    {
+      id: 'window.snap-down',
+      keys: 'mod+alt+shift+down',
+      description: 'Snap the focused window downward (maximized → restore → minimise)',
+      scope: 'Window management',
+      handler: () => bindings.snapKey('down'),
+    },
+    {
+      id: 'window.show-desktop',
+      keys: 'ctrl+alt+d',
+      description: 'Show the desktop (press again to bring the windows back)',
+      scope: 'Window management',
+      handler: bindings.showDesktop,
     },
   ])
 }

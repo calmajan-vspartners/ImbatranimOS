@@ -1,6 +1,32 @@
 # Brief 103 — Window management parity 2: reflow on viewport resize, and the missing reflexes
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. EASY · CORE
+> **Outcome (2026-08-07): DONE.** Built as specced. `reflowToViewport()` is a
+> store method fed by a module-level `setMinSizeResolver` (App.tsx registers
+> the APP_REGISTRY lookup at boot; the store stays decoupled from the manifest
+> graph) — maximized windows refill the usable desktop, snapped windows
+> retile via `computeSnapGeometry`, floaters shrink only when overflowing and
+> clamp position to keep the title bar reachable (`TITLEBAR_MIN_VISIBLE = 28`
+> now a shared export; the drag clamp uses it too), and a no-op reflow
+> returns the SAME windows array so the persist debounce never writes.
+> Callers: a 200 ms trailing-debounced resize listener + one boot pass after
+> `restoreLayout()`; `restoreWindow`/`unsnap` also re-clamp saved geometry.
+> Keyboard snapping is `mod+alt+shift+arrows` over a pure `nextSnapState`
+> table (maximized+up = none, not a redundant maximize; floating/bottom+down
+> minimizes); show desktop `ctrl+alt+d` with a per-workspace stash restored
+> in stacking order (window-opened-between-presses hides again, Windows
+> style); `ctrl+alt+1..4` jumps (what the pip tooltips always promised) and
+> `ctrl+alt+shift+1..4` carries, firing via the new `e.code DigitN` matcher
+> extension (Shift+1 = `!` in e.key); digits documented as two family rows.
+> Double-click titlebar toggles maximize (controls stop dblclick propagation
+> like click); taskbar menu gained Maximize/Restore (menu height bumped,
+> Taskbar's string-projected selector gained the isMaximized bit). Verified:
+> 24 new units (reflow ×4 incl. no-churn identity, snap table ×4, show
+> desktop ×3, digit matcher ×5 …), turbo 119/119, Playwright 14/14 on the
+> production bundle — maximized 1400×856 → 1000×656 exactly on viewport
+> resize, snapped half 700→500, quarter sequence, workspace jump/carry by
+> number, show-desktop round trip, menu row, all rows in the ?-overlay.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. EASY · CORE
 only (`windowStore.ts`, `Window.tsx`, `useWindowHotkeys.ts`, `useGlobalHotkeys.ts`,
 `App.tsx`, `TaskbarContextMenu.tsx`). No backend, no protocol change
 (`packages/ui/src/system.ts` untouched), no new deps, nothing stored (layout

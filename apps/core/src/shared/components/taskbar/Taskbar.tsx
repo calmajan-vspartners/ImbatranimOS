@@ -24,6 +24,8 @@ const SEP = '␟'
 export function Taskbar() {
   const showWindow = useWindowStore((s) => s.showWindow)
   const hideWindow = useWindowStore((s) => s.hideWindow)
+  const maximizeWindow = useWindowStore((s) => s.maximizeWindow)
+  const restoreWindow = useWindowStore((s) => s.restoreWindow)
   const focusWindow = useWindowStore((s) => s.focusWindow)
   const closeWindow = useWindowStore((s) => s.closeWindow)
   const moveWindowToWorkspace = useWindowStore((s) => s.moveWindowToWorkspace)
@@ -42,15 +44,16 @@ export function Taskbar() {
     useShallow((s) =>
       s.windows.map(
         (w) =>
-          `${w.id}${SEP}${w.appId}${SEP}${w.isVisible ? 1 : 0}${SEP}${w.workspaceId}${SEP}${w.title}`
+          `${w.id}${SEP}${w.appId}${SEP}${w.isVisible ? 1 : 0}${SEP}${w.isMaximized ? 1 : 0}${SEP}${w.workspaceId}${SEP}${w.title}`
       )
     )
   ).map((k) => {
-    const [id, appId, isVisible, workspaceId, ...titleParts] = k.split(SEP)
+    const [id, appId, isVisible, isMaximized, workspaceId, ...titleParts] = k.split(SEP)
     return {
       id,
       appId,
       isVisible: isVisible === '1',
+      isMaximized: isMaximized === '1',
       workspaceId: Number(workspaceId) as WorkspaceId,
       title: titleParts.join(SEP),
     }
@@ -208,8 +211,17 @@ export function Taskbar() {
           y={menu.y}
           windowTitle={menuWindow.title}
           currentWorkspace={menuWindow.workspaceId}
+          isMaximized={menuWindow.isMaximized}
           onMoveToWorkspace={(id: WorkspaceId) => {
             moveWindowToWorkspace(menu.id, id)
+            setMenu(null)
+          }}
+          onToggleMaximize={() => {
+            if (menuWindow.isMaximized) {
+              restoreWindow(menu.id)
+            } else {
+              maximizeWindow(menu.id)
+            }
             setMenu(null)
           }}
           onMinimize={() => {

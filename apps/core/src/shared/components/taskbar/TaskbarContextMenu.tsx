@@ -17,7 +17,9 @@ export function TaskbarContextMenu({
   y,
   windowTitle,
   currentWorkspace,
+  isMaximized,
   onMoveToWorkspace,
+  onToggleMaximize,
   onMinimize,
   onClose,
   onDismiss,
@@ -26,7 +28,9 @@ export function TaskbarContextMenu({
   y: number
   windowTitle: string
   currentWorkspace: WorkspaceId
+  isMaximized: boolean
   onMoveToWorkspace: (id: WorkspaceId) => void
+  onToggleMaximize: () => void
   onMinimize: () => void
   onClose: () => void
   onDismiss: () => void
@@ -51,7 +55,7 @@ export function TaskbarContextMenu({
   }, [onDismiss])
 
   const MENU_WIDTH = 190
-  const MENU_HEIGHT = 210
+  const MENU_HEIGHT = 236 // grew a row for Maximize/Restore (brief 103)
   // Kept on screen: the taskbar is at the bottom, so a menu placed at the
   // pointer would otherwise open straight off the edge.
   const left = Math.min(Math.max(4, x), window.innerWidth - MENU_WIDTH - 4)
@@ -91,6 +95,7 @@ export function TaskbarContextMenu({
         ))}
       </div>
       <div className="border-outline-variant border-t">
+        <MenuRow label={isMaximized ? 'Restore' : 'Maximize'} onClick={onToggleMaximize} />
         <MenuRow label="Minimize" onClick={onMinimize} />
         <MenuRow label="Close" onClick={onClose} destructive />
       </div>

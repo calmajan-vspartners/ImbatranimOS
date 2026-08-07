@@ -73,6 +73,23 @@ type PreMaximizeState = {
 export const TOPBAR_HEIGHT = 0
 export const TASKBAR_HEIGHT = 44
 
+// The minimum sliver of a window that must stay on screen so its title bar can
+// be grabbed — the same constant the drag clamp uses (windows deliberately have
+// no window-level scroll, so a title bar past this line is unrecoverable).
+export const TITLEBAR_MIN_VISIBLE = 28
+
+/**
+ * How the compositor learns an app's honest `minSize` without the store
+ * importing the manifest graph (that coupling risks an import cycle for one
+ * lookup). App.tsx registers the APP_REGISTRY-backed resolver at boot; the
+ * default is the same fallback WindowContainer uses for unknown apps.
+ */
+type MinSizeResolver = (appId: string) => { width: number; height: number }
+let minSizeResolver: MinSizeResolver = () => ({ width: 240, height: 180 })
+export function setMinSizeResolver(resolver: MinSizeResolver): void {
+  minSizeResolver = resolver
+}
+
 // New windows cascade around the desktop center by a random ± offset so stacked
 // opens don't perfectly overlap. Jitter spans [-CASCADE_JITTER_PX, +CASCADE_JITTER_PX].
 export const CASCADE_JITTER_PX = 100
@@ -258,6 +275,99 @@ export function computeSnapGeometry(region: SnapRegion): {
   }
 }
 
+// ── Keyboard snapping (brief 103) ─────────────────────────────────────────────
+
+export type SnapKeyDirection = 'left' | 'right' | 'up' | 'down'
+
+export type SnapKeyAction =
+  | { type: 'snap'; region: SnapRegion }
+  | { type: 'maximize' }
+  | { type: 'restore' }
+  | { type: 'unsnap' }
+  | { type: 'minimize' }
+  | { type: 'none' }
+
+/**
+ * Windows arrow-key snap semantics as a pure transition table: arrows move the
+ * window between regions by SEQUENCE (left half + up → top-left quarter; half
+ * + down → bottom quarter; floating + up → maximize; maximized + down →
+ * restore; floating + down → minimize) rather than needing one chord per
+ * region. Pure and exported — the full table is the unit test's job.
+ */
+export function nextSnapState(
+  prev: { snapState?: SnapRegion; isMaximized: boolean },
+  dir: SnapKeyDirection
+): SnapKeyAction {
+  const s = prev.isMaximized ? 'maximized' : (prev.snapState ?? 'floating')
+  switch (dir) {
+    case 'left':
+      switch (s) {
+        case 'floating':
+        case 'maximized':
+        case 'top':
+          return { type: 'snap', region: 'left' }
+        case 'right':
+          return { type: 'unsnap' } // back toward where it came from
+        case 'tr':
+          return { type: 'snap', region: 'tl' }
+        case 'br':
+          return { type: 'snap', region: 'bl' }
+        default:
+          return { type: 'none' } // already at the left edge
+      }
+    case 'right':
+      switch (s) {
+        case 'floating':
+        case 'maximized':
+        case 'top':
+          return { type: 'snap', region: 'right' }
+        case 'left':
+          return { type: 'unsnap' }
+        case 'tl':
+          return { type: 'snap', region: 'tr' }
+        case 'bl':
+          return { type: 'snap', region: 'br' }
+        default:
+          return { type: 'none' }
+      }
+    case 'up':
+      switch (s) {
+        case 'floating':
+        case 'top':
+        case 'tl':
+        case 'tr':
+          return { type: 'maximize' } // rising past the top row maximizes
+        case 'left':
+          return { type: 'snap', region: 'tl' }
+        case 'right':
+          return { type: 'snap', region: 'tr' }
+        case 'bl':
+          return { type: 'snap', region: 'left' } // bottom quarter + up → half
+        case 'br':
+          return { type: 'snap', region: 'right' }
+        default:
+          return { type: 'none' } // already maximized
+      }
+    case 'down':
+      switch (s) {
+        case 'maximized':
+          return { type: 'restore' }
+        case 'top':
+          return { type: 'unsnap' }
+        case 'tl':
+          return { type: 'snap', region: 'left' } // top quarter + down → half
+        case 'tr':
+          return { type: 'snap', region: 'right' }
+        case 'left':
+          return { type: 'snap', region: 'bl' } // half + down → bottom quarter
+        case 'right':
+          return { type: 'snap', region: 'br' }
+        default:
+          return { type: 'minimize' } // floating or bottom quarter sinks away
+      }
+  }
+}
+
 // ── Detect snap region from pointer position ──────────────────────────────────
 
 const EDGE_THRESHOLD = 32 // px from edge to trigger snap
@@ -325,6 +435,22 @@ type WindowStore = {
   moveWindowToWorkspace: (id: string, workspaceId: WorkspaceId) => void
   snapWindow: (id: string, region: SnapRegion) => void
   unsnap: (id: string) => void
+  /**
+   * Re-fit every window to the CURRENT viewport (brief 103): maximized windows
+   * take the new usable desktop, snapped windows retile, floaters shrink only
+   * if they now overflow and move only enough to keep their title bar
+   * reachable. `minSize` still wins over the viewport.
+   */
+  reflowToViewport: () => void
+  /**
+   * Show desktop (brief 103): any visible window on the active workspace →
+   * stash and hide them all; none → bring the stash back in its stacking
+   * order. A window opened between the two presses makes "any visible" true
+   * again, so the second press hides — exactly Windows' behaviour.
+   */
+  toggleShowDesktop: () => void
+  /** Per-workspace stash of window ids hidden by toggleShowDesktop, in z-order. */
+  showDesktopStash: Partial<Record<WorkspaceId, string[]>>
   persistLayout: () => void
   restoreLayout: () => void
 }
@@ -389,6 +515,27 @@ function fallbackFloatingGeometry(currentSize: { width: number; height: number }
   return { position: { x, y }, size: { width, height } }
 }
 
+/**
+ * Clamp a floating window's position so at least the title-bar row stays on
+ * the usable desktop. Size is untouched here — an honest minSize may overflow
+ * a small viewport (that is the minSize-wins rule); position is what keeps it
+ * recoverable.
+ */
+function clampPosition(
+  position: { x: number; y: number },
+  size: { width: number; height: number }
+): { x: number; y: number } {
+  // The same bounds as the title-bar drag clamp (Window.tsx): fully on screen
+  // horizontally when it fits (x pins to 0 when the window is wider than the
+  // viewport), and vertically at least the title-bar row above the taskbar.
+  const maxX = Math.max(0, window.innerWidth - size.width)
+  const maxY = Math.max(0, window.innerHeight - TASKBAR_HEIGHT - TITLEBAR_MIN_VISIBLE)
+  return {
+    x: Math.min(Math.max(0, position.x), maxX),
+    y: Math.min(Math.max(0, position.y), maxY),
+  }
+}
+
 export const useWindowStore = create<WindowStore>((set, get) => ({
   windows: [],
   activeWorkspace: 1,
@@ -396,6 +543,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
   preSnapStates: {},
   closeGuards: {},
   pendingCloses: new Set<string>(),
+  showDesktopStash: {},
   nextZIndex: 1,
 
   openWindow: (appId, title, defaultSize, minSize, initialPosition) => {
@@ -593,6 +741,13 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
       // permanently un-restorable. Fall back to a centered, desktop-clamped
       // floating size so the restore button always does something sane.
       const geometry = saved ?? fallbackFloatingGeometry(win.size)
+      // The saved geometry may predate a viewport resize (brief 103): re-clamp
+      // so a restore never lands off-screen or oversized for the new desktop.
+      const size = clampToDesktop(geometry.size, minSizeResolver(win.appId), {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+      const position = clampPosition(geometry.position, size)
 
       return {
         windows: state.windows.map((w) =>
@@ -601,8 +756,8 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
                 ...w,
                 isMaximized: false,
                 snapState: undefined,
-                position: geometry.position,
-                size: geometry.size,
+                position,
+                size,
               }
             : w
         ),
@@ -740,18 +895,112 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
       const { [id]: _removed, ...remainingPreSnap } = state.preSnapStates
 
+      // Same re-clamp as restoreWindow: the pre-snap geometry may have been
+      // saved at a different viewport size.
+      const size = clampToDesktop(saved.size, minSizeResolver(win.appId), {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+      const position = clampPosition(saved.position, size)
+
       return {
         windows: state.windows.map((w) =>
           w.id === id
             ? {
                 ...w,
                 snapState: undefined,
-                position: saved.position,
-                size: saved.size,
+                position,
+                size,
               }
             : w
         ),
         preSnapStates: remainingPreSnap,
+      }
+    })
+  },
+
+  reflowToViewport: () => {
+    set((state) => {
+      let changed = false
+      const windows = state.windows.map((w) => {
+        if (w.isMaximized) {
+          const size = {
+            width: window.innerWidth,
+            height: window.innerHeight - TASKBAR_HEIGHT,
+          }
+          if (w.size.width === size.width && w.size.height === size.height) return w
+          changed = true
+          return { ...w, position: { x: 0, y: 0 }, size }
+        }
+        if (w.snapState) {
+          const geo = computeSnapGeometry(w.snapState)
+          if (
+            w.size.width === geo.size.width &&
+            w.size.height === geo.size.height &&
+            w.position.x === geo.position.x &&
+            w.position.y === geo.position.y
+          ) {
+            return w
+          }
+          changed = true
+          return { ...w, position: geo.position, size: geo.size }
+        }
+        // Floater: shrink only what now overflows (minSize still wins — an
+        // honest minimum may overflow), move only enough to stay reachable.
+        const minSize = minSizeResolver(w.appId)
+        const size = clampToDesktop(w.size, minSize, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
+        const position = clampPosition(w.position, size)
+        if (
+          size.width === w.size.width &&
+          size.height === w.size.height &&
+          position.x === w.position.x &&
+          position.y === w.position.y
+        ) {
+          return w
+        }
+        changed = true
+        return { ...w, position, size }
+      })
+      // No new array when nothing moved: the persist debounce keys on the
+      // `windows` identity, and a no-op resize must not write sessionStorage.
+      return changed ? { windows } : state
+    })
+  },
+
+  toggleShowDesktop: () => {
+    set((state) => {
+      const ws = state.activeWorkspace
+      const visible = state.windows
+        .filter((w) => w.isVisible && w.workspaceId === ws)
+        .sort((a, b) => a.zIndex - b.zIndex)
+
+      if (visible.length > 0) {
+        // Stash ids in ascending z-order and hide them all.
+        const ids = visible.map((w) => w.id)
+        return {
+          windows: state.windows.map((w) => (ids.includes(w.id) ? { ...w, isVisible: false } : w)),
+          showDesktopStash: { ...state.showDesktopStash, [ws]: ids },
+        }
+      }
+
+      const stash = state.showDesktopStash[ws] ?? []
+      if (stash.length === 0) return state
+      // Restore in ascending stashed z-order with fresh z-indices so the
+      // stacking survives the round trip; ids closed in between just skip.
+      let z = state.nextZIndex
+      const zFor = new Map<string, number>()
+      for (const id of stash) {
+        if (state.windows.some((w) => w.id === id)) zFor.set(id, z++)
+      }
+      return {
+        windows: state.windows.map((w) =>
+          zFor.has(w.id) ? { ...w, isVisible: true, zIndex: zFor.get(w.id)! } : w
+        ),
+        nextZIndex: z,
+        showDesktopStash: { ...state.showDesktopStash, [ws]: [] },
       }
     })
   },

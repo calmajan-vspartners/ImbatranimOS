@@ -68,3 +68,47 @@ describe('mod bindings still behave', () => {
     expect(matches('ctrl+alt+up', key('ArrowUp', { ctrl: true, alt: true }))).toBe(true)
   })
 })
+
+describe('digit bindings match on e.code (brief 103)', () => {
+  const digitKey = (
+    key: string,
+    code: string,
+    mods: { ctrl?: boolean; alt?: boolean; shift?: boolean } = {}
+  ): KeyboardEvent =>
+    new KeyboardEvent('keydown', {
+      key,
+      code,
+      ctrlKey: mods.ctrl ?? false,
+      altKey: mods.alt ?? false,
+      shiftKey: mods.shift ?? false,
+    })
+
+  it('ctrl+alt+2 fires on a plain digit press', () => {
+    expect(matches('ctrl+alt+2', digitKey('2', 'Digit2', { ctrl: true, alt: true }))).toBe(true)
+  })
+
+  it('ctrl+alt+shift+1 fires even though Shift+1 produces "!" in e.key', () => {
+    expect(
+      matches('ctrl+alt+shift+1', digitKey('!', 'Digit1', { ctrl: true, alt: true, shift: true }))
+    ).toBe(true)
+  })
+
+  it('the wrong digit does not fire', () => {
+    expect(
+      matches('ctrl+alt+shift+3', digitKey('!', 'Digit1', { ctrl: true, alt: true, shift: true }))
+    ).toBe(false)
+  })
+
+  it('missing shift still distinguishes the two families', () => {
+    expect(matches('ctrl+alt+shift+2', digitKey('2', 'Digit2', { ctrl: true, alt: true }))).toBe(
+      false
+    )
+    expect(
+      matches('ctrl+alt+2', digitKey('@', 'Digit2', { ctrl: true, alt: true, shift: true }))
+    ).toBe(false)
+  })
+
+  it('non-digit keys are untouched by the code path', () => {
+    expect(matches('mod+k', digitKey('k', 'KeyK', { ctrl: true }))).toBe(true)
+  })
+})

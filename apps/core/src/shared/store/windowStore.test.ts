@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useWindowStore } from './windowStore'
+import {
+  computeSnapGeometry,
+  nextSnapState,
+  setMinSizeResolver,
+  TASKBAR_HEIGHT,
+  TITLEBAR_MIN_VISIBLE,
+  useWindowStore,
+} from './windowStore'
 import { useIntentStore } from './intentStore'
 
 const DEFAULT = { width: 800, height: 600 }
@@ -9,13 +16,16 @@ const MIN = { width: 320, height: 200 }
 function resetStores() {
   useWindowStore.setState({
     windows: [],
+    activeWorkspace: 1,
     preMaximizeStates: {},
     preSnapStates: {},
     closeGuards: {},
     pendingCloses: new Set(),
+    showDesktopStash: {},
     nextZIndex: 1,
   })
   useIntentStore.setState({ intents: new Map() })
+  setMinSizeResolver(() => ({ width: 240, height: 180 }))
 }
 
 beforeEach(resetStores)
@@ -203,6 +213,220 @@ describe('async close guards (brief 102)', () => {
     registerCloseGuard(id, () => true)
     closeWindow(id)
     expect(useWindowStore.getState().windows).toHaveLength(0)
+  })
+})
+
+describe('reflowToViewport (brief 103)', () => {
+  it('re-fits a maximized window to the new usable desktop', () => {
+    const { openWindow, maximizeWindow } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    maximizeWindow(id)
+
+    // Simulate a viewport change after the fact: the stored size is stale now.
+    useWindowStore.setState((s) => ({
+      windows: s.windows.map((w) =>
+        w.id === id ? { ...w, size: { width: 5000, height: 5000 } } : w
+      ),
+    }))
+    useWindowStore.getState().reflowToViewport()
+
+    const win = useWindowStore.getState().windows.find((w) => w.id === id)!
+    expect(win.size).toEqual({
+      width: window.innerWidth,
+      height: window.innerHeight - TASKBAR_HEIGHT,
+    })
+    expect(win.position).toEqual({ x: 0, y: 0 })
+  })
+
+  it('retiles a snapped window to the current snap geometry', () => {
+    const { openWindow, snapWindow } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    snapWindow(id, 'left')
+    useWindowStore.setState((s) => ({
+      windows: s.windows.map((w) => (w.id === id ? { ...w, size: { width: 1, height: 1 } } : w)),
+    }))
+
+    useWindowStore.getState().reflowToViewport()
+
+    const win = useWindowStore.getState().windows.find((w) => w.id === id)!
+    expect({ position: win.position, size: win.size }).toEqual(computeSnapGeometry('left'))
+    // The pre-snap entry survives the reflow — unsnap must still round-trip.
+    expect(useWindowStore.getState().preSnapStates[id]).toBeDefined()
+  })
+
+  it('shrinks a floater only when it overflows, and keeps the title bar reachable', () => {
+    const { openWindow } = useWindowStore.getState()
+    const id = openWindow('files', 'A', { width: 300, height: 200 }, MIN)
+    const before = useWindowStore.getState().windows.find((w) => w.id === id)!
+    const keptSize = before.size
+
+    // A window parked beyond the desktop's bottom-right, oversized for it.
+    useWindowStore.setState((s) => ({
+      windows: s.windows.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              position: { x: window.innerWidth + 500, y: window.innerHeight + 500 },
+              size: { width: window.innerWidth + 400, height: window.innerHeight + 400 },
+            }
+          : w
+      ),
+    }))
+    useWindowStore.getState().reflowToViewport()
+    let win = useWindowStore.getState().windows.find((w) => w.id === id)!
+    expect(win.size.width).toBeLessThanOrEqual(window.innerWidth)
+    expect(win.size.height).toBeLessThanOrEqual(window.innerHeight - TASKBAR_HEIGHT)
+    expect(win.position.y).toBeLessThanOrEqual(
+      window.innerHeight - TASKBAR_HEIGHT - TITLEBAR_MIN_VISIBLE
+    )
+    expect(win.position.x).toBeGreaterThanOrEqual(0)
+
+    // A second reflow with nothing overflowing changes nothing (no churn).
+    const arr = useWindowStore.getState().windows
+    useWindowStore.getState().reflowToViewport()
+    expect(useWindowStore.getState().windows).toBe(arr)
+
+    // And a window that already fits is not shrunk.
+    useWindowStore.setState((s) => ({
+      windows: s.windows.map((w) => (w.id === id ? { ...w, size: keptSize } : w)),
+    }))
+    useWindowStore.getState().reflowToViewport()
+    win = useWindowStore.getState().windows.find((w) => w.id === id)!
+    expect(win.size).toEqual(keptSize)
+  })
+
+  it('minSize wins over the viewport: the window overflows but its position clamps', () => {
+    setMinSizeResolver(() => ({
+      width: window.innerWidth + 200,
+      height: window.innerHeight + 200,
+    }))
+    const { openWindow } = useWindowStore.getState()
+    const id = openWindow('files', 'A', DEFAULT, MIN)
+    useWindowStore.setState((s) => ({
+      windows: s.windows.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              position: { x: 300, y: window.innerHeight * 2 },
+              size: { width: window.innerWidth + 200, height: window.innerHeight + 200 },
+            }
+          : w
+      ),
+    }))
+
+    useWindowStore.getState().reflowToViewport()
+
+    const win = useWindowStore.getState().windows.find((w) => w.id === id)!
+    // Honest minimum: still overflowing…
+    expect(win.size.width).toBe(window.innerWidth + 200)
+    // …but pinned so the title-bar row is on screen.
+    expect(win.position.x).toBe(0)
+    expect(win.position.y).toBeLessThanOrEqual(
+      window.innerHeight - TASKBAR_HEIGHT - TITLEBAR_MIN_VISIBLE
+    )
+  })
+})
+
+describe('nextSnapState (brief 103)', () => {
+  it('floating: left/right snap halves, up maximizes, down minimizes', () => {
+    const w = { isMaximized: false }
+    expect(nextSnapState(w, 'left')).toEqual({ type: 'snap', region: 'left' })
+    expect(nextSnapState(w, 'right')).toEqual({ type: 'snap', region: 'right' })
+    expect(nextSnapState(w, 'up')).toEqual({ type: 'maximize' })
+    expect(nextSnapState(w, 'down')).toEqual({ type: 'minimize' })
+  })
+
+  it('halves: up/down reach quarters, opposite arrow unsnaps', () => {
+    const left = { snapState: 'left' as const, isMaximized: false }
+    expect(nextSnapState(left, 'up')).toEqual({ type: 'snap', region: 'tl' })
+    expect(nextSnapState(left, 'down')).toEqual({ type: 'snap', region: 'bl' })
+    expect(nextSnapState(left, 'right')).toEqual({ type: 'unsnap' })
+    expect(nextSnapState(left, 'left')).toEqual({ type: 'none' })
+
+    const right = { snapState: 'right' as const, isMaximized: false }
+    expect(nextSnapState(right, 'up')).toEqual({ type: 'snap', region: 'tr' })
+    expect(nextSnapState(right, 'down')).toEqual({ type: 'snap', region: 'br' })
+    expect(nextSnapState(right, 'left')).toEqual({ type: 'unsnap' })
+  })
+
+  it('quarters: vertical arrows walk the column, horizontal arrows cross', () => {
+    expect(nextSnapState({ snapState: 'tl', isMaximized: false }, 'down')).toEqual({
+      type: 'snap',
+      region: 'left',
+    })
+    expect(nextSnapState({ snapState: 'tl', isMaximized: false }, 'up')).toEqual({
+      type: 'maximize',
+    })
+    expect(nextSnapState({ snapState: 'bl', isMaximized: false }, 'up')).toEqual({
+      type: 'snap',
+      region: 'left',
+    })
+    expect(nextSnapState({ snapState: 'bl', isMaximized: false }, 'down')).toEqual({
+      type: 'minimize',
+    })
+    expect(nextSnapState({ snapState: 'tr', isMaximized: false }, 'left')).toEqual({
+      type: 'snap',
+      region: 'tl',
+    })
+    expect(nextSnapState({ snapState: 'bl', isMaximized: false }, 'right')).toEqual({
+      type: 'snap',
+      region: 'br',
+    })
+  })
+
+  it('maximized: down restores, sideways goes to a half, up is a no-op', () => {
+    const max = { isMaximized: true }
+    expect(nextSnapState(max, 'down')).toEqual({ type: 'restore' })
+    expect(nextSnapState(max, 'left')).toEqual({ type: 'snap', region: 'left' })
+    expect(nextSnapState(max, 'right')).toEqual({ type: 'snap', region: 'right' })
+    expect(nextSnapState(max, 'up')).toEqual({ type: 'none' })
+  })
+})
+
+describe('toggleShowDesktop (brief 103)', () => {
+  it('hides everything visible, then brings the same stack back in order', () => {
+    const { openWindow, toggleShowDesktop } = useWindowStore.getState()
+    const a = openWindow('files', 'A', DEFAULT, MIN)
+    const b = openWindow('notepad', 'B', DEFAULT, MIN)
+    const c = openWindow('terminal', 'C', DEFAULT, MIN)
+
+    toggleShowDesktop()
+    expect(useWindowStore.getState().windows.every((w) => !w.isVisible)).toBe(true)
+
+    useWindowStore.getState().toggleShowDesktop()
+    const wins = useWindowStore.getState().windows
+    expect(wins.every((w) => w.isVisible)).toBe(true)
+    // Stacking survived the round trip: a < b < c in z, as opened.
+    const z = (id: string) => wins.find((w) => w.id === id)!.zIndex
+    expect(z(a)).toBeLessThan(z(b))
+    expect(z(b)).toBeLessThan(z(c))
+  })
+
+  it('a window opened between the presses makes the second press hide again', () => {
+    const { openWindow, toggleShowDesktop } = useWindowStore.getState()
+    openWindow('files', 'A', DEFAULT, MIN)
+    toggleShowDesktop()
+    // Something new appears on the cleared desktop…
+    const late = useWindowStore.getState().openWindow('notepad', 'B', DEFAULT, MIN)
+    // …so the next press hides (Windows' behaviour), not restores.
+    useWindowStore.getState().toggleShowDesktop()
+    const wins = useWindowStore.getState().windows
+    expect(wins.every((w) => !w.isVisible)).toBe(true)
+    // And the third press brings back what the second hid.
+    useWindowStore.getState().toggleShowDesktop()
+    expect(useWindowStore.getState().windows.find((w) => w.id === late)!.isVisible).toBe(true)
+  })
+
+  it('ids closed while stashed are skipped on restore', () => {
+    const { openWindow, toggleShowDesktop } = useWindowStore.getState()
+    const a = openWindow('files', 'A', DEFAULT, MIN)
+    const b = openWindow('notepad', 'B', DEFAULT, MIN)
+    toggleShowDesktop()
+    useWindowStore.getState().closeWindow(a)
+    useWindowStore.getState().toggleShowDesktop()
+    const wins = useWindowStore.getState().windows
+    expect(wins.find((w) => w.id === a)).toBeUndefined()
+    expect(wins.find((w) => w.id === b)!.isVisible).toBe(true)
   })
 })
 

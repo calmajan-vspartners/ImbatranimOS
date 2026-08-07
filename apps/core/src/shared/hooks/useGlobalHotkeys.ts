@@ -71,7 +71,15 @@ export function eventMatchesBinding(e: KeyboardEvent, parsed: ParsedKey): boolea
   }
 
   const normalized = keyMap[evKey] ?? evKey
-  return normalized === parsed.key
+  if (normalized === parsed.key) return true
+
+  // Digit bindings also match on the physical key (brief 103): Shift+1
+  // produces `!` in e.key (and layout-dependent characters elsewhere), so a
+  // `ctrl+alt+shift+1` binding would never fire on e.key alone. e.code is
+  // layout-independent for the top digit row.
+  if (/^[0-9]$/.test(parsed.key) && e.code === `Digit${parsed.key}`) return true
+
+  return false
 }
 
 /**

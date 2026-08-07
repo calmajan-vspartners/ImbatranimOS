@@ -3352,3 +3352,25 @@ React root), turbo 119/119, and probes 12/12 + 6/6 against the production
 bundle — the themed dialog up while the Terminal behind it kept streaming
 (10→13 ticks), Save-and-close wrote the bytes, Don't Save didn't, Cancel kept
 the dirty marker, nothing stacked, zero native dialogs observed.
+
+## 2026-08-07 — Brief 103: the desktop reflows, and the missing reflexes ship
+
+[Brief 103](briefs/done/103-window-management-parity-2.md) **DONE** — the
+brief-52 deferral is paid: `reflowToViewport()` re-fits every window when the
+browser viewport changes (200 ms trailing debounce + one boot pass after
+`restoreLayout`, and `restoreWindow`/`unsnap` re-clamp saved geometry too).
+Maximized windows refill the usable desktop exactly, snapped windows retile,
+floaters shrink only when overflowing and keep their title bar reachable —
+minSize still wins, resolved through an injected `setMinSizeResolver` so the
+store never imports the manifest graph; a no-op reflow returns the same array
+so nothing persists. The reflexes: double-click-titlebar maximize/restore,
+keyboard snapping on `mod+alt+shift+arrows` over a pure `nextSnapState`
+Windows-semantics table (the obvious `mod+alt+arrows` genuinely collides with
+brief 85's workspace arrows off a mac), show desktop on `ctrl+alt+d` with a
+per-workspace stash that restores stacking order, and the pips' advertised
+`ctrl+alt+1..4` finally fires (plus `ctrl+alt+shift+1..4` carry) via an
+`e.code DigitN` matcher extension — Shift+1 produces `!` in `e.key`, so the
+carry family could never have matched otherwise. Taskbar right-click menu
+gained Maximize/Restore. Verified: 24 new units, turbo 119/119, Playwright
+14/14 against the production bundle including the exact-fill reflow numbers
+and the ?-overlay listing every new row.

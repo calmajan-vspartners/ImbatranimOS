@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Taskbar } from './shared/components/taskbar'
 import { Desktop } from './shared/components/desktop'
 import { useWallpaperStore } from './shared/store/wallpaperStore'
-import { useWindowStore } from './shared/store/windowStore'
+import { setMinSizeResolver, useWindowStore } from './shared/store/windowStore'
+import { APP_REGISTRY } from './shared/registry/registry'
 import { usePaletteStore } from './shared/store/paletteStore'
 import { useAppearanceStore, applyAppearance } from './shared/store/appearanceStore'
 import { CommandPalette } from './shared/components/CommandPalette'
@@ -97,9 +98,38 @@ export default function App() {
   // resurrect the set. App mounts behind AuthGate's `prefsReady`, so the list has
   // already been read from the server by the time this runs.
   useEffect(() => {
+    // The store learns minSize through this resolver (brief 103) — importing
+    // APP_REGISTRY into windowStore would couple it to the manifest graph.
+    // Same fallback WindowContainer uses for unknown apps.
+    setMinSizeResolver(
+      (appId) => APP_REGISTRY.find((a) => a.id === appId)?.minSize ?? { width: 240, height: 180 }
+    )
     restoreLayout()
+    // The layout may have been saved at a different resolution — re-fit it to
+    // the viewport this tab actually has before the first paint settles.
+    useWindowStore.getState().reflowToViewport()
     runStartupApps()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fit windows when the browser viewport changes (brief 103) — devtools,
+  // half-screen snap of the host window, a projector. Trailing debounce so
+  // dragging the browser's resize handle reflows once, not per frame; the
+  // 500ms persist debounce below then coalesces the writes.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onResize = () => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = undefined
+        useWindowStore.getState().reflowToViewport()
+      }, 200)
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      if (timer !== undefined) clearTimeout(timer)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [])
 
   // Persist layout whenever windows change. Drag/resize mints a new `windows`
   // array ~60x/sec, so writing synchronously on every change would run a
