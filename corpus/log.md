@@ -3272,3 +3272,39 @@ HMR probes (both dead under the old list), are in the outcome note.
 
 All 119 turbo tasks and backend e2e 141 green; the prod runtime path is
 untouched by design.
+
+## 2026-08-07 — Research sweep: the 101-136 backlog
+
+With the autonomous backlog empty (only human-gated 15 and 50 remain from the
+old numbering), a new exploration ran: five parallel read-only lenses over the
+code and corpus — deferral harvest, shell UX, app depth, platform resilience,
+fit-and-finish — each returning evidence-cited candidates. The synthesis is
+[wiki/backlog-2026-08-07.md](wiki/backlog-2026-08-07.md): 36 rows in three
+waves. Brief files 101-113 were authored the same day, each re-verified
+against the code before writing; rows 114-136 get their brief at grill time.
+
+Findings worth logging on their own, because they are bugs, not just briefs:
+
+- **Desktop right-click leaks through window interiors.** Windows are DOM
+  children of the desktop container and nothing stops `contextmenu`
+  propagation, so Terminal right-click-paste and Minesweeper flagging each
+  ALSO open the desktop's widgets menu on top, and the File Manager's
+  background menu opens two menus at once. The icons/widgets guard is dead
+  code — no element ever sets the attributes it checks. (Brief 106.)
+- **The PTY revoke sweep would defeat sliding sessions naïvely built**: it
+  calls `sessions.validate()` every 30 s per live terminal, so renewal inside
+  `validate()` would let any open terminal immortalize its own session. And
+  the session cookie's Max-Age is set once at login, so server-side sliding
+  alone is theater. Both traps are in brief 101's decisions.
+- **`mod+alt+arrows` cannot be the snap binding**: on non-Mac, `mod` IS ctrl,
+  colliding with brief 85's workspace arrows; and `Shift+1` produces `!` in
+  `e.key`, so digit combos need an `e.code` matcher. Both in brief 103.
+- **Alt+Tab today lands on the least-recently-used window** (ascending z sort
+  wrapping to 0), so pairwise quick-toggle has never worked. (Brief 104.)
+- **The files search endpoint has no folder-scope parameter** — briefs 112/113
+  spec one additive jailed `path` param they share.
+
+The sweep + authoring ran as two agent fan-outs (~1.7M tokens); the second hit
+the session usage cap after 5 of 11 authors finished, which is why 114-136 are
+rows without files. The five explorers' corrections are folded into the briefs
+they touched.
