@@ -1,6 +1,23 @@
 # Brief 108 — Intent re-delivery: Archive Manager subscribes instead of consuming once
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. EASY · one
+> **Outcome (2026-08-07): DONE.** `onIntent` has its first consumer. The
+> consume-once effect and `startedRef` are gone; the app subscribes through a
+> stable ref-indirected callback (subscribe once per handle, no re-subscribe
+> churn), and `onIntent` delivering the pending launch payload on subscribe is
+> what makes the StrictMode guard unnecessary. One deviation from the Fix
+> list, in the repo's helper-first spirit: `normaliseIntent` moved out of the
+> component into `lib/intentDelivery.ts` alongside a pure `deliveryFor(phase,
+> intent)` returning run/defer/ignore, so the rule is unit-testable in node
+> without mounting React (archive-manager gained its first vitest config for
+> it — 6 units). Mid-extraction arrivals defer and collapse to the newest;
+> everything else runs immediately after a total state reset. `flushPending()`
+> is called at all three settle points (extract done, compress done, and
+> `fail`). Verified: turbo 120/120 and a 10/10 Playwright pass on the
+> production bundle — a.zip lists A, then b.zip switches the SAME window to B
+> with A's listing gone, Extract all still completes after the switch, and a
+> further delivery in the `done` phase switches back to A.
+
+Status: **done 2026-08-07** · From the 2026-08-07 research sweep. EASY · one
 add-on (`archive-manager`) — no core change, no protocol change (`onIntent`
 shipped with brief 48 and has **zero consumers**; this is its first).
 Interacts with brief 78 (list-and-wait) and brief 81 (`opens` declaration);

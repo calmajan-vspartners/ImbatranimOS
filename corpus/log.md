@@ -3443,3 +3443,28 @@ toggles, Ctrl+drag adds, Escape clears, Enter opens the set. Escape/Enter had
 to be a window listener rather than a container handler: after a marquee drag
 nothing inside the desktop holds focus. Verified: 11 marquee units, turbo
 119/119, Playwright 24/24 first run.
+
+## 2026-08-07 — Brief 108: `onIntent` finally has a consumer
+
+[Brief 108](briefs/done/108-intent-redelivery.md) **DONE** — the shell's half
+of re-delivery always worked (`openApp` on an open single-instance app focuses
+the window and re-sets its intent), but Archive Manager drained its intent once
+behind a `startedRef` and never looked again. It is the only manifest that is
+both single-instance and declares `opens`, so it was the one app where a user
+hit it: open zip A, double-click zip B in Files, and the window focuses still
+showing A with B's payload rotting in the intent map. It now subscribes
+through `system.intents.onIntent` — the seam's first caller since brief 48
+shipped it — with a ref-indirected callback so the subscription is made once
+per handle. `startedRef` retires because `onIntent` consumes the pending
+launch payload on subscribe, leaving a StrictMode remount nothing to re-run.
+
+The delivery rule moved out of the component into a pure
+`lib/intentDelivery.ts` (`normaliseIntent` + `deliveryFor(phase, intent)`),
+which is what made it unit-testable without mounting React; archive-manager
+gained its first vitest config for the 6 units. A payload arriving
+mid-extraction defers rather than aborting — there is no job-cancel endpoint,
+so "abandon" could only orphan a running backend write — and several arrivals
+collapse to the newest, because the intent map holds exactly one slot per
+window. Everything else resets totally and runs at once. Verified: turbo
+120/120, Playwright 10/10 — the A→B switch happens in one window, Extract all
+still completes afterwards, and a delivery in the `done` phase switches back.

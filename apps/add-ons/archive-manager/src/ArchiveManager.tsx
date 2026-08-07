@@ -21,10 +21,9 @@ import {
   startExtractJob,
 } from './lib/archiveApi'
 import type { ArchiveIntent, ArchiveListing, DirEntry } from './types'
+import { deliveryFor, normaliseIntent, type Phase } from './lib/intentDelivery'
 import { EntryBrowser } from './components/EntryBrowser'
 import { APP_NAME } from './appName'
-
-type Phase = 'idle' | 'listing' | 'browsing' | 'running' | 'done' | 'error'
 
 interface Outcome {
   title: string
@@ -34,28 +33,6 @@ interface Outcome {
 
 /** How often the job is polled. Fast enough to feel live, slow enough to be cheap. */
 const POLL_MS = 400
-
-/**
- * Accept the generic open payload as well as this app's own intents (brief 81).
- *
- * Since brief 81 the manifest declares `opens: ['zip', 'tar', …]`, so
- * double-clicking an archive routes here through the same `{ openPath, root }`
- * payload every other opener gets. Without this translation the app would have
- * opened idle and empty — a double-click that technically launched something and
- * did nothing, which is the exact failure brief 81 exists to remove.
- *
- * "Open" means **browse**, not extract: `action: 'extract'` with no `dest` is
- * already the list-and-wait path brief 78 built.
- */
-function normaliseIntent(raw: unknown): ArchiveIntent | null {
-  if (raw === null || typeof raw !== 'object') return null
-  const it = raw as Record<string, unknown>
-  if (it.action === 'extract' || it.action === 'compress') return raw as ArchiveIntent
-  if (typeof it.openPath === 'string' && typeof it.root === 'string') {
-    return { action: 'extract', root: it.root, path: it.openPath }
-  }
-  return null
-}
 
 /**
  * Browse an archive, then extract all of it or just part of it.
@@ -81,7 +58,24 @@ export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
   const [source, setSource] = useState<{ root: string; path: string; dest?: string } | null>(null)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [errorText, setErrorText] = useState('')
-  const startedRef = useRef(false)
+
+  // Re-delivery plumbing (brief 108). `phaseRef` mirrors the committed phase so
+  // the delivery rule can read it from an event handler; `pendingIntentRef`
+  // holds at most the NEWEST payload that arrived mid-extraction.
+  const phaseRef = useRef<Phase>('idle')
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
+  const pendingIntentRef = useRef<ArchiveIntent | null>(null)
+  const applyIntentRef = useRef<(intent: ArchiveIntent) => void>(() => {})
+
+  /** A settled job takes whatever arrived while it was running. */
+  const flushPending = useCallback(() => {
+    const next = pendingIntentRef.current
+    if (!next) return
+    pendingIntentRef.current = null
+    applyIntentRef.current(next)
+  }, [])
 
   const fail = useCallback(
     (err: unknown) => {
@@ -93,8 +87,9 @@ export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
         body: msg,
         level: 'error',
       })
+      flushPending()
     },
-    [system]
+    [system, flushPending]
   )
 
   /**
@@ -150,13 +145,14 @@ export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
             body: `${basename(path)} → ${result.dest}`,
             level: 'success',
           })
+          flushPending()
           return
         }
       } catch (err) {
         fail(err)
       }
     },
-    [fail, system]
+    [fail, system, flushPending]
   )
 
   const run = useCallback(
@@ -195,6 +191,7 @@ export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
           contents: [],
         })
         setPhase('done')
+        flushPending()
         system.notify({
           title: 'Archive created',
           body: `${res.entries} file${res.entries === 1 ? '' : 's'} → ${intent.dest}`,
@@ -204,22 +201,64 @@ export function ArchiveManager({ windowId: _windowId }: { windowId: string }) {
         fail(err)
       }
     },
-    [fail, system]
+    [fail, system, flushPending]
   )
 
-  // Drain the one-shot intent exactly once (ref-guarded for StrictMode) and
-  // kick off the archive job. Starting an async operation on window-open is the
-  // intended "sync to an external system" use of an effect; the progress
-  // setState happens inside that async job, which the rule can't see through.
-  useEffect(() => {
-    if (startedRef.current) return
-    startedRef.current = true
-    const intent = normaliseIntent(system.intents.consume())
-    if (intent) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+  /**
+   * Start a delivered intent from a clean slate.
+   *
+   * The reset is explicit and total: a switched-to archive must never show the
+   * previous archive's listing, selection or outcome.
+   */
+  const applyIntent = useCallback(
+    (intent: ArchiveIntent) => {
+      setListing(null)
+      setSelected(new Set())
+      setSource(null)
+      setOutcome(null)
+      setErrorText('')
+      setPercent(null)
+      setLabel('')
       void run(intent)
+    },
+    [run]
+  )
+  useEffect(() => {
+    applyIntentRef.current = applyIntent
+  }, [applyIntent])
+
+  /**
+   * SUBSCRIBE to intents rather than draining once (brief 108).
+   *
+   * `openApp` on an already-open single-instance app focuses the window and
+   * re-sets its intent — but the old consume-once effect never looked again,
+   * so opening zip B while zip A was on screen silently dropped B. Archive
+   * Manager is the only manifest that is both single-instance and declares
+   * `opens`, so it is the one app where a user hits this.
+   *
+   * `onIntent` delivers the pending launch payload immediately on subscribe,
+   * which is also why `startedRef` retired: a StrictMode remount finds nothing
+   * left to double-run, and the unsubscriber is the effect's cleanup.
+   */
+  const deliverRef = useRef<(raw: unknown) => void>(() => {})
+  useEffect(() => {
+    deliverRef.current = (raw: unknown) => {
+      const intent = normaliseIntent(raw)
+      switch (deliveryFor(phaseRef.current, intent)) {
+        case 'run':
+          applyIntentRef.current(intent!)
+          break
+        case 'defer':
+          // Latest wins: the intent map holds one slot per window, so a deeper
+          // queue would be state the store cannot back.
+          pendingIntentRef.current = intent
+          break
+        case 'ignore':
+          break
+      }
     }
-  }, [system, run])
+  })
+  useEffect(() => system.intents.onIntent((raw) => deliverRef.current(raw)), [system])
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {
