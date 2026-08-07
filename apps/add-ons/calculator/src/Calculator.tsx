@@ -3,14 +3,16 @@ import { cn } from '@imbatranim/ui'
 import { BasicPad } from './BasicPad'
 import { ProgrammerPad } from './ProgrammerPad'
 import { ScientificPad } from './ScientificPad'
+import { ConverterPad } from './ConverterPad'
 import { useCalcSession } from './hooks/useCalcSession'
 
-type Mode = 'basic' | 'scientific' | 'programmer'
+type Mode = 'basic' | 'scientific' | 'programmer' | 'converter'
 
 const MODES: { id: Mode; label: string }[] = [
   { id: 'basic', label: 'Basic' },
   { id: 'scientific', label: 'Sci' },
   { id: 'programmer', label: 'Prog' },
+  { id: 'converter', label: 'Conv' },
 ]
 
 /**
@@ -53,6 +55,10 @@ export function Calculator({ windowId }: { windowId: string }) {
         {mode === 'basic' && <BasicPad windowId={windowId} session={session} />}
         {mode === 'scientific' && <ScientificPad windowId={windowId} session={session} />}
         {mode === 'programmer' && <ProgrammerPad windowId={windowId} />}
+        {/* Like Programmer, the converter takes neither the memory register nor
+            the tape: a conversion is a pair of numbers with units attached, and
+            half of it on the tape would record something never computed. */}
+        {mode === 'converter' && <ConverterPad windowId={windowId} />}
       </div>
     </div>
   )

@@ -3797,3 +3797,30 @@ The third answer matters as much as the first two. When nothing claims an
 extension, the toast now names the file and says so, rather than implying the
 reader should have known where to look — and, verified in the browser, it opens
 no app at all rather than guessing one.
+
+## 2026-08-07 — Brief 116: the calculator's fourth tab
+
+A converter is a table, so this is mostly `engine/units.ts` and its tests. Two
+things kept it from being a rote one.
+
+The shape follows the physics. Length, mass and data convert through a base
+unit by one multiplication; temperature does not, because its scales have
+different zero points. Forcing temperature into the factor table would have
+been the easy move and would have been wrong, so it is modelled as functions
+pivoting through Celsius, and a test asserts that a same-unit temperature
+conversion is identity — the thing a stray factor would break.
+
+And data lists decimal *and* binary prefixes side by side, which is the reason
+the category earns its place: a "500 GB" disk really is 465.66 GiB. A converter
+that quietly conflates the two is worse than not having one.
+
+The tests assert definitions rather than outputs — an inch is 25.4 mm, a mile
+is 5280 ft, a pound is 0.45359237 kg, −40 is where the two temperature scales
+cross — plus table integrity: exactly one base unit per category, unique ids,
+both defaults present, no factor anywhere in temperature. `convert` returns
+null for an unknown unit or a non-finite input rather than 0 or NaN, and the
+pad shows nothing plus "That is not a number" instead of a stale result.
+
+Like Programmer, the tab takes neither the memory register nor the tape: a
+conversion is a pair of numbers with units attached, and half of it on the tape
+would record something never computed.
