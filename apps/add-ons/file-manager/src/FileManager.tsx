@@ -13,7 +13,14 @@ import {
   LayoutGrid,
   List,
 } from 'lucide-react'
-import { Button, ConfirmDialog, useConfirm, usePrompt, useSystem } from '@imbatranim/ui'
+import {
+  Button,
+  ConfirmDialog,
+  useConfirm,
+  usePrompt,
+  useSystem,
+  useTopWindowKeydown,
+} from '@imbatranim/ui'
 import { TrashDialog } from './components/TrashDialog'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import { Input } from '@imbatranim/ui'
@@ -24,6 +31,8 @@ import { cn } from '@imbatranim/ui'
 import { useVirtualList } from '@imbatranim/ui'
 import { useElementSize } from '@imbatranim/ui'
 import { Breadcrumb } from './components/Breadcrumb'
+import { SearchBox } from './components/SearchBox'
+import { SearchResults } from './components/SearchResults'
 import { FileList } from './components/FileList'
 import { FileGrid } from './components/FileGrid'
 import { FolderTree } from './components/FolderTree'
@@ -51,6 +60,8 @@ import {
 } from './lib/fileSort'
 import { usePreviewPaneSettings } from './store/previewPaneStore'
 import { useFileViewSettings } from './store/fileViewStore'
+import { parentOf, resultCountLabel, scopeLabel } from './lib/searchPresentation'
+import { useFileSearch } from './hooks/useFileSearch'
 import { useFileSelection } from './hooks/useFileSelection'
 import { useFileClipboard } from './hooks/useFileClipboard'
 import { useDeleteFlow } from './hooks/useDeleteFlow'
@@ -106,6 +117,15 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [system])
+
+  // Search state (brief 112). Ephemeral window state on purpose — a search is a
+  // question you are asking right now, not a setting; nothing here belongs in
+  // the dotfile.
+  const [query, setQuery] = useState('')
+  const [contentMode, setContentMode] = useState(false)
+  const [selectedHitPath, setSelectedHitPath] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
 
   // Rename state
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -185,16 +205,33 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
       }),
   })
 
+  /**
+   * Drop the search and go back to the listing.
+   *
+   * `contentMode` deliberately survives: it is a mode the user chose, and
+   * resetting it under them means the next search silently answers a different
+   * question than the last one did. The selection in the listing survives too —
+   * Escape must restore the pane exactly as it was.
+   */
+  function clearSearch() {
+    setQuery('')
+    setSelectedHitPath(null)
+  }
+
   function switchRoot(nextRoot: string) {
     setRoot(nextRoot)
     setPath('')
     selection.clear()
     clipboard.clear()
+    clearSearch()
   }
 
   function navigate(nextPath: string) {
     setPath(nextPath)
     selection.clear()
+    // Results are scoped to the folder they were found in; carrying the query
+    // across a navigation would silently re-run it somewhere else.
+    clearSearch()
   }
 
   function handleOpen(entry: FsEntry) {
@@ -454,6 +491,73 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
   const selectedEntries = orderedEntries.filter((e) => selected.has(e.path))
   const hiddenCount = entries.length - visibleEntries.length
 
+  // ── Search (brief 112) ──────────────────────────────────────────────────────
+  const searchActive = query.trim().length > 0
+  const search = useFileSearch(root, path, query, contentMode)
+
+  /**
+   * Open a hit through the same door as a listing row.
+   *
+   * A `SearchHit` is `{ name, path, type }` — the route cannot return a size or
+   * an mtime — so it is widened into an `FsEntry` exactly the way `handleNewFile`
+   * widens a freshly created file. That keeps files routing through the brief-81
+   * association registry (not a hardcoded editor) and lets a directory hit
+   * navigate this window, which clears the search on its way through.
+   */
+  function openHit(hit: { name: string; path: string; type: 'file' | 'directory' }) {
+    handleOpen({ ...hit, size: 0, modifiedAt: '' })
+  }
+
+  /**
+   * The real entry behind the selected hit, for the preview pane.
+   *
+   * A synthesized `size: 0, modifiedAt: ''` is fine for *opening* a file — the
+   * open path only reads name/path/type — but the preview pane renders both,
+   * and would confidently report "0 B, Modified Invalid Date". So look the hit
+   * up in its own parent listing instead. When nothing is selected this asks for
+   * the directory already on screen, which is the same query key `dirQuery`
+   * uses: no extra request in the common case.
+   */
+  const hitParentPath = selectedHitPath ? parentOf(selectedHitPath) : path
+  const hitDirQuery = useDirectoryQuery(root, searchActive ? hitParentPath : path)
+  const selectedHitEntry =
+    searchActive && selectedHitPath
+      ? ((hitDirQuery.data ?? []).find((e) => e.path === selectedHitPath) ?? null)
+      : null
+  const previewEntries = searchActive
+    ? selectedHitEntry
+      ? [selectedHitEntry]
+      : []
+    : selectedEntries
+
+  function focusSearch() {
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  }
+
+  /**
+   * Ctrl+F focuses the search box, for the whole focused window.
+   *
+   * Not the Ctrl+H pattern (a React `onKeyDown` on the app root): that only
+   * fires once something *inside* the app already has focus, so opening a window
+   * from the taskbar and pressing Ctrl+F would do nothing — and worse, the
+   * handler's INPUT/TEXTAREA bail means it would be dead inside the very box it
+   * is meant to focus, handing Ctrl+F to the browser's find-in-page bar.
+   * `useTopWindowKeydown` gates on `system.window.isFocused()`, which is exactly
+   * window scope, and `ignoreTextEntry: false` keeps it alive in the box itself.
+   */
+  useTopWindowKeydown(
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'f') return
+      // One text field must keep the key: the inline rename input. Stealing
+      // focus mid-rename abandons the edit with no way to tell it happened.
+      if (renamingPath !== null) return
+      e.preventDefault()
+      focusSearch()
+    },
+    { ignoreTextEntry: false }
+  )
+
   // The scroll container is the ScrollArea viewport that wraps the list; we get
   // it directly via `viewportRef` (no reliance on library-internal DOM attrs).
   // The virtualizer is created here so both the list rendering and keyboard nav
@@ -703,8 +807,32 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
         </Tooltip>
       </div>
 
-      {/* Breadcrumb */}
-      <Breadcrumb root={root} rootLabel={rootCfg.label} path={path} onNavigate={navigate} />
+      {/* Breadcrumb + the search box for this folder */}
+      <Breadcrumb
+        root={root}
+        rootLabel={rootCfg.label}
+        path={path}
+        onNavigate={navigate}
+        right={
+          <SearchBox
+            value={query}
+            onChange={setQuery}
+            rootLabel={rootCfg.label}
+            path={path}
+            contentMode={contentMode}
+            onToggleContentMode={() => setContentMode((v) => !v)}
+            onRun={search.run}
+            onClear={clearSearch}
+            onStepIntoResults={() => {
+              if (search.hits.length === 0) return
+              setSelectedHitPath(search.hits[0].path)
+              resultsRef.current?.focus()
+            }}
+            searching={search.searching}
+            inputRef={searchInputRef}
+          />
+        }
+      />
 
       {/* Action error banner (batch delete / upload failures) */}
       {actionError && (
@@ -735,85 +863,111 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
           </ScrollArea>
         </div>
 
-        {/* Right: file listing */}
-        <UploadDropzone onFiles={handleUploadFiles} className="min-w-0 flex-1 overflow-hidden">
-          <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
-            {isLoading && (
-              <div className="text-on-surface-variant font-ui flex items-center justify-center py-12 text-[12px]">
-                Loading…
-              </div>
-            )}
-            {isError && (
-              <div className="text-error font-ui flex items-center justify-center py-12 text-[12px]">
-                Failed to load directory.
-              </div>
-            )}
-            {!isLoading && !isError && (
-              <div
-                ref={attachListContainer}
-                onClick={selection.clear}
-                onContextMenu={openBackgroundMenu}
-                onKeyDown={handleListKeyDown}
-                tabIndex={0}
-                className="min-h-full outline-none"
-              >
-                {/* A folder whose every entry is a dotfile would otherwise read as
+        {/* Right: search results, or the directory listing.
+            One or the other, never nested — see SearchResults' docblock for why
+            the listing's dropzone / background menu / arrow-key handler must
+            not be able to reach the results rows. */}
+        {searchActive ? (
+          <SearchResults
+            hits={search.hits}
+            truncated={search.truncated}
+            searching={search.searching}
+            stale={search.stale}
+            awaitingRun={search.awaitingRun}
+            error={search.error}
+            query={query}
+            contentMode={contentMode}
+            rootLabel={rootCfg.label}
+            path={path}
+            selectedPath={selectedHitPath}
+            onSelect={setSelectedHitPath}
+            onOpen={openHit}
+            onDismiss={() => {
+              clearSearch()
+              focusSearch()
+            }}
+            containerRef={resultsRef}
+          />
+        ) : (
+          <UploadDropzone onFiles={handleUploadFiles} className="min-w-0 flex-1 overflow-hidden">
+            <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
+              {isLoading && (
+                <div className="text-on-surface-variant font-ui flex items-center justify-center py-12 text-[12px]">
+                  Loading…
+                </div>
+              )}
+              {isError && (
+                <div className="text-error font-ui flex items-center justify-center py-12 text-[12px]">
+                  Failed to load directory.
+                </div>
+              )}
+              {!isLoading && !isError && (
+                <div
+                  ref={attachListContainer}
+                  onClick={selection.clear}
+                  onContextMenu={openBackgroundMenu}
+                  onKeyDown={handleListKeyDown}
+                  tabIndex={0}
+                  className="min-h-full outline-none"
+                >
+                  {/* A folder whose every entry is a dotfile would otherwise read as
                     "Empty folder", which is a lie the user cannot act on. */}
-                {orderedEntries.length === 0 && hiddenCount > 0 ? (
-                  <div className="text-on-surface-variant flex flex-col items-center justify-center gap-2 py-12">
-                    <EyeOff size={32} strokeWidth={1} />
-                    <span className="font-ui text-[12px]">
-                      {hiddenCount} hidden item{hiddenCount === 1 ? '' : 's'}, nothing else here
-                    </span>
-                    <Button variant="default" size="sm" onClick={view.toggleHidden}>
-                      Show hidden files
-                    </Button>
-                  </div>
-                ) : isIcons ? (
-                  <FileGrid
-                    entries={orderedEntries}
-                    virtualizer={rowVirtualizer}
-                    columns={columns}
-                    selected={selected}
-                    onSelect={selection.select}
-                    onOpen={handleOpen}
-                    onContextMenu={openEntryMenu}
-                    renamingPath={renamingPath}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={handleRenameCommit}
-                    onRenameCancel={() => setRenamingPath(null)}
-                  />
-                ) : (
-                  <FileList
-                    // The ORDERED array, not the raw query data. This used to pass
-                    // `entries` while the virtualizer counted `orderedEntries` — it
-                    // only lined up because FileList re-sorted with an identical
-                    // comparator. One order, one array.
-                    entries={orderedEntries}
-                    sort={view.sort}
-                    onSortChange={(key) => view.setSort(nextSort(view.sort, key))}
-                    virtualizer={rowVirtualizer}
-                    root={root}
-                    selected={selected}
-                    onSelect={selection.select}
-                    onOpen={handleOpen}
-                    onRename={handleRename}
-                    onCopy={clipboard.copy}
-                    onCut={clipboard.cut}
-                    onDelete={deleteFlow.requestSingle}
-                    onContextMenu={openEntryMenu}
-                    renamingPath={renamingPath}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={handleRenameCommit}
-                    onRenameCancel={() => setRenamingPath(null)}
-                  />
-                )}
-              </div>
-            )}
-          </ScrollArea>
-        </UploadDropzone>
+                  {orderedEntries.length === 0 && hiddenCount > 0 ? (
+                    <div className="text-on-surface-variant flex flex-col items-center justify-center gap-2 py-12">
+                      <EyeOff size={32} strokeWidth={1} />
+                      <span className="font-ui text-[12px]">
+                        {hiddenCount} hidden item{hiddenCount === 1 ? '' : 's'}, nothing else here
+                      </span>
+                      <Button variant="default" size="sm" onClick={view.toggleHidden}>
+                        Show hidden files
+                      </Button>
+                    </div>
+                  ) : isIcons ? (
+                    <FileGrid
+                      entries={orderedEntries}
+                      virtualizer={rowVirtualizer}
+                      columns={columns}
+                      selected={selected}
+                      onSelect={selection.select}
+                      onOpen={handleOpen}
+                      onContextMenu={openEntryMenu}
+                      renamingPath={renamingPath}
+                      renameValue={renameValue}
+                      onRenameChange={setRenameValue}
+                      onRenameCommit={handleRenameCommit}
+                      onRenameCancel={() => setRenamingPath(null)}
+                    />
+                  ) : (
+                    <FileList
+                      // The ORDERED array, not the raw query data. This used to pass
+                      // `entries` while the virtualizer counted `orderedEntries` — it
+                      // only lined up because FileList re-sorted with an identical
+                      // comparator. One order, one array.
+                      entries={orderedEntries}
+                      sort={view.sort}
+                      onSortChange={(key) => view.setSort(nextSort(view.sort, key))}
+                      virtualizer={rowVirtualizer}
+                      root={root}
+                      selected={selected}
+                      onSelect={selection.select}
+                      onOpen={handleOpen}
+                      onRename={handleRename}
+                      onCopy={clipboard.copy}
+                      onCut={clipboard.cut}
+                      onDelete={deleteFlow.requestSingle}
+                      onContextMenu={openEntryMenu}
+                      renamingPath={renamingPath}
+                      renameValue={renameValue}
+                      onRenameChange={setRenameValue}
+                      onRenameCommit={handleRenameCommit}
+                      onRenameCancel={() => setRenamingPath(null)}
+                    />
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+          </UploadDropzone>
+        )}
 
         {/* Resize handle + preview pane */}
         {previewPaneVisible && (
@@ -829,7 +983,7 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
               style={{ width: previewPane.width }}
               className="border-outline-variant bg-surface-container-low shrink-0 border-l"
             >
-              <PreviewPane root={root} selectedEntries={selectedEntries} className="h-full" />
+              <PreviewPane root={root} selectedEntries={previewEntries} className="h-full" />
             </div>
           </>
         )}
@@ -837,9 +991,23 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
 
       {/* Status bar */}
       <div className="border-outline-variant bg-surface-container-low flex items-center border-t px-2 py-0.5">
+        {/* While results are showing, the status bar must count THEM. Reading
+            "47 items" under three search hits is the kind of small lie that
+            teaches users to stop reading the status bar at all. */}
         <span className="font-ui text-on-surface-variant text-[11px]">
-          {entries.length} item{entries.length !== 1 ? 's' : ''}
-          {selected.size > 0 && ` · ${selected.size} selected`}
+          {searchActive ? (
+            <SearchStatus
+              rootLabel={rootCfg.label}
+              path={path}
+              query={query.trim()}
+              count={search.hits.length}
+              searching={search.searching}
+              truncated={search.truncated}
+            />
+          ) : (
+            `${entries.length} item${entries.length !== 1 ? 's' : ''}`
+          )}
+          {!searchActive && selected.size > 0 && ` · ${selected.size} selected`}
           {clipboard.clipboard &&
             ` · Clipboard: ${clipboard.clipboard.entry.name} (${clipboard.clipboard.mode})`}
         </span>
@@ -940,5 +1108,36 @@ export function FileManager({ windowId: _windowId }: { windowId: string }) {
         onCancel={deleteFlow.cancel}
       />
     </div>
+  )
+}
+
+/**
+ * The status-bar line while search results are showing.
+ *
+ * A separate component, not an inline template literal, for a mechanical
+ * reason: React Compiler refuses to compile a component that passes a value
+ * derived from a module-level constant (`FS_ROOTS`, via `rootCfg.label`) into
+ * an imported function during render — it has to assume the call could mutate
+ * the global. Formatting here keeps `scopeLabel` as the one place that decides
+ * how a folder is named, without costing FileManager its memoization.
+ */
+function SearchStatus({
+  rootLabel,
+  path,
+  query,
+  count,
+  searching,
+  truncated,
+}: {
+  rootLabel: string
+  path: string
+  query: string
+  count: number
+  searching: boolean
+  truncated: boolean
+}) {
+  const head = searching && count === 0 ? 'Searching' : resultCountLabel(count)
+  return (
+    <>{`${head} for “${query}” in ${scopeLabel(rootLabel, path)}${truncated ? ' · stopped early' : ''}`}</>
   )
 }

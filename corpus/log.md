@@ -3577,3 +3577,49 @@ genuine pre-ledger version 0, converted in place on boot with its 14 tables
 unchanged.
 
 **Wave A of the 2026-08-07 backlog (101-110) is complete.**
+
+## 2026-08-07 — Brief 112: the file manager gets the search box its backend has had since brief 45
+
+The endpoint was already jailed, bounded and authed; it just could not be
+pointed at a folder. One additive optional `path` on `SearchQueryDto` fixes
+that — the walk starts at `resolveSafe(root, opts.path ?? '')` and still emits
+`relative(rootDir, abs)`, so hit paths stay root-relative and the command
+palette's responses are byte-identical. Seven new spec cases hold that line,
+including a `../..` scope rejected by the same resolver as every other path.
+
+The interesting part was not the box, it was where the results go. Rendering
+them inside the existing list pane would have inherited four things that belong
+to the *current directory* — the upload dropzone, the clear-on-click, the
+background context menu and the listing's arrow-key handler — so ArrowDown
+would have moved an invisible selection through a hidden folder and a dropped
+file would have landed in the wrong place. The results view is a sibling that
+replaces the pane outright.
+
+Three corrections the code demanded over the brief. The brief asked for a
+hand-rolled fetch with a request-id guard; this app already has exactly one
+data-fetching dialect, and a keyed react-query IS the out-of-order guard, so
+that is what it uses. The brief said bind Ctrl+F "exactly like Ctrl+H" —
+Ctrl+H's app-root handler is dead until something inside the window has focus
+and bails on INPUT, which would have made Ctrl+F dead inside the very box it
+focuses and given the key to Chrome; `useTopWindowKeydown` is the real window
+scope. And the status bar and preview pane were both quietly lying under
+results — "47 items" over three hits, and a blank preview because a hit is not
+in `orderedEntries`. Both now tell the truth, the preview by resolving the hit
+through its own parent listing rather than a synthesized `size: 0`.
+
+One toolchain fact worth remembering: **React Compiler bails on a component
+that passes a module-level-constant-derived value into an imported function
+during render.** `scopeLabel(rootCfg.label, path)` — `rootCfg` comes from the
+module's `FS_ROOTS` — silently cost FileManager.tsx its whole memoization, with
+the error reported against an unrelated `useCallback` 300 lines away. The same
+call inside a child that receives `rootLabel` as a prop is fine. Formatting
+moved into `SearchBox`/`SearchResults`/`SearchStatus`, all reading one pure
+`searchPresentation.ts`, which is where it belonged anyway.
+
+Verified: turbo 120/120, backend 443 + 141 e2e, an 11-test presentation spec,
+and a 27-check browser probe on the production bundle — scoped hits, the
+"Results in /docs" header, Enter opening Markdown Editor through the
+association registry, Esc restoring the listing byte-for-byte, content mode
+waiting for Enter, Ctrl+F from both the listing and inside the box, the palette
+unchanged, console clean — plus a `FILES_SEARCH_MAX_RESULTS=2` run proving the
+truncation banner the palette drops on the floor.

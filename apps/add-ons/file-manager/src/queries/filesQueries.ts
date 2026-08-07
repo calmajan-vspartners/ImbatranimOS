@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSystem } from '@imbatranim/ui'
 import {
   copyEntry,
@@ -11,6 +11,7 @@ import {
   listDirectory,
   moveEntry,
   readContent,
+  searchFiles,
   uploadFile,
   writeContent,
 } from '../api/filesApi'
@@ -50,6 +51,43 @@ export function usePreviewContentQuery(root: string, path: string | null, enable
     queryFn: () => readContent(http, root, path as string),
     enabled: enabled && path !== null,
     staleTime: 30_000,
+  })
+}
+
+export function fsSearchKey(root: string, path: string, query: string, content: boolean) {
+  return ['fs-search', root, path, query, content] as const
+}
+
+/**
+ * A scoped search (brief 112), as a keyed query rather than a hand-rolled fetch.
+ *
+ * The key IS the out-of-order guard — the same reason `usePreviewContentQuery`
+ * is keyed per path. A slow response for "rep" resolves into its own inactive
+ * cache entry instead of overwriting the results for "report", so there is no
+ * request-id bookkeeping to get wrong.
+ *
+ * `placeholderData: keepPreviousData` keeps the last answer on screen while the
+ * next one loads, so typing does not strobe the pane empty between keystrokes.
+ * Callers must therefore render the "Searching…" affordance from `isFetching`,
+ * and must show which query the visible rows actually answer.
+ */
+export function useSearchQuery(
+  root: string,
+  path: string,
+  query: string,
+  content: boolean,
+  enabled: boolean
+) {
+  const { http } = useSystem()
+  return useQuery({
+    queryKey: fsSearchKey(root, path, query, content),
+    queryFn: () => searchFiles(http, root, query, { path, content }),
+    enabled: enabled && query.length > 0,
+    placeholderData: keepPreviousData,
+    // A search is a snapshot of the tree, not a subscription to it. Short
+    // enough that re-running the same search after an edit re-walks, long
+    // enough that Backspace-then-retype does not.
+    staleTime: 5_000,
   })
 }
 

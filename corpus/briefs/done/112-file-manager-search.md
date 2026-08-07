@@ -1,6 +1,69 @@
 # Brief 112 — File Manager search: the box the endpoint has been waiting for
 
-Status: **todo (ungrilled)** · From the 2026-08-07 research sweep. EASY ·
+> **Outcome (2026-08-07): DONE.** The endpoint gained one additive optional
+> `path` on `SearchQueryDto`; `FilesService.search` now starts the walk at
+> `resolveSafe(root, opts.path ?? '')` while still emitting
+> `relative(rootDir, abs)`, so a scoped hit's path is root-relative exactly as
+> before and the palette's responses are byte-identical. Every bound still
+> binds inside a scope, and a traversal `path` is rejected by the same
+> `resolveSafe` as everything else. Seven new cases in a `folder scope` describe
+> (`files.service.spec.ts`): scoped hit set, root-relative emitted paths,
+> no-scope whole-root walk, empty scope === no scope, `../..` rejected, caps
+> honoured inside a scope, content grep scoped.
+>
+> The UI is a box right-aligned in the breadcrumb row (the Breadcrumb grew a
+> `right` slot and its segments now shrink and truncate, so a deep path can
+> never squeeze the box out), and a results view that **replaces** the listing
+> as a *sibling*, not a child. That placement is the whole trick: the listing
+> pane is an `UploadDropzone` wrapping a div with `onClick={selection.clear}`,
+> `onContextMenu={openBackgroundMenu}` and `onKeyDown={handleListKeyDown}` —
+> nested inside it, ArrowDown would have walked an invisible selection through
+> the hidden directory, right-click would have offered "New Folder" in the
+> folder you left, and a dropped file would have uploaded to the wrong place.
+>
+> Three decisions the brief did not have and the code demanded. **Two speeds
+> stayed, the fetch dialect did not**: the debounce-plus-content-latch split is
+> as specced, but the hand-rolled fetch + request-id guard the brief asked for
+> was replaced by a keyed `useSearchQuery` — the app's one data-fetching
+> pattern, where the key *is* the out-of-order guard (`usePreviewContentQuery`
+> says so in its own docblock), with `keepPreviousData` so typing does not
+> strobe the pane. **Ctrl+F is not the Ctrl+H pattern**: Ctrl+H's app-root
+> `onKeyDown` is dead until something inside the window has focus and bails on
+> INPUT, so binding Ctrl+F that way would have been dead in the very box it
+> focuses and handed the key to Chrome's find bar; it uses
+> `useTopWindowKeydown(..., { ignoreTextEntry: false })`, which is real window
+> scope, and yields only to an in-progress rename. **The status bar and the
+> preview pane were lying**: with three hits on screen the bar still read "47
+> items", and a selected hit is not in `orderedEntries`, so the pane the user
+> opened to look at what they found went blank. The bar now counts results, and
+> the pane resolves the hit through its own parent listing (same query key as
+> the current directory when nothing is selected — no extra request) rather
+> than a synthesized `size: 0, modifiedAt: ''`, which would have rendered
+> "0 B · Modified Invalid Date".
+>
+> One toolchain finding worth keeping: React Compiler refuses to compile a
+> component that passes a value derived from a **module-level constant**
+> (`rootCfg.label`, from `FS_ROOTS`) into an imported function during render —
+> it must assume the call could mutate the global, and bails on the whole
+> component's memoization. `scopeLabel(rootCfg.label, path)` in FileManager's
+> body silently cost the file its compilation; the same call inside a child that
+> receives `rootLabel` as a *prop* is fine. Scope formatting therefore lives in
+> `SearchBox`, `SearchResults` and a small `SearchStatus`, all reading the one
+> `lib/searchPresentation.ts` (4 pure helpers, 11 tests) so the header, the row
+> subtitles, the placeholder and the status bar cannot drift.
+>
+> Verified: turbo 120/120, backend 443 unit + 141 e2e, and a 27-check browser
+> probe on the production bundle against the real backend — scoped hits only,
+> "Results in /docs", Enter opening Markdown Editor through the association
+> registry, Esc restoring the docs listing byte-for-byte, breadcrumb navigation
+> clearing the query, content mode waiting for Enter and then finding by
+> content (and dropping the answer when the box is edited), Ctrl+F focusing
+> from the listing *and* from inside the box, the palette unchanged, console
+> clean; plus a second run with `FILES_SEARCH_MAX_RESULTS=2` showing the
+> truncation banner ("Stopped early — first 2 shown…") in both the pane and the
+> status bar — the flag the palette drops on the floor.
+
+Status: **done** · From the 2026-08-07 research sweep. EASY ·
 `file-manager` + one additive backend change (an optional `path` scope param
 on `GET /api/files/search`). The endpoint shipped in brief 45 and has exactly
 one consumer, the palette (`core/shared/commands/filesSource.ts:49-51`) —

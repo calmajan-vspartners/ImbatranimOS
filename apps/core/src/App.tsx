@@ -73,6 +73,17 @@ export default function App() {
       note: 'Only while the Markdown Editor text area has focus',
     },
     {
+      id: 'files.search',
+      keys: 'mod+f',
+      description: 'Search the current folder, in File Manager',
+      scope: 'Editing',
+      // Window-scoped via useTopWindowKeydown (not the app-root onKeyDown that
+      // Ctrl+H uses, which is dead until something inside the app has focus).
+      // Documented here so the row does not appear and vanish as File Manager
+      // windows open and close.
+      note: 'Only while a File Manager window has focus',
+    },
+    {
       id: 'files.toggle-hidden',
       keys: 'mod+h',
       description: 'Show or hide hidden files, in File Manager',

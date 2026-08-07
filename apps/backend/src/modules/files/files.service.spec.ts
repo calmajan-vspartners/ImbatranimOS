@@ -392,6 +392,78 @@ describe('FilesService (jail + real filesystem)', () => {
       // Only the top-level file; the heavy/dot dirs are never descended.
       expect(items.map((i) => i.path)).toEqual(['match.txt']);
     });
+
+    // Brief 112: the optional `path` scope. Additive — omitting it keeps the
+    // whole-root walk the palette has always had.
+    describe('folder scope', () => {
+      beforeEach(async () => {
+        await service.createDirectory('home', 'docs');
+        await service.createDirectory('home', 'docs/sub');
+        await service.createFile('home', 'docs/report-a.md', 'x');
+        await service.createFile('home', 'docs/sub/report-c.md', 'x');
+        await service.createFile('home', 'report-b.md', 'x');
+      });
+
+      it('searches only under the scope', async () => {
+        const { items } = await service.search('home', 'report', {
+          path: 'docs',
+        });
+        expect(items.map((i) => i.path).sort()).toEqual([
+          'docs/report-a.md',
+          'docs/sub/report-c.md',
+        ]);
+      });
+
+      it('emits ROOT-relative paths, not scope-relative ones', async () => {
+        const { items } = await service.search('home', 'report-a', {
+          path: 'docs',
+        });
+        // `docs/report-a.md`, NOT `report-a.md` — a scoped response is shaped
+        // exactly like an unscoped one, so no consumer has to know which it is.
+        expect(items.map((i) => i.path)).toEqual(['docs/report-a.md']);
+      });
+
+      it('omitting the scope still walks the whole root', async () => {
+        const { items } = await service.search('home', 'report');
+        expect(items.map((i) => i.path).sort()).toEqual([
+          'docs/report-a.md',
+          'docs/sub/report-c.md',
+          'report-b.md',
+        ]);
+      });
+
+      it('an empty scope is the same as no scope', async () => {
+        const scoped = await service.search('home', 'report', { path: '' });
+        const unscoped = await service.search('home', 'report');
+        expect(scoped).toEqual(unscoped);
+      });
+
+      it('rejects a traversal scope — the jail applies to it too', async () => {
+        await expect(
+          service.search('home', 'report', { path: '../..' }),
+        ).rejects.toThrow(/traversal/i);
+      });
+
+      it('still honours the caps inside a scope', async () => {
+        process.env.FILES_SEARCH_MAX_RESULTS = '1';
+        const { items, truncated } = await service.search('home', 'report', {
+          path: 'docs',
+        });
+        expect(items).toHaveLength(1);
+        expect(truncated).toBe(true);
+      });
+
+      it('scopes the content grep as well', async () => {
+        await service.createFile('home', 'docs/has.txt', 'needle here');
+        await service.createFile('home', 'outside.txt', 'needle here');
+
+        const { items } = await service.search('home', 'needle', {
+          content: true,
+          path: 'docs',
+        });
+        expect(items.map((i) => i.path)).toEqual(['docs/has.txt']);
+      });
+    });
   });
 
   describe('uploadFile is atomic (brief 66)', () => {

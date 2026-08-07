@@ -48,6 +48,18 @@ export class SearchQueryDto {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   content?: boolean;
+
+  /**
+   * Optional folder to search under, relative to the root (brief 112).
+   *
+   * Additive: omitting it keeps the whole-root walk every existing consumer
+   * (the command palette) gets today. Jailed through the same `resolveSafe`
+   * as every other path, and emitted hit paths stay ROOT-relative either way,
+   * so the response shape does not change with the scope.
+   */
+  @IsOptional()
+  @IsString()
+  path?: string;
 }
 
 export class WriteContentDto {

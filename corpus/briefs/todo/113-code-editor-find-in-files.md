@@ -82,6 +82,11 @@ Two gaps verified in the code that the design must be honest about:
   Find…/Go to Line (`CodeEditor.tsx:560-573`), *enabled with no tab open* —
   searching needs no buffer.
 
+> **Note (2026-08-07):** brief 112 landed the shared optional `path` scope on
+> `GET /api/files/search` — the csv precedent settled in 112's favour. This brief
+> must build `matches` on top of that exact `search(root, query, { content, path })`
+> signature rather than adding the param itself.
+
 ## Fix
 
 1. Backend `files.service.ts`: `contentMatches` grows into a variant

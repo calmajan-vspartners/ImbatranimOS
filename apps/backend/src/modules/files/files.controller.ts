@@ -74,7 +74,10 @@ export class FilesController {
 
   @Get('search')
   search(@Query() q: SearchQueryDto) {
-    return this.filesService.search(q.root, q.query, { content: q.content });
+    return this.filesService.search(q.root, q.query, {
+      content: q.content,
+      path: q.path,
+    });
   }
 
   /** GET /api/files/content?root=&path= → { path, content } (text) */

@@ -375,14 +375,23 @@ export class FilesService {
    * Bounds: results/entries/depth/time caps (see {@link searchBounds}); hitting
    * any returns the partial list with `truncated: true`. `node_modules`, `.git`
    * and dot-directories are always skipped.
+   *
+   * Scope (brief 112): `opts.path` starts the walk at a subfolder — jailed by
+   * the same `resolveSafe`, and every bound still applies. Emitted paths stay
+   * **root**-relative whatever the scope, so a scoped response is shaped
+   * exactly like an unscoped one and no consumer has to know which it asked
+   * for.
    */
   async search(
     root: string,
     query: string,
-    opts: { content?: boolean } = {},
+    opts: { content?: boolean; path?: string } = {},
   ): Promise<SearchResult> {
     // Jail the root exactly like every other endpoint (throws on escape).
     const { rootDir } = await this.resolveSafe(root, '');
+    // The scope is jailed the same way — a traversal `path` throws here, and
+    // the walk can only ever descend from what came back.
+    const { abs: startDir } = await this.resolveSafe(root, opts.path ?? '');
 
     const needle = query.toLowerCase();
     const wantContent = opts.content === true;
@@ -457,7 +466,7 @@ export class FilesService {
       }
     };
 
-    await walk(rootDir, 0);
+    await walk(startDir, 0);
     return { items, truncated };
   }
 

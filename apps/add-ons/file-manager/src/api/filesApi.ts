@@ -130,3 +130,45 @@ export async function emptyTrash(http: SystemHttp): Promise<{ removed: number }>
   const res = await http.delete<{ removed: number }>('/files/trash')
   return res.data
 }
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+/** One hit from GET /files/search. `path` is always ROOT-relative, scope or not. */
+export type SearchHit = {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+}
+
+export type SearchResponse = {
+  items: SearchHit[]
+  /** True when the walk hit a bound (results/dirents/depth/time) and stopped. */
+  truncated: boolean
+}
+
+/**
+ * Bounded, jailed grep over a root — optionally scoped to a folder inside it.
+ *
+ * `path` is the brief-112 addition: omit it and the backend walks the whole
+ * root, which is exactly what the command palette still asks for. `content`
+ * opts into the (far heavier) text grep, so callers must gate it behind an
+ * explicit user action rather than firing it per keystroke.
+ */
+export async function searchFiles(
+  http: SystemHttp,
+  root: string,
+  query: string,
+  opts: { path?: string; content?: boolean } = {}
+): Promise<SearchResponse> {
+  const res = await http.get<SearchResponse>('/files/search', {
+    params: {
+      root,
+      query,
+      // Omitted at the root: an absent scope IS the whole-root walk, and
+      // sending `path: ''` would only make the request differ for no reason.
+      ...(opts.path ? { path: opts.path } : {}),
+      ...(opts.content ? { content: 1 } : {}),
+    },
+  })
+  return res.data
+}
